@@ -1564,3 +1564,868 @@ async function status(
     }
   });
 }
+e
+async function createReturn(
+  data
+) {
+
+  return db(async c => {
+
+    await c.query(
+      'BEGIN'
+    );
+
+    try {
+
+      if (
+        !data.order_id
+      ) {
+        throw new Error(
+          'ORDER_ID_REQUIRED'
+        );
+      }
+
+      if (
+        !Array.isArray(
+          data.items
+        )
+        ||
+        !data.items.length
+      ) {
+        throw new Error(
+          'RETURN_ITEMS_REQUIRED'
+        );
+      }
+
+      const order =
+        await c.query(
+          `SELECT *
+           FROM orders
+           WHERE id=$1
+           FOR UPDATE`,
+          [
+            data.order_id
+          ]
+        );
+
+      if (
+        !order.rowCount
+      ) {
+        throw new Error(
+          'ORDER_NOT_FOUND'
+        );
+      }
+
+      const returnNo =
+        'RET-' + Date.now();
+
+      const created =
+        await c.query(
+          `INSERT INTO
+           return_requests(
+             return_no,
+             order_id,
+             reason
+           )
+           VALUES(
+             $1,
+             $2,
+             $3
+           )
+           RETURNING *`,
+          [
+            returnNo,
+            data.order_id,
+            data.reason || null
+          ]
+        );
+
+      const ret =
+        created.rows[0];
+
+      for (
+        const item
+        of data.items
+      ) {
+
+        const quantity =
+          Number(
+            item.quantity
+          );
+
+        if (
+          !Number.isInteger(
+            quantity
+          )
+          ||
+          quantity < 1
+        ) {
+          throw new Error(
+            'INVALID_RETURN_QUANTITY'
+          );
+        }
+
+        const orderItem =
+          await c.query(
+            `SELECT *
+             FROM order_items
+             WHERE
+               id=$1
+               AND
+               order_id=$2`,
+            [
+              item.order_item_id,
+              data.order_id
+            ]
+          );
+
+        if (
+          !orderItem.rowCount
+        ) {
+          throw new Error(
+            'ORDER_ITEM_NOT_FOUND'
+          );
+        }
+
+        const previous =
+          await c.query(
+            `SELECT
+              COALESCE(
+                SUM(
+                  ri.quantity
+                ),
+                0
+              )::int
+              quantity
+
+            FROM return_items ri
+
+            JOIN return_requests rr
+              ON
+              rr.id=
+              ri.return_request_id
+
+            WHERE
+              ri.order_item_id=$1
+
+              AND
+              rr.status
+              <>
+              'REJECTED'`,
+            [
+              item.order_item_id
+            ]
+          );
+
+        const alreadyReturned =
+          Number(
+            previous.rows[0]
+              .quantity
+            || 0
+          );
+
+        const orderedQuantity =
+          Number(
+            orderItem.rows[0]
+              .quantity
+          );
+
+        if (
+          alreadyReturned
+          +
+          quantity
+          >
+          orderedQuantity
+        ) {
+          throw new Error(
+            'RETURN_QUANTITY_EXCEEDS_ORDER'
+          );
+        }
+
+        await c.query(
+          `INSERT INTO
+           return_items(
+             return_request_id,
+             order_item_id,
+             quantity
+           )
+           VALUES(
+             $1,
+             $2,
+             $3
+           )`,
+          [
+            ret.id,
+            item.order_item_id,
+            quantity
+          ]
+        );
+      }
+
+      await audit(
+        c,
+        'RETURN_REQUESTED',
+        'return_request',
+        ret.id,
+        {
+          order_id:
+            data.order_id,
+          items:
+            data.items
+        }
+      );
+
+      await c.query(
+        'COMMIT'
+      );
+
+      return ret;
+
+    } catch (e) {
+
+      await c.query(
+        'ROLLBACK'
+      );
+
+      throw e;
+    }
+  });
+}
+
+async function approveReturn(
+  returnId
+) {
+
+  return db(async c => {
+
+    await c.query(
+      'BEGIN'
+    );
+
+    try {
+
+      const rr =
+        await c.query(
+          `SELECT
+            rr.*,
+            o.dealer_id,
+            o.order_no
+          FROM return_requests rr
+          JOIN orders o
+            ON o.id=
+            rr.order_id
+          WHERE
+            rr.id=$1
+          FOR UPDATE`,
+          [
+            returnId
+          ]
+        );
+
+      if (!rr.rowCount) {
+        throw new Error(
+          'RETURN_NOT_FOUND'
+        );
+      }
+
+      const ret =
+        rr.rows[0];
+
+      if (
+        ret.status ===
+        'APPROVED'
+      ) {
+        throw new Error(
+          'RETURN_ALREADY_APPROVED'
+        );
+      }
+
+      const items =
+        await c.query(
+          `SELECT
+            ri.quantity
+              return_quantity,
+            oi.product_id
+          FROM return_items ri
+          JOIN order_items oi
+            ON
+            oi.id=
+            ri.order_item_id
+          WHERE
+            ri.return_request_id=$1`,
+          [
+            returnId
+          ]
+        );
+
+      if (
+        !items.rowCount
+      ) {
+        throw new Error(
+          'RETURN_ITEMS_REQUIRED'
+        );
+      }
+
+      let clawback = 0;
+
+      if (
+        ret.dealer_id
+      ) {
+
+        const dealer =
+          await c.query(
+            `SELECT
+              dealer_level
+            FROM dealers
+            WHERE id=$1`,
+            [
+              ret.dealer_id
+            ]
+          );
+
+        if (
+          !dealer.rowCount
+        ) {
+          throw new Error(
+            'DEALER_NOT_FOUND'
+          );
+        }
+
+        for (
+          const item
+          of items.rows
+        ) {
+
+          const rule =
+            await c.query(
+              `SELECT
+                amount_per_unit
+              FROM
+                dealer_commission_rules
+              WHERE
+                product_id=$1
+                AND
+                dealer_level=$2
+                AND
+                active=TRUE`,
+              [
+                item.product_id,
+                dealer.rows[0]
+                  .dealer_level
+              ]
+            );
+
+          if (
+            rule.rowCount
+          ) {
+
+            clawback +=
+              Number(
+                rule.rows[0]
+                  .amount_per_unit
+              )
+              *
+              Number(
+                item.return_quantity
+              );
+          }
+        }
+
+        const accrued =
+          await c.query(
+            `SELECT
+              COALESCE(
+                SUM(amount),
+                0
+              )
+              amount
+            FROM dealer_ledger
+            WHERE
+              order_id=$1
+              AND
+              entry_type=
+              'COMMISSION_ACCRUAL'`,
+            [
+              ret.order_id
+            ]
+          );
+
+        const previous =
+          await c.query(
+            `SELECT
+              COALESCE(
+                SUM(amount),
+                0
+              )
+              amount
+            FROM dealer_ledger
+            WHERE
+              order_id=$1
+              AND
+              entry_type=
+              'COMMISSION_CLAWBACK'`,
+            [
+              ret.order_id
+            ]
+          );
+
+        const remaining =
+          Math.max(
+            Number(
+              accrued.rows[0]
+                .amount
+              || 0
+            )
+            -
+            Math.abs(
+              Number(
+                previous.rows[0]
+                  .amount
+                || 0
+              )
+            ),
+            0
+          );
+
+        clawback =
+          Math.min(
+            clawback,
+            remaining
+          );
+
+        if (
+          clawback > 0
+        ) {
+
+          await c.query(
+            `INSERT INTO
+             dealer_ledger(
+               dealer_id,
+               order_id,
+               entry_type,
+               amount,
+               reference_no,
+               description
+             )
+             VALUES(
+               $1,
+               $2,
+               'COMMISSION_CLAWBACK',
+               $3,
+               $4,
+               'İade edilen adetlere göre prim geri alma'
+             )`,
+            [
+              ret.dealer_id,
+              ret.order_id,
+              -clawback,
+              ret.return_no
+            ]
+          );
+        }
+      }
+
+      await c.query(
+        `UPDATE
+         return_requests
+
+         SET
+           status='APPROVED',
+           qc_result='APPROVED'
+
+         WHERE id=$1`,
+        [
+          returnId
+        ]
+      );
+
+      await audit(
+        c,
+        'RETURN_APPROVED',
+        'return_request',
+        returnId,
+        {
+          order_id:
+            ret.order_id,
+          commission_clawback:
+            clawback
+        }
+      );
+
+      await c.query(
+        'COMMIT'
+      );
+
+      return {
+        return_id:
+          returnId,
+        status:
+          'APPROVED',
+        commission_clawback:
+          clawback
+      };
+
+    } catch (e) {
+
+      await c.query(
+        'ROLLBACK'
+      );
+
+      throw e;
+    }
+  });
+}
+
+const server =
+  http.createServer(
+    async (
+      req,
+      res
+    ) => {
+
+      try {
+
+        const u =
+          new URL(
+            req.url,
+            'http://localhost'
+          );
+
+        if (
+          req.method ===
+          'OPTIONS'
+        ) {
+
+          res.writeHead(
+            204,
+            {
+              'Access-Control-Allow-Origin':
+                '*',
+
+              'Access-Control-Allow-Methods':
+                'GET,POST,OPTIONS',
+
+              'Access-Control-Allow-Headers':
+                'Content-Type,Authorization'
+            }
+          );
+
+          return res.end();
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname === '/'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              service:
+                'Trex Platform Core API',
+
+              version:
+                '1.0.0-demo.15',
+
+              database:
+                'PostgreSQL',
+
+              payment_provider:
+                'mock',
+
+              shipping_provider:
+                'mock',
+
+              auth:
+                'session-token'
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/health'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              ok: true,
+              version: '15'
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/init-db'
+        ) {
+
+          return send(
+            res,
+            200,
+            await initDb()
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/auth/bootstrap-status'
+        ) {
+
+          const data =
+            await db(
+              async c => {
+
+                const r =
+                  await c.query(
+                    `SELECT
+                      COUNT(*)::int
+                      count
+                    FROM app_users`
+                  );
+
+                return {
+                  has_users:
+                    r.rows[0].count > 0,
+                  user_count:
+                    r.rows[0].count
+                };
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/auth/login'
+        ) {
+
+          const b =
+            await body(req);
+
+          if (
+            !b.email
+            ||
+            !b.password
+          ) {
+            throw Object.assign(
+              new Error(
+                'EMAIL_AND_PASSWORD_REQUIRED'
+              ),
+              {
+                statusCode: 400
+              }
+            );
+          }
+
+          const result =
+            await db(
+              async c => {
+
+                const r =
+                  await c.query(
+                    `SELECT *
+                     FROM app_users
+                     WHERE
+                       LOWER(email)=
+                       LOWER($1)
+                       AND
+                       active=TRUE`,
+                    [
+                      b.email
+                    ]
+                  );
+
+                if (
+                  !r.rowCount
+                  ||
+                  !verifyPassword(
+                    b.password,
+                    r.rows[0]
+                      .password_hash
+                  )
+                ) {
+                  throw Object.assign(
+                    new Error(
+                      'INVALID_CREDENTIALS'
+                    ),
+                    {
+                      statusCode: 401
+                    }
+                  );
+                }
+
+                const user =
+                  r.rows[0];
+
+                const token =
+                  newToken();
+
+                await c.query(
+                  `INSERT INTO
+                   auth_sessions(
+                     user_id,
+                     token_hash,
+                     expires_at
+                   )
+                   VALUES(
+                     $1,
+                     $2,
+                     NOW()
+                     +
+                     (
+                       $3
+                       ||
+                       ' hours'
+                     )::interval
+                   )`,
+                  [
+                    user.id,
+                    tokenHash(token),
+                    String(
+                      SESSION_HOURS
+                    )
+                  ]
+                );
+
+                await audit(
+                  c,
+                  'LOGIN',
+                  'app_user',
+                  user.id,
+                  {
+                    role:
+                      user.role
+                  }
+                );
+
+                return {
+                  token,
+
+                  expires_in_hours:
+                    SESSION_HOURS,
+
+                  user: {
+                    id:
+                      user.id,
+                    email:
+                      user.email,
+                    full_name:
+                      user.full_name,
+                    role:
+                      user.role,
+                    dealer_id:
+                      user.dealer_id,
+                    customer_id:
+                      user.customer_id
+                  }
+                };
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data: result
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/auth/me'
+        ) {
+
+          const user =
+            await getAuth(req);
+
+          if (!user) {
+            throw Object.assign(
+              new Error(
+                'UNAUTHORIZED'
+              ),
+              {
+                statusCode: 401
+              }
+            );
+          }
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data: user
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/auth/logout'
+        ) {
+
+          const token =
+            bearer(req);
+
+          if (!token) {
+            throw Object.assign(
+              new Error(
+                'UNAUTHORIZED'
+              ),
+              {
+                statusCode: 401
+              }
+            );
+          }
+
+          await db(
+            async c => {
+
+              await c.query(
+                `UPDATE auth_sessions
+                 SET
+                   revoked_at=NOW()
+                 WHERE
+                   token_hash=$1`,
+                [
+                  tokenHash(token)
+                ]
+              );
+            }
+          );
+
+          return send(
+            res,
+            200,
+            {
+              success: true
+            }
+          );
+        }
