@@ -577,7 +577,48 @@ async function status(orderId, next) {
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://localhost');
+if (req.method === 'OPTIONS') {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  });
+  return res.end();
+}
 
+if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
+  const data = await db(async c => {
+    const [orders, customers, dealers, stock, returns] = await Promise.all([
+      c.query(`SELECT COUNT(*)::int count, COALESCE(SUM(total_amount),0) total FROM orders`),
+      c.query(`SELECT COUNT(*)::int count FROM customers`),
+      c.query(`SELECT COUNT(*)::int count FROM dealers WHERE status='ACTIVE'`),
+      c.query(`SELECT COALESCE(SUM(quantity_on_hand),0)::int total FROM inventory_lots`),
+      c.query(`SELECT COUNT(*)::int count FROM return_requests WHERE status='REQUESTED'`)
+    ]);
+
+    const latestOrders = await c.query(`
+      SELECT id,order_no,status,total_amount,created_at
+      FROM orders
+      ORDER BY id DESC
+      LIMIT 10
+    `);
+
+    return {
+      orders: orders.rows[0].count,
+      revenue: Number(orders.rows[0].total),
+      customers: customers.rows[0].count,
+      active_dealers: dealers.rows[0].count,
+      stock_units: stock.rows[0].total,
+      pending_returns: returns.rows[0].count,
+      latest_orders: latestOrders.rows
+    };
+  });
+
+  return send(res, 200, {
+    success: true,
+    data
+  });
+}
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
         service: 'Trex Platform Core API',
