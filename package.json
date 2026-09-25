@@ -1,7 +1,16 @@
 {
-  "name": "trex-platform-demo",
-  "version": "1.0.0-demo.1",
+  "name": "trex-platform",
+  "version": "1.0.0-demo.11",
   "private": true,
-  "scripts": {"start": "node server.js"},
-  "engines": {"node": ">=20"}
+  "description": "Trex Platform demo core service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
 }
