@@ -11,30 +11,52 @@ function send(res, status, data) {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   });
+
   res.end(JSON.stringify(data));
 }
 
 function body(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
-    req.on('data', c => raw += c);
+
+    req.on('data', c => {
+      raw += c;
+    });
+
     req.on('end', () => {
       try {
-        resolve(raw ? JSON.parse(raw) : {});
+        resolve(
+          raw
+            ? JSON.parse(raw)
+            : {}
+        );
       } catch {
-        reject(new Error('INVALID_JSON'));
+        reject(
+          new Error('INVALID_JSON')
+        );
       }
     });
-    req.on('error', reject);
+
+    req.on(
+      'error',
+      reject
+    );
   });
 }
 
 async function db(fn) {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_NOT_SET');
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      'DATABASE_URL_NOT_SET'
+    );
+  }
 
   const c = new Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    connectionString:
+      process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
   });
 
   await c.connect();
@@ -46,17 +68,42 @@ async function db(fn) {
   }
 }
 
-async function audit(c, action, type, id, details = {}) {
+async function audit(
+  c,
+  action,
+  type,
+  id,
+  details = {}
+) {
   await c.query(
     `INSERT INTO audit_logs
-     (actor, action, entity_type, entity_id, details)
-     VALUES ('demo-api',$1,$2,$3,$4)`,
-    [action, type, String(id), JSON.stringify(details)]
+     (
+       actor,
+       action,
+       entity_type,
+       entity_id,
+       details
+     )
+     VALUES
+     (
+       'demo-api',
+       $1,
+       $2,
+       $3,
+       $4
+     )`,
+    [
+      action,
+      type,
+      String(id),
+      JSON.stringify(details)
+    ]
   );
 }
 
 async function initDb() {
   return db(async c => {
+
     await c.query(`
       CREATE TABLE IF NOT EXISTS products(
         id BIGSERIAL PRIMARY KEY,
@@ -161,14 +208,19 @@ async function initDb() {
         qc_result TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
-CREATE TABLE IF NOT EXISTS return_items(
-  id BIGSERIAL PRIMARY KEY,
-  return_request_id BIGINT REFERENCES return_requests(id) ON DELETE CASCADE,
-  order_item_id BIGINT REFERENCES order_items(id),
-  quantity INT NOT NULL CHECK(quantity > 0),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(return_request_id, order_item_id)
-);
+
+      CREATE TABLE IF NOT EXISTS return_items(
+        id BIGSERIAL PRIMARY KEY,
+        return_request_id BIGINT REFERENCES return_requests(id) ON DELETE CASCADE,
+        order_item_id BIGINT REFERENCES order_items(id),
+        quantity INT NOT NULL CHECK(quantity > 0),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(
+          return_request_id,
+          order_item_id
+        )
+      );
+
       CREATE TABLE IF NOT EXISTS audit_logs(
         id BIGSERIAL PRIMARY KEY,
         actor TEXT NOT NULL,
@@ -179,144 +231,317 @@ CREATE TABLE IF NOT EXISTS return_items(
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-await c.query(`
-  ALTER TABLE orders
-  ADD COLUMN IF NOT EXISTS dealer_id
-  BIGINT REFERENCES dealers(id);
 
-  ALTER TABLE orders
-  ADD COLUMN IF NOT EXISTS updated_at
-  TIMESTAMPTZ DEFAULT NOW();
+    await c.query(`
+      ALTER TABLE orders
+      ADD COLUMN IF NOT EXISTS dealer_id
+      BIGINT REFERENCES dealers(id);
 
-  ALTER TABLE dealer_ledger
-  ADD COLUMN IF NOT EXISTS order_id
-  BIGINT REFERENCES orders(id);
+      ALTER TABLE orders
+      ADD COLUMN IF NOT EXISTS updated_at
+      TIMESTAMPTZ DEFAULT NOW();
 
-  ALTER TABLE dealer_ledger
-  ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE dealer_ledger
+      ADD COLUMN IF NOT EXISTS order_id
+      BIGINT REFERENCES orders(id);
 
-  ALTER TABLE products
-  ADD COLUMN IF NOT EXISTS price
-  NUMERIC(12,2) NOT NULL DEFAULT 0;
+      ALTER TABLE dealer_ledger
+      ADD COLUMN IF NOT EXISTS description TEXT;
 
-  ALTER TABLE audit_logs
-  ADD COLUMN IF NOT EXISTS details JSONB;
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS price
+      NUMERIC(12,2) NOT NULL DEFAULT 0;
 
-  ALTER TABLE return_requests
-  ADD COLUMN IF NOT EXISTS reason TEXT;
+      ALTER TABLE audit_logs
+      ADD COLUMN IF NOT EXISTS details JSONB;
 
-  ALTER TABLE return_requests
-  ADD COLUMN IF NOT EXISTS qc_result TEXT;
-`);
+      ALTER TABLE return_requests
+      ADD COLUMN IF NOT EXISTS reason TEXT;
+
+      ALTER TABLE return_requests
+      ADD COLUMN IF NOT EXISTS qc_result TEXT;
+    `);
+
     const products = [
-      ['TREX-TEA-60','Trex Tea','60 saşe'],
-      ['TREX-COFFEE-30','Trex Coffee','30 saşe'],
-      ['TREX-CAP-30','Trex Cap','30 kapsül'],
-      ['LIPOTEX-60','Lipotex Tea','60 adet'],
-      ['TREX-JEL','Trex Jel','1 adet']
+      [
+        'TREX-TEA-60',
+        'Trex Tea',
+        '60 saşe'
+      ],
+      [
+        'TREX-COFFEE-30',
+        'Trex Coffee',
+        '30 saşe'
+      ],
+      [
+        'TREX-CAP-30',
+        'Trex Cap',
+        '30 kapsül'
+      ],
+      [
+        'LIPOTEX-60',
+        'Lipotex Tea',
+        '60 adet'
+      ],
+      [
+        'TREX-JEL',
+        'Trex Jel',
+        '1 adet'
+      ]
     ];
 
     for (const p of products) {
       await c.query(
-        `INSERT INTO products(sku,name,unit)
-         VALUES($1,$2,$3)
-         ON CONFLICT(sku) DO NOTHING`,
+        `INSERT INTO products
+         (
+           sku,
+           name,
+           unit
+         )
+         VALUES
+         (
+           $1,
+           $2,
+           $3
+         )
+         ON CONFLICT(sku)
+         DO NOTHING`,
         p
       );
     }
 
-    const ids = await c.query(`SELECT id FROM products`);
+    const ids =
+      await c.query(
+        `SELECT id
+         FROM products`
+      );
 
     for (const p of ids.rows) {
-      for (let level = 1; level <= 4; level++) {
+
+      for (
+        let level = 1;
+        level <= 4;
+        level++
+      ) {
         await c.query(
           `INSERT INTO dealer_commission_rules
-           (product_id,dealer_level,amount_per_unit)
-           VALUES($1,$2,$3)
-           ON CONFLICT(product_id,dealer_level) DO NOTHING`,
-          [p.id, level, level * 10]
+           (
+             product_id,
+             dealer_level,
+             amount_per_unit
+           )
+           VALUES
+           (
+             $1,
+             $2,
+             $3
+           )
+           ON CONFLICT
+           (
+             product_id,
+             dealer_level
+           )
+           DO NOTHING`,
+          [
+            p.id,
+            level,
+            level * 10
+          ]
         );
       }
     }
 
-    return { ok: true, version: '1.0.0-demo.13.1' };
+    return {
+      ok: true,
+      version:
+        '1.0.0-demo.14'
+    };
   });
 }
 
 async function createOrder(data) {
   return db(async c => {
+
     await c.query('BEGIN');
 
     try {
-      if (!data.customer_id) throw new Error('CUSTOMER_ID_REQUIRED');
-      if (!data.items?.length) throw new Error('ORDER_ITEMS_REQUIRED');
 
-      const orderNo = 'TRX-' + Date.now();
+      if (!data.customer_id) {
+        throw new Error(
+          'CUSTOMER_ID_REQUIRED'
+        );
+      }
+
+      if (!data.items?.length) {
+        throw new Error(
+          'ORDER_ITEMS_REQUIRED'
+        );
+      }
+
+      const orderNo =
+        'TRX-' + Date.now();
+
       let total = 0;
+
       const items = [];
 
-      for (const i of data.items) {
-        const r = await c.query(
-          `SELECT id,price FROM products WHERE id=$1 AND active=TRUE`,
-          [i.product_id]
-        );
+      for (
+        const i
+        of data.items
+      ) {
 
-        if (!r.rowCount) throw new Error('PRODUCT_NOT_FOUND');
+        const r =
+          await c.query(
+            `SELECT
+               id,
+               price
+             FROM products
+             WHERE id=$1
+             AND active=TRUE`,
+            [
+              i.product_id
+            ]
+          );
 
-        const qty = Number(i.quantity);
-        if (!Number.isInteger(qty) || qty < 1) throw new Error('INVALID_QUANTITY');
+        if (!r.rowCount) {
+          throw new Error(
+            'PRODUCT_NOT_FOUND'
+          );
+        }
 
-        const price = i.unit_price !== undefined
-          ? Number(i.unit_price)
-          : Number(r.rows[0].price);
+        const qty =
+          Number(
+            i.quantity
+          );
 
-        total += price * qty;
+        if (
+          !Number.isInteger(qty) ||
+          qty < 1
+        ) {
+          throw new Error(
+            'INVALID_QUANTITY'
+          );
+        }
+
+        const price =
+          i.unit_price !== undefined
+            ? Number(
+                i.unit_price
+              )
+            : Number(
+                r.rows[0].price
+              );
+
+        total +=
+          price * qty;
 
         items.push({
-          product_id: i.product_id,
-          quantity: qty,
-          unit_price: price
+          product_id:
+            i.product_id,
+          quantity:
+            qty,
+          unit_price:
+            price
         });
       }
 
-      const r = await c.query(
-        `INSERT INTO orders
-         (order_no,customer_id,dealer_id,payment_method,total_amount)
-         VALUES($1,$2,$3,$4,$5)
-         RETURNING *`,
-        [
-          orderNo,
-          data.customer_id,
-          data.dealer_id || null,
-          data.payment_method || 'MOCK',
-          total
-        ]
-      );
+      const r =
+        await c.query(
+          `INSERT INTO orders
+           (
+             order_no,
+             customer_id,
+             dealer_id,
+             payment_method,
+             total_amount
+           )
+           VALUES
+           (
+             $1,
+             $2,
+             $3,
+             $4,
+             $5
+           )
+           RETURNING *`,
+          [
+            orderNo,
+            data.customer_id,
+            data.dealer_id || null,
+            data.payment_method
+              || 'MOCK',
+            total
+          ]
+        );
 
-      const order = r.rows[0];
+      const order =
+        r.rows[0];
 
-      for (const i of items) {
+      for (
+        const i
+        of items
+      ) {
         await c.query(
           `INSERT INTO order_items
-           (order_id,product_id,quantity,unit_price)
-           VALUES($1,$2,$3,$4)`,
-          [order.id, i.product_id, i.quantity, i.unit_price]
+           (
+             order_id,
+             product_id,
+             quantity,
+             unit_price
+           )
+           VALUES
+           (
+             $1,
+             $2,
+             $3,
+             $4
+           )`,
+          [
+            order.id,
+            i.product_id,
+            i.quantity,
+            i.unit_price
+          ]
         );
       }
 
       await c.query(
         `INSERT INTO order_status_history
-         (order_id,new_status,actor)
-         VALUES($1,'NEW','demo-api')`,
-        [order.id]
+         (
+           order_id,
+           new_status,
+           actor
+         )
+         VALUES
+         (
+           $1,
+           'NEW',
+           'demo-api'
+         )`,
+        [
+          order.id
+        ]
       );
 
-      await audit(c, 'ORDER_CREATED', 'order', order.id);
+      await audit(
+        c,
+        'ORDER_CREATED',
+        'order',
+        order.id
+      );
 
-      await c.query('COMMIT');
+      await c.query(
+        'COMMIT'
+      );
+
       return order;
+
     } catch (e) {
-      await c.query('ROLLBACK');
+
+      await c.query(
+        'ROLLBACK'
+      );
+
       throw e;
     }
   });
@@ -324,582 +549,898 @@ async function createOrder(data) {
 
 async function reserve(orderId) {
   return db(async c => {
-    await c.query('BEGIN');
+
+    await c.query(
+      'BEGIN'
+    );
 
     try {
-      const o = await c.query(
-        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
-        [orderId]
-      );
 
-      if (!o.rowCount) throw new Error('ORDER_NOT_FOUND');
-
-      const exists = await c.query(
-        `SELECT id FROM order_inventory_allocations
-         WHERE order_id=$1 LIMIT 1`,
-        [orderId]
-      );
-
-      if (exists.rowCount) throw new Error('ORDER_ALREADY_RESERVED');
-
-      const items = await c.query(
-        `SELECT * FROM order_items WHERE order_id=$1`,
-        [orderId]
-      );
-
-      for (const item of items.rows) {
-        let remaining = Number(item.quantity);
-
-        const lots = await c.query(
-          `SELECT * FROM inventory_lots
-           WHERE product_id=$1
-           AND quantity_on_hand-quantity_reserved > 0
-           ORDER BY expiry_date ASC NULLS LAST,id ASC
+      const o =
+        await c.query(
+          `SELECT *
+           FROM orders
+           WHERE id=$1
            FOR UPDATE`,
-          [item.product_id]
+          [
+            orderId
+          ]
         );
 
-        for (const lot of lots.rows) {
-          if (remaining <= 0) break;
+      if (!o.rowCount) {
+        throw new Error(
+          'ORDER_NOT_FOUND'
+        );
+      }
+
+      if (
+        ![
+          'APPROVED',
+          'PAYMENT_PENDING'
+        ].includes(
+          o.rows[0].status
+        )
+      ) {
+        throw new Error(
+          'ORDER_NOT_RESERVABLE'
+        );
+      }
+
+      const exists =
+        await c.query(
+          `SELECT id
+           FROM order_inventory_allocations
+           WHERE order_id=$1
+           LIMIT 1`,
+          [
+            orderId
+          ]
+        );
+
+      if (exists.rowCount) {
+        throw new Error(
+          'ORDER_ALREADY_RESERVED'
+        );
+      }
+
+      const items =
+        await c.query(
+          `SELECT *
+           FROM order_items
+           WHERE order_id=$1`,
+          [
+            orderId
+          ]
+        );
+
+      for (
+        const item
+        of items.rows
+      ) {
+
+        let remaining =
+          Number(
+            item.quantity
+          );
+
+        const lots =
+          await c.query(
+            `SELECT *
+             FROM inventory_lots
+             WHERE product_id=$1
+             AND
+               quantity_on_hand
+               -
+               quantity_reserved
+               > 0
+             ORDER BY
+               expiry_date ASC
+               NULLS LAST,
+               id ASC
+             FOR UPDATE`,
+            [
+              item.product_id
+            ]
+          );
+
+        for (
+          const lot
+          of lots.rows
+        ) {
+
+          if (
+            remaining <= 0
+          ) {
+            break;
+          }
 
           const available =
-            Number(lot.quantity_on_hand) -
-            Number(lot.quantity_reserved);
+            Number(
+              lot.quantity_on_hand
+            )
+            -
+            Number(
+              lot.quantity_reserved
+            );
 
-          const take = Math.min(available, remaining);
-          if (take <= 0) continue;
+          const take =
+            Math.min(
+              available,
+              remaining
+            );
+
+          if (
+            take <= 0
+          ) {
+            continue;
+          }
 
           await c.query(
             `UPDATE inventory_lots
-             SET quantity_reserved=quantity_reserved+$1
+             SET
+               quantity_reserved
+               =
+               quantity_reserved
+               +
+               $1
              WHERE id=$2`,
-            [take, lot.id]
+            [
+              take,
+              lot.id
+            ]
           );
 
           await c.query(
-            `INSERT INTO order_inventory_allocations
-             (order_id,order_item_id,inventory_lot_id,quantity)
-             VALUES($1,$2,$3,$4)`,
-            [orderId, item.id, lot.id, take]
+            `INSERT INTO
+             order_inventory_allocations
+             (
+               order_id,
+               order_item_id,
+               inventory_lot_id,
+               quantity
+             )
+             VALUES
+             (
+               $1,
+               $2,
+               $3,
+               $4
+             )`,
+            [
+              orderId,
+              item.id,
+              lot.id,
+              take
+            ]
           );
 
-          remaining -= take;
+          remaining -=
+            take;
         }
 
-        if (remaining > 0) throw new Error('INSUFFICIENT_STOCK');
+        if (
+          remaining > 0
+        ) {
+          throw new Error(
+            'INSUFFICIENT_STOCK'
+          );
+        }
       }
 
       await c.query(
         `UPDATE orders
-         SET status='STOCK_RESERVED',updated_at=NOW()
+         SET
+           status='STOCK_RESERVED',
+           updated_at=NOW()
          WHERE id=$1`,
-        [orderId]
-      );
-
-      await audit(c, 'STOCK_RESERVED', 'order', orderId);
-
-      await c.query('COMMIT');
-
-      return {
-        success: true,
-        order_id: orderId,
-        status: 'STOCK_RESERVED'
-      };
-    } catch (e) {
-      await c.query('ROLLBACK');
-      throw e;
-    }
-  });
-}
-
-async function consume(c, orderId) {
-  const a = await c.query(
-    `SELECT * FROM order_inventory_allocations
-     WHERE order_id=$1 AND consumed=FALSE
-     FOR UPDATE`,
-    [orderId]
-  );
-
-  if (!a.rowCount) throw new Error('NO_STOCK_RESERVATION');
-
-  for (const x of a.rows) {
-    await c.query(
-      `UPDATE inventory_lots
-       SET quantity_on_hand=quantity_on_hand-$1,
-           quantity_reserved=quantity_reserved-$1
-       WHERE id=$2`,
-      [x.quantity, x.inventory_lot_id]
-    );
-
-    await c.query(
-      `UPDATE order_inventory_allocations
-       SET consumed=TRUE WHERE id=$1`,
-      [x.id]
-    );
-  }
-}
-
-async function release(c, orderId) {
-  const a = await c.query(
-    `SELECT * FROM order_inventory_allocations
-     WHERE order_id=$1 AND consumed=FALSE
-     FOR UPDATE`,
-    [orderId]
-  );
-
-  for (const x of a.rows) {
-    await c.query(
-      `UPDATE inventory_lots
-       SET quantity_reserved=GREATEST(quantity_reserved-$1,0)
-       WHERE id=$2`,
-      [x.quantity, x.inventory_lot_id]
-    );
-  }
-
-  await c.query(
-    `DELETE FROM order_inventory_allocations
-     WHERE order_id=$1 AND consumed=FALSE`,
-    [orderId]
-  );
-}
-
-const transitions = {
-  NEW: ['PAYMENT_PENDING','APPROVED','CANCELLED'],
-  PAYMENT_PENDING: ['APPROVED','CANCELLED'],
-  APPROVED: ['STOCK_RESERVED','CANCELLED'],
-  STOCK_RESERVED: ['PICKING','CANCELLED'],
-  PICKING: ['PACKING','PROBLEM','CANCELLED'],
-  PACKING: ['READY_TO_SHIP','PROBLEM'],
-  READY_TO_SHIP: ['SHIPPED','PROBLEM'],
-  SHIPPED: ['DELIVERED','PROBLEM'],
-  DELIVERED: ['COMPLETED'],
-  COMPLETED: [],
-  CANCELLED: [],
-  PROBLEM: ['PICKING','PACKING','READY_TO_SHIP','CANCELLED']
-};
-
-async function status(orderId, next) {
-  return db(async c => {
-    await c.query('BEGIN');
-
-    try {
-      const r = await c.query(
-        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
-        [orderId]
-      );
-
-      if (!r.rowCount) throw new Error('ORDER_NOT_FOUND');
-
-      const order = r.rows[0];
-
-      if (order.status === next) {
-        await c.query('COMMIT');
-        return order;
-      }
-
-      if (!(transitions[order.status] || []).includes(next)) {
-        throw new Error('INVALID_STATUS_TRANSITION');
-      }
-
-      if (next === 'SHIPPED') await consume(c, orderId);
-      if (next === 'CANCELLED') await release(c, orderId);
-
-      await c.query(
-        `UPDATE orders
-         SET status=$1,updated_at=NOW()
-         WHERE id=$2`,
-        [next, orderId]
-      );
-
-      await c.query(
-        `INSERT INTO order_status_history
-         (order_id,old_status,new_status,actor)
-         VALUES($1,$2,$3,'demo-api')`,
-        [orderId, order.status, next]
-      );
-
-      if (next === 'COMPLETED' && order.dealer_id) {
-        const exists = await c.query(
-          `SELECT id FROM dealer_ledger
-           WHERE order_id=$1 AND entry_type='COMMISSION_ACCRUAL'`,
-          [orderId]
-        );
-
-        if (!exists.rowCount) {
-          const dealer = await c.query(
-            `SELECT dealer_level FROM dealers WHERE id=$1`,
-            [order.dealer_id]
-          );
-
-          const items = await c.query(
-            `SELECT * FROM order_items WHERE order_id=$1`,
-            [orderId]
-          );
-
-          let commission = 0;
-
-          for (const i of items.rows) {
-            const rule = await c.query(
-              `SELECT amount_per_unit
-               FROM dealer_commission_rules
-               WHERE product_id=$1
-               AND dealer_level=$2
-               AND active=TRUE`,
-              [i.product_id, dealer.rows[0].dealer_level]
-            );
-
-            if (rule.rowCount) {
-              commission +=
-                Number(rule.rows[0].amount_per_unit) *
-                Number(i.quantity);
-            }
-          }
-
-          if (commission > 0) {
-            await c.query(
-              `INSERT INTO dealer_ledger
-               (dealer_id,order_id,entry_type,amount,reference_no,description)
-               VALUES($1,$2,'COMMISSION_ACCRUAL',$3,$4,'Sipariş prim tahakkuku')`,
-              [order.dealer_id, orderId, commission, order.order_no]
-            );
-          }
-        }
-      }
-
-      await audit(c, 'ORDER_STATUS_CHANGED', 'order', orderId, {
-        old_status: order.status,
-        new_status: next
-      });
-
-      await c.query('COMMIT');
-
-      return { ...order, status: next };
-    } catch (e) {
-      await c.query('ROLLBACK');
-      throw e;
-    }
-  });
-}
-
-const server = http.createServer(async (req, res) => {
-  try {
-    const u = new URL(req.url, 'http://localhost');
-if (req.method === 'OPTIONS') {
-  res.writeHead(204, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  });
-  return res.end();
-}
-
-if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
-  const data = await db(async c => {
-    const [orders, customers, dealers, stock, returns] = await Promise.all([
-      c.query(`SELECT COUNT(*)::int count, COALESCE(SUM(total_amount),0) total FROM orders`),
-      c.query(`SELECT COUNT(*)::int count FROM customers`),
-      c.query(`SELECT COUNT(*)::int count FROM dealers WHERE status='ACTIVE'`),
-      c.query(`SELECT COALESCE(SUM(quantity_on_hand),0)::int total FROM inventory_lots`),
-      c.query(`SELECT COUNT(*)::int count FROM return_requests WHERE status='REQUESTED'`)
-    ]);
-
-    const latestOrders = await c.query(`
-      SELECT id,order_no,status,total_amount,created_at
-      FROM orders
-      ORDER BY id DESC
-      LIMIT 10
-    `);
-
-    return {
-      orders: orders.rows[0].count,
-      revenue: Number(orders.rows[0].total),
-      customers: customers.rows[0].count,
-      active_dealers: dealers.rows[0].count,
-      stock_units: stock.rows[0].total,
-      pending_returns: returns.rows[0].count,
-      latest_orders: latestOrders.rows
-    };
-  });
-
-  return send(res, 200, {
-    success: true,
-    data
-  });
-}
-    if (req.method === 'GET' && u.pathname === '/') {
-      return send(res, 200, {
-        service: 'Trex Platform Core API',
-        version: '1.0.0-demo.13.1',
-        database: 'PostgreSQL',
-        payment_provider: 'mock',
-        shipping_provider: 'mock'
-      });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok: true, version: '13.1' });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/init-db') {
-      return send(res, 200, await initDb());
-    }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/products') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`SELECT * FROM products ORDER BY id`)).rows
-        )
-      });
-    }
-
-    if (req.method === 'POST' && u.pathname === '/api/v1/customers') {
-      const b = await body(req);
-
-      const row = await db(async c =>
-        (await c.query(
-          `INSERT INTO customers(full_name,email,phone)
-           VALUES($1,$2,$3) RETURNING *`,
-          [b.full_name, b.email || null, b.phone || null]
-        )).rows[0]
-      );
-
-      return send(res, 201, { success: true, data: row });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/customers') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`SELECT * FROM customers ORDER BY id DESC`)).rows
-        )
-      });
-    }
-
-    if (req.method === 'POST' && u.pathname === '/api/v1/orders') {
-      return send(res, 201, {
-        success: true,
-        data: await createOrder(await body(req))
-      });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/orders') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`SELECT * FROM orders ORDER BY id DESC`)).rows
-        )
-      });
-    }
-
-    const reserveMatch =
-      u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/reserve-stock$/);
-
-    if (req.method === 'POST' && reserveMatch) {
-      return send(
-        res,
-        200,
-        await reserve(Number(reserveMatch[1]))
-      );
-    }
-
-    const statusMatch =
-      u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/status$/);
-const paymentMatch =
-  u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/payment-status$/);
-
-if (req.method === 'POST' && paymentMatch) {
-  const b = await body(req);
-
-  const allowedPaymentStatuses = [
-    'PAYMENT_PENDING',
-    'PAID',
-    'FAILED',
-    'REFUNDED',
-    'COD_PENDING'
-  ];
-
-  if (!allowedPaymentStatuses.includes(b.payment_status)) {
-    throw new Error('INVALID_PAYMENT_STATUS');
-  }
-
-  const result = await db(async c => {
-    await c.query('BEGIN');
-
-    try {
-      const current = await c.query(
-        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
-        [Number(paymentMatch[1])]
-      );
-
-      if (!current.rowCount) {
-        throw new Error('ORDER_NOT_FOUND');
-      }
-
-      const order = current.rows[0];
-
-      const updated = await c.query(
-        `UPDATE orders
-         SET payment_status=$1,updated_at=NOW()
-         WHERE id=$2
-         RETURNING *`,
         [
-          b.payment_status,
-          Number(paymentMatch[1])
+          orderId
         ]
       );
 
       await audit(
         c,
-        'PAYMENT_STATUS_CHANGED',
+        'STOCK_RESERVED',
         'order',
-        order.id,
-        {
-          old_payment_status: order.payment_status,
-          new_payment_status: b.payment_status
-        }
+        orderId
       );
 
-      await c.query('COMMIT');
+      await c.query(
+        'COMMIT'
+      );
 
-      return updated.rows[0];
+      return {
+        success: true,
+        order_id:
+          orderId,
+        status:
+          'STOCK_RESERVED'
+      };
 
     } catch (e) {
-      await c.query('ROLLBACK');
+
+      await c.query(
+        'ROLLBACK'
+      );
+
       throw e;
     }
   });
-
-  return send(res, 200, {
-    success: true,
-    data: result
-  });
 }
-    if (req.method === 'POST' && statusMatch) {
-      const b = await body(req);
 
-      return send(res, 200, {
-        success: true,
-        data: await status(
-          Number(statusMatch[1]),
-          b.status
-        )
-      });
-    }
+async function consume(
+  c,
+  orderId
+) {
 
-    if (req.method === 'POST' && u.pathname === '/api/v1/inventory/lots') {
-      const b = await body(req);
+  const a =
+    await c.query(
+      `SELECT *
+       FROM order_inventory_allocations
+       WHERE
+         order_id=$1
+         AND consumed=FALSE
+       FOR UPDATE`,
+      [
+        orderId
+      ]
+    );
 
-      const row = await db(async c =>
-        (await c.query(
-          `INSERT INTO inventory_lots
-           (product_id,lot_no,expiry_date,quantity_on_hand)
-           VALUES($1,$2,$3,$4)
-           RETURNING *`,
-          [
-            b.product_id,
-            b.lot_no,
-            b.expiry_date || null,
-            Number(b.quantity_on_hand || 0)
-          ]
-        )).rows[0]
+  if (!a.rowCount) {
+    throw new Error(
+      'NO_STOCK_RESERVATION'
+    );
+  }
+
+  for (
+    const x
+    of a.rows
+  ) {
+
+    const changed =
+      await c.query(
+        `UPDATE inventory_lots
+         SET
+           quantity_on_hand
+           =
+           quantity_on_hand
+           -
+           $1,
+
+           quantity_reserved
+           =
+           quantity_reserved
+           -
+           $1
+
+         WHERE id=$2
+
+         AND
+           quantity_on_hand
+           >=
+           $1
+
+         AND
+           quantity_reserved
+           >=
+           $1
+
+         RETURNING id`,
+        [
+          x.quantity,
+          x.inventory_lot_id
+        ]
       );
 
-      return send(res, 201, { success: true, data: row });
+    if (
+      !changed.rowCount
+    ) {
+      throw new Error(
+        'STOCK_INVARIANT_VIOLATION'
+      );
     }
 
-    if (req.method === 'GET' && u.pathname === '/api/v1/inventory/lots') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`
-            SELECT l.*,p.name product_name,p.sku
-            FROM inventory_lots l
-            JOIN products p ON p.id=l.product_id
-            ORDER BY l.expiry_date ASC NULLS LAST,l.id
-          `)).rows
-        )
-      });
-    }
-const returnApproveMatch =
-  u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/approve$/);
+    await c.query(
+      `UPDATE
+       order_inventory_allocations
 
-if (req.method === 'POST' && returnApproveMatch) {
-  const returnId =
-    Number(returnApproveMatch[1]);
+       SET
+         consumed=TRUE
 
-  const result = await db(async c => {
-    await c.query('BEGIN');
+       WHERE id=$1`,
+      [
+        x.id
+      ]
+    );
+  }
+}
+
+async function release(
+  c,
+  orderId
+) {
+
+  const a =
+    await c.query(
+      `SELECT *
+       FROM order_inventory_allocations
+       WHERE
+         order_id=$1
+         AND consumed=FALSE
+       FOR UPDATE`,
+      [
+        orderId
+      ]
+    );
+
+  for (
+    const x
+    of a.rows
+  ) {
+
+    await c.query(
+      `UPDATE inventory_lots
+       SET
+         quantity_reserved
+         =
+         GREATEST(
+           quantity_reserved
+           -
+           $1,
+           0
+         )
+       WHERE id=$2`,
+      [
+        x.quantity,
+        x.inventory_lot_id
+      ]
+    );
+  }
+
+  await c.query(
+    `DELETE FROM
+     order_inventory_allocations
+
+     WHERE
+       order_id=$1
+       AND consumed=FALSE`,
+    [
+      orderId
+    ]
+  );
+}
+
+const transitions = {
+
+  NEW: [
+    'PAYMENT_PENDING',
+    'APPROVED',
+    'CANCELLED'
+  ],
+
+  PAYMENT_PENDING: [
+    'APPROVED',
+    'CANCELLED'
+  ],
+
+  APPROVED: [
+    'STOCK_RESERVED',
+    'CANCELLED'
+  ],
+
+  STOCK_RESERVED: [
+    'PICKING',
+    'CANCELLED'
+  ],
+
+  PICKING: [
+    'PACKING',
+    'PROBLEM',
+    'CANCELLED'
+  ],
+
+  PACKING: [
+    'READY_TO_SHIP',
+    'PROBLEM'
+  ],
+
+  READY_TO_SHIP: [
+    'SHIPPED',
+    'PROBLEM'
+  ],
+
+  SHIPPED: [
+    'DELIVERED',
+    'PROBLEM'
+  ],
+
+  DELIVERED: [
+    'COMPLETED'
+  ],
+
+  COMPLETED: [],
+
+  CANCELLED: [],
+
+  PROBLEM: [
+    'PICKING',
+    'PACKING',
+    'READY_TO_SHIP',
+    'CANCELLED'
+  ]
+};
+
+async function status(
+  orderId,
+  next
+) {
+
+  return db(async c => {
+
+    await c.query(
+      'BEGIN'
+    );
 
     try {
-      const rr = await c.query(
-        `SELECT
-           rr.*,
-           o.dealer_id,
-           o.order_no
-         FROM return_requests rr
-         JOIN orders o
-           ON o.id=rr.order_id
-         WHERE rr.id=$1
-         FOR UPDATE`,
-        [returnId]
-      );
 
-      if (!rr.rowCount) {
-        throw new Error('RETURN_NOT_FOUND');
+      const r =
+        await c.query(
+          `SELECT *
+           FROM orders
+           WHERE id=$1
+           FOR UPDATE`,
+          [
+            orderId
+          ]
+        );
+
+      if (!r.rowCount) {
+        throw new Error(
+          'ORDER_NOT_FOUND'
+        );
       }
 
-      const ret = rr.rows[0];
+      const order =
+        r.rows[0];
 
-      if (ret.status === 'APPROVED') {
-        throw new Error('RETURN_ALREADY_APPROVED');
+      if (
+        order.status === next
+      ) {
+
+        await c.query(
+          'COMMIT'
+        );
+
+        return order;
+      }
+
+      if (
+        !(
+          transitions[
+            order.status
+          ]
+          || []
+        ).includes(next)
+      ) {
+        throw new Error(
+          'INVALID_STATUS_TRANSITION'
+        );
+      }
+
+      if (
+        next === 'SHIPPED'
+      ) {
+        await consume(
+          c,
+          orderId
+        );
+      }
+
+      if (
+        next === 'CANCELLED'
+      ) {
+        await release(
+          c,
+          orderId
+        );
       }
 
       await c.query(
-        `UPDATE return_requests
+        `UPDATE orders
          SET
-           status='APPROVED',
-           qc_result='APPROVED'
-         WHERE id=$1`,
-        [returnId]
+           status=$1,
+           updated_at=NOW()
+         WHERE id=$2`,
+        [
+          next,
+          orderId
+        ]
       );
+
+      await c.query(
+        `INSERT INTO
+         order_status_history
+         (
+           order_id,
+           old_status,
+           new_status,
+           actor
+         )
+         VALUES
+         (
+           $1,
+           $2,
+           $3,
+           'demo-api'
+         )`,
+        [
+          orderId,
+          order.status,
+          next
+        ]
+      );
+
+      if (
+        next === 'COMPLETED'
+        &&
+        order.dealer_id
+      ) {
+
+        const exists =
+          await c.query(
+            `SELECT id
+             FROM dealer_ledger
+             WHERE
+               order_id=$1
+               AND
+               entry_type=
+               'COMMISSION_ACCRUAL'`,
+            [
+              orderId
+            ]
+          );
+
+        if (
+          !exists.rowCount
+        ) {
+
+          const dealer =
+            await c.query(
+              `SELECT
+                 dealer_level
+               FROM dealers
+               WHERE id=$1`,
+              [
+                order.dealer_id
+              ]
+            );
+
+          const items =
+            await c.query(
+              `SELECT *
+               FROM order_items
+               WHERE order_id=$1`,
+              [
+                orderId
+              ]
+            );
+
+          let commission = 0;
+
+          for (
+            const i
+            of items.rows
+          ) {
+
+            const rule =
+              await c.query(
+                `SELECT
+                   amount_per_unit
+                 FROM
+                   dealer_commission_rules
+                 WHERE
+                   product_id=$1
+                   AND
+                   dealer_level=$2
+                   AND
+                   active=TRUE`,
+                [
+                  i.product_id,
+                  dealer.rows[0]
+                    .dealer_level
+                ]
+              );
+
+            if (
+              rule.rowCount
+            ) {
+
+              commission +=
+                Number(
+                  rule.rows[0]
+                    .amount_per_unit
+                )
+                *
+                Number(
+                  i.quantity
+                );
+            }
+          }
+
+          if (
+            commission > 0
+          ) {
+
+            await c.query(
+              `INSERT INTO
+               dealer_ledger
+               (
+                 dealer_id,
+                 order_id,
+                 entry_type,
+                 amount,
+                 reference_no,
+                 description
+               )
+               VALUES
+               (
+                 $1,
+                 $2,
+                 'COMMISSION_ACCRUAL',
+                 $3,
+                 $4,
+                 'Sipariş prim tahakkuku'
+               )`,
+              [
+                order.dealer_id,
+                orderId,
+                commission,
+                order.order_no
+              ]
+            );
+          }
+        }
+      }
+
+      await audit(
+        c,
+        'ORDER_STATUS_CHANGED',
+        'order',
+        orderId,
+        {
+          old_status:
+            order.status,
+          new_status:
+            next
+        }
+      );
+
+      await c.query(
+        'COMMIT'
+      );
+
+      return {
+        ...order,
+        status: next
+      };
+
+    } catch (e) {
+
+      await c.query(
+        'ROLLBACK'
+      );
+
+      throw e;
+    }
+  });
+}
+
+async function approveReturn(
+  returnId
+) {
+
+  return db(async c => {
+
+    await c.query(
+      'BEGIN'
+    );
+
+    try {
+
+      const rr =
+        await c.query(
+          `SELECT
+             rr.*,
+             o.dealer_id,
+             o.order_no
+           FROM return_requests rr
+           JOIN orders o
+             ON o.id=rr.order_id
+           WHERE rr.id=$1
+           FOR UPDATE`,
+          [
+            returnId
+          ]
+        );
+
+      if (!rr.rowCount) {
+        throw new Error(
+          'RETURN_NOT_FOUND'
+        );
+      }
+
+      const ret =
+        rr.rows[0];
+
+      if (
+        ret.status ===
+        'APPROVED'
+      ) {
+        throw new Error(
+          'RETURN_ALREADY_APPROVED'
+        );
+      }
+
+      const items =
+        await c.query(
+          `SELECT
+             ri.quantity
+               return_quantity,
+             oi.product_id,
+             oi.quantity
+               ordered_quantity
+           FROM return_items ri
+           JOIN order_items oi
+             ON
+             oi.id=
+             ri.order_item_id
+           WHERE
+             ri.return_request_id=$1`,
+          [
+            returnId
+          ]
+        );
+
+      if (
+        !items.rowCount
+      ) {
+        throw new Error(
+          'RETURN_ITEMS_REQUIRED'
+        );
+      }
 
       let clawback = 0;
 
-      if (ret.dealer_id) {
-        const accrual = await c.query(
-          `SELECT COALESCE(SUM(amount),0) amount
-           FROM dealer_ledger
-           WHERE order_id=$1
-           AND entry_type='COMMISSION_ACCRUAL'`,
-          [ret.order_id]
-        );
+      if (
+        ret.dealer_id
+      ) {
 
-        const previous = await c.query(
-          `SELECT COALESCE(SUM(amount),0) amount
-           FROM dealer_ledger
-           WHERE order_id=$1
-           AND entry_type='COMMISSION_CLAWBACK'`,
-          [ret.order_id]
-        );
-
-        const accrued =
-          Number(accrual.rows[0].amount || 0);
-
-        const alreadyClawed =
-          Math.abs(
-            Number(previous.rows[0].amount || 0)
+        const dealer =
+          await c.query(
+            `SELECT
+               dealer_level
+             FROM dealers
+             WHERE id=$1`,
+            [
+              ret.dealer_id
+            ]
           );
 
-        clawback =
+        if (
+          !dealer.rowCount
+        ) {
+          throw new Error(
+            'DEALER_NOT_FOUND'
+          );
+        }
+
+        for (
+          const item
+          of items.rows
+        ) {
+
+          const rule =
+            await c.query(
+              `SELECT
+                 amount_per_unit
+               FROM
+                 dealer_commission_rules
+               WHERE
+                 product_id=$1
+                 AND
+                 dealer_level=$2
+                 AND
+                 active=TRUE`,
+              [
+                item.product_id,
+                dealer.rows[0]
+                  .dealer_level
+              ]
+            );
+
+          if (
+            rule.rowCount
+          ) {
+
+            clawback +=
+              Number(
+                rule.rows[0]
+                  .amount_per_unit
+              )
+              *
+              Number(
+                item.return_quantity
+              );
+          }
+        }
+
+        const accrued =
+          await c.query(
+            `SELECT
+               COALESCE(
+                 SUM(amount),
+                 0
+               ) amount
+             FROM dealer_ledger
+             WHERE
+               order_id=$1
+               AND
+               entry_type=
+               'COMMISSION_ACCRUAL'`,
+            [
+              ret.order_id
+            ]
+          );
+
+        const previous =
+          await c.query(
+            `SELECT
+               COALESCE(
+                 SUM(amount),
+                 0
+               ) amount
+             FROM dealer_ledger
+             WHERE
+               order_id=$1
+               AND
+               entry_type=
+               'COMMISSION_CLAWBACK'`,
+            [
+              ret.order_id
+            ]
+          );
+
+        const remainingAvailable =
           Math.max(
-            accrued - alreadyClawed,
+            Number(
+              accrued.rows[0]
+                .amount
+              || 0
+            )
+            -
+            Math.abs(
+              Number(
+                previous.rows[0]
+                  .amount
+                || 0
+              )
+            ),
             0
           );
 
-        if (clawback > 0) {
+        clawback =
+          Math.min(
+            clawback,
+            remainingAvailable
+          );
+
+        if (
+          clawback > 0
+        ) {
+
           await c.query(
-            `INSERT INTO dealer_ledger
+            `INSERT INTO
+             dealer_ledger
              (
                dealer_id,
                order_id,
@@ -915,7 +1456,7 @@ if (req.method === 'POST' && returnApproveMatch) {
                'COMMISSION_CLAWBACK',
                $3,
                $4,
-               'İade nedeniyle prim geri alma'
+               'İade edilen adetlere göre prim geri alma'
              )`,
             [
               ret.dealer_id,
@@ -927,88 +1468,154 @@ if (req.method === 'POST' && returnApproveMatch) {
         }
       }
 
+      await c.query(
+        `UPDATE
+         return_requests
+
+         SET
+           status='APPROVED',
+           qc_result='APPROVED'
+
+         WHERE id=$1`,
+        [
+          returnId
+        ]
+      );
+
       await audit(
         c,
         'RETURN_APPROVED',
         'return_request',
         returnId,
         {
-          order_id: ret.order_id,
-          commission_clawback: clawback
+          order_id:
+            ret.order_id,
+          commission_clawback:
+            clawback
         }
       );
 
-      await c.query('COMMIT');
+      await c.query(
+        'COMMIT'
+      );
 
       return {
-        return_id: returnId,
-        status: 'APPROVED',
-        commission_clawback: clawback
+        return_id:
+          returnId,
+        status:
+          'APPROVED',
+        commission_clawback:
+          clawback
       };
 
     } catch (e) {
-      await c.query('ROLLBACK');
+
+      await c.query(
+        'ROLLBACK'
+      );
+
       throw e;
     }
   });
-
-  return send(res, 200, {
-    success: true,
-    data: result
-  });
 }
-   if (req.method === 'POST' && u.pathname === '/api/v1/returns') {
-  const b = await body(req);
 
-  if (!b.order_id) {
-    throw new Error('ORDER_ID_REQUIRED');
-  }
+async function createReturn(
+  data
+) {
 
-  if (!Array.isArray(b.items) || !b.items.length) {
-    throw new Error('RETURN_ITEMS_REQUIRED');
-  }
+  return db(async c => {
 
-  const result = await db(async c => {
-    await c.query('BEGIN');
+    await c.query(
+      'BEGIN'
+    );
 
     try {
-      const order = await c.query(
-        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
-        [b.order_id]
-      );
 
-      if (!order.rowCount) {
-        throw new Error('ORDER_NOT_FOUND');
+      if (
+        !data.order_id
+      ) {
+        throw new Error(
+          'ORDER_ID_REQUIRED'
+        );
+      }
+
+      if (
+        !Array.isArray(
+          data.items
+        )
+        ||
+        !data.items.length
+      ) {
+        throw new Error(
+          'RETURN_ITEMS_REQUIRED'
+        );
+      }
+
+      const order =
+        await c.query(
+          `SELECT *
+           FROM orders
+           WHERE id=$1
+           FOR UPDATE`,
+          [
+            data.order_id
+          ]
+        );
+
+      if (
+        !order.rowCount
+      ) {
+        throw new Error(
+          'ORDER_NOT_FOUND'
+        );
       }
 
       const returnNo =
-        'RET-' + Date.now();
+        'RET-'
+        +
+        Date.now();
 
-      const created = await c.query(
-        `INSERT INTO return_requests
-         (
-           return_no,
-           order_id,
-           reason
-         )
-         VALUES($1,$2,$3)
-         RETURNING *`,
-        [
-          returnNo,
-          b.order_id,
-          b.reason || null
-        ]
-      );
+      const created =
+        await c.query(
+          `INSERT INTO
+           return_requests
+           (
+             return_no,
+             order_id,
+             reason
+           )
+           VALUES
+           (
+             $1,
+             $2,
+             $3
+           )
+           RETURNING *`,
+          [
+            returnNo,
+            data.order_id,
+            data.reason || null
+          ]
+        );
 
       const returnRequest =
         created.rows[0];
 
-      for (const item of b.items) {
+      for (
+        const item
+        of data.items
+      ) {
+
         const quantity =
-          Number(item.quantity);
+          Number(
+            item.quantity
+          );
 
         if (
-          !Number.isInteger(quantity) ||
+          !Number.isInteger(
+            quantity
+          )
+          ||
           quantity < 1
         ) {
           throw new Error(
@@ -1020,15 +1627,19 @@ if (req.method === 'POST' && returnApproveMatch) {
           await c.query(
             `SELECT *
              FROM order_items
-             WHERE id=$1
-             AND order_id=$2`,
+             WHERE
+               id=$1
+               AND
+               order_id=$2`,
             [
               item.order_item_id,
-              b.order_id
+              data.order_id
             ]
           );
 
-        if (!orderItem.rowCount) {
+        if (
+          !orderItem.rowCount
+        ) {
           throw new Error(
             'ORDER_ITEM_NOT_FOUND'
           );
@@ -1038,30 +1649,50 @@ if (req.method === 'POST' && returnApproveMatch) {
           await c.query(
             `SELECT
                COALESCE(
-                 SUM(ri.quantity),
+                 SUM(
+                   ri.quantity
+                 ),
                  0
-               )::int AS quantity
+               )::int
+               AS quantity
+
              FROM return_items ri
+
              JOIN return_requests rr
-               ON rr.id=ri.return_request_id
+               ON
+               rr.id=
+               ri.return_request_id
+
              WHERE
                ri.order_item_id=$1
-               AND rr.status <> 'REJECTED'`,
-            [item.order_item_id]
+
+               AND
+               rr.status
+               <>
+               'REJECTED'`,
+            [
+              item.order_item_id
+            ]
           );
 
         const alreadyReturned =
           Number(
-            previous.rows[0].quantity || 0
+            previous.rows[0]
+              .quantity
+            || 0
           );
 
         const orderedQuantity =
           Number(
-            orderItem.rows[0].quantity
+            orderItem.rows[0]
+              .quantity
           );
 
         if (
-          alreadyReturned + quantity >
+          alreadyReturned
+          +
+          quantity
+          >
           orderedQuantity
         ) {
           throw new Error(
@@ -1070,13 +1701,19 @@ if (req.method === 'POST' && returnApproveMatch) {
         }
 
         await c.query(
-          `INSERT INTO return_items
+          `INSERT INTO
+           return_items
            (
              return_request_id,
              order_item_id,
              quantity
            )
-           VALUES($1,$2,$3)`,
+           VALUES
+           (
+             $1,
+             $2,
+             $3
+           )`,
           [
             returnRequest.id,
             item.order_item_id,
@@ -1091,128 +1728,998 @@ if (req.method === 'POST' && returnApproveMatch) {
         'return_request',
         returnRequest.id,
         {
-          order_id: b.order_id,
-          items: b.items
+          order_id:
+            data.order_id,
+          items:
+            data.items
         }
       );
 
-      await c.query('COMMIT');
+      await c.query(
+        'COMMIT'
+      );
 
       return returnRequest;
 
     } catch (e) {
-      await c.query('ROLLBACK');
+
+      await c.query(
+        'ROLLBACK'
+      );
+
       throw e;
     }
   });
-
-  return send(res, 201, {
-    success: true,
-    data: result
-  });
 }
-      const b = await body(req);
 
-      const row = await db(async c =>
-        (await c.query(
-          `INSERT INTO dealers(code,name,dealer_level,status)
-           VALUES($1,$2,$3,$4)
-           RETURNING *`,
-          [
-            b.code,
-            b.name,
-            Number(b.dealer_level || 1),
-            b.status || 'ACTIVE'
-          ]
-        )).rows[0]
+const server =
+  http.createServer(
+    async (
+      req,
+      res
+    ) => {
+
+      try {
+
+        const u =
+          new URL(
+            req.url,
+            'http://localhost'
+          );
+
+        if (
+          req.method ===
+          'OPTIONS'
+        ) {
+
+          res.writeHead(
+            204,
+            {
+              'Access-Control-Allow-Origin':
+                '*',
+
+              'Access-Control-Allow-Methods':
+                'GET,POST,OPTIONS',
+
+              'Access-Control-Allow-Headers':
+                'Content-Type'
+            }
+          );
+
+          return res.end();
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dashboard'
+        ) {
+
+          const data =
+            await db(
+              async c => {
+
+                const [
+                  orders,
+                  customers,
+                  dealers,
+                  stock,
+                  returns
+                ] =
+                  await Promise.all(
+                    [
+                      c.query(
+                        `SELECT
+                           COUNT(*)::int
+                           count,
+                           COALESCE(
+                             SUM(total_amount),
+                             0
+                           )
+                           total
+                         FROM orders`
+                      ),
+
+                      c.query(
+                        `SELECT
+                           COUNT(*)::int
+                           count
+                         FROM customers`
+                      ),
+
+                      c.query(
+                        `SELECT
+                           COUNT(*)::int
+                           count
+                         FROM dealers
+                         WHERE
+                           status='ACTIVE'`
+                      ),
+
+                      c.query(
+                        `SELECT
+                           COALESCE(
+                             SUM(
+                               quantity_on_hand
+                             ),
+                             0
+                           )::int
+                           total
+                         FROM inventory_lots`
+                      ),
+
+                      c.query(
+                        `SELECT
+                           COUNT(*)::int
+                           count
+                         FROM return_requests
+                         WHERE
+                           status='REQUESTED'`
+                      )
+                    ]
+                  );
+
+                const latestOrders =
+                  await c.query(
+                    `SELECT
+                       id,
+                       order_no,
+                       status,
+                       total_amount,
+                       created_at
+
+                     FROM orders
+
+                     ORDER BY
+                       id DESC
+
+                     LIMIT 10`
+                  );
+
+                return {
+                  orders:
+                    orders.rows[0]
+                      .count,
+
+                  revenue:
+                    Number(
+                      orders.rows[0]
+                        .total
+                    ),
+
+                  customers:
+                    customers.rows[0]
+                      .count,
+
+                  active_dealers:
+                    dealers.rows[0]
+                      .count,
+
+                  stock_units:
+                    stock.rows[0]
+                      .total,
+
+                  pending_returns:
+                    returns.rows[0]
+                      .count,
+
+                  latest_orders:
+                    latestOrders.rows
+                };
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname === '/'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              service:
+                'Trex Platform Core API',
+
+              version:
+                '1.0.0-demo.14',
+
+              database:
+                'PostgreSQL',
+
+              payment_provider:
+                'mock',
+
+              shipping_provider:
+                'mock'
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/health'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              ok: true,
+              version: '14'
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/init-db'
+        ) {
+
+          return send(
+            res,
+            200,
+            await initDb()
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/products'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM products
+                         ORDER BY id`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/customers'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO
+                     customers
+                     (
+                       full_name,
+                       email,
+                       phone
+                     )
+                     VALUES
+                     (
+                       $1,
+                       $2,
+                       $3
+                     )
+                     RETURNING *`,
+                    [
+                      b.full_name,
+                      b.email || null,
+                      b.phone || null
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/customers'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM customers
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/orders'
+        ) {
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+
+              data:
+                await createOrder(
+                  await body(req)
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/orders'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM orders
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        const reserveMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/reserve-stock$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          reserveMatch
+        ) {
+
+          return send(
+            res,
+            200,
+            await reserve(
+              Number(
+                reserveMatch[1]
+              )
+            )
+          );
+        }
+
+        const statusMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/status$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          statusMatch
+        ) {
+
+          const b =
+            await body(req);
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await status(
+                  Number(
+                    statusMatch[1]
+                  ),
+                  b.status
+                )
+            }
+          );
+        }
+
+        const paymentMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/payment-status$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          paymentMatch
+        ) {
+
+          const b =
+            await body(req);
+
+          const allowedPaymentStatuses = [
+            'PAYMENT_PENDING',
+            'PAID',
+            'FAILED',
+            'REFUNDED',
+            'COD_PENDING'
+          ];
+
+          if (
+            !allowedPaymentStatuses
+              .includes(
+                b.payment_status
+              )
+          ) {
+            throw new Error(
+              'INVALID_PAYMENT_STATUS'
+            );
+          }
+
+          const result =
+            await db(
+              async c => {
+
+                await c.query(
+                  'BEGIN'
+                );
+
+                try {
+
+                  const current =
+                    await c.query(
+                      `SELECT *
+                       FROM orders
+                       WHERE id=$1
+                       FOR UPDATE`,
+                      [
+                        Number(
+                          paymentMatch[1]
+                        )
+                      ]
+                    );
+
+                  if (
+                    !current.rowCount
+                  ) {
+                    throw new Error(
+                      'ORDER_NOT_FOUND'
+                    );
+                  }
+
+                  const order =
+                    current.rows[0];
+
+                  const updated =
+                    await c.query(
+                      `UPDATE orders
+                       SET
+                         payment_status=$1,
+                         updated_at=NOW()
+                       WHERE id=$2
+                       RETURNING *`,
+                      [
+                        b.payment_status,
+                        Number(
+                          paymentMatch[1]
+                        )
+                      ]
+                    );
+
+                  await audit(
+                    c,
+                    'PAYMENT_STATUS_CHANGED',
+                    'order',
+                    order.id,
+                    {
+                      old_payment_status:
+                        order.payment_status,
+
+                      new_payment_status:
+                        b.payment_status
+                    }
+                  );
+
+                  await c.query(
+                    'COMMIT'
+                  );
+
+                  return updated.rows[0];
+
+                } catch (e) {
+
+                  await c.query(
+                    'ROLLBACK'
+                  );
+
+                  throw e;
+                }
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data: result
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/inventory/lots'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO
+                     inventory_lots
+                     (
+                       product_id,
+                       lot_no,
+                       expiry_date,
+                       quantity_on_hand
+                     )
+                     VALUES
+                     (
+                       $1,
+                       $2,
+                       $3,
+                       $4
+                     )
+                     RETURNING *`,
+                    [
+                      b.product_id,
+                      b.lot_no,
+                      b.expiry_date
+                        || null,
+                      Number(
+                        b.quantity_on_hand
+                        || 0
+                      )
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/inventory/lots'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                           l.*,
+                           p.name
+                             product_name,
+                           p.sku
+
+                         FROM inventory_lots l
+
+                         JOIN products p
+                           ON
+                           p.id=
+                           l.product_id
+
+                         ORDER BY
+                           l.expiry_date
+                           ASC
+                           NULLS LAST,
+                           l.id`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/dealers'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO dealers
+                     (
+                       code,
+                       name,
+                       dealer_level,
+                       status
+                     )
+                     VALUES
+                     (
+                       $1,
+                       $2,
+                       $3,
+                       $4
+                     )
+                     RETURNING *`,
+                    [
+                      b.code,
+                      b.name,
+                      Number(
+                        b.dealer_level
+                        || 1
+                      ),
+                      b.status
+                        || 'ACTIVE'
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dealers'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM dealers
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dealer-ledger'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                           dl.*,
+                           d.name
+                             dealer_name
+
+                         FROM dealer_ledger dl
+
+                         JOIN dealers d
+                           ON
+                           d.id=
+                           dl.dealer_id
+
+                         ORDER BY
+                           dl.id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/returns'
+        ) {
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+
+              data:
+                await createReturn(
+                  await body(req)
+                )
+            }
+          );
+        }
+
+        const returnApproveMatch =
+          u.pathname.match(
+            /^\/api\/v1\/returns\/(\d+)\/approve$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          returnApproveMatch
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await approveReturn(
+                  Number(
+                    returnApproveMatch[1]
+                  )
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/returns'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                           rr.*,
+
+                           COALESCE(
+                             json_agg(
+                               json_build_object(
+                                 'id',
+                                 ri.id,
+
+                                 'order_item_id',
+                                 ri.order_item_id,
+
+                                 'quantity',
+                                 ri.quantity
+                               )
+                             )
+                             FILTER(
+                               WHERE
+                                 ri.id
+                                 IS NOT NULL
+                             ),
+                             '[]'
+                           )
+                           items
+
+                         FROM
+                           return_requests rr
+
+                         LEFT JOIN
+                           return_items ri
+
+                           ON
+                           ri.return_request_id=
+                           rr.id
+
+                         GROUP BY
+                           rr.id
+
+                         ORDER BY
+                           rr.id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/audit-logs'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM audit_logs
+                         ORDER BY id DESC
+                         LIMIT 100`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        return send(
+          res,
+          404,
+          {
+            success: false,
+            error:
+              'NOT_FOUND'
+          }
+        );
+
+      } catch (e) {
+
+        console.error(e);
+
+        return send(
+          res,
+          500,
+          {
+            success: false,
+            error:
+              e.message
+          }
+        );
+      }
+    }
+  );
+
+server.listen(
+  port,
+  '0.0.0.0',
+  async () => {
+
+    console.log(
+      'Trex Platform Core API v14 running'
+    );
+
+    try {
+
+      await initDb();
+
+      console.log(
+        'Database schema v14 ready'
       );
 
-      return send(res, 201, { success: true, data: row });
-    }
+    } catch (e) {
 
-    if (req.method === 'GET' && u.pathname === '/api/v1/dealers') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`SELECT * FROM dealers ORDER BY id DESC`)).rows
-        )
-      });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/dealer-ledger') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`
-            SELECT dl.*,d.name dealer_name
-            FROM dealer_ledger dl
-            JOIN dealers d ON d.id=dl.dealer_id
-            ORDER BY dl.id DESC
-          `)).rows
-        )
-      });
-    }
-
-    if (req.method === 'POST' && u.pathname === '/api/v1/returns') {
-      const b = await body(req);
-      const returnNo = 'RET-' + Date.now();
-
-      const row = await db(async c =>
-        (await c.query(
-          `INSERT INTO return_requests
-           (return_no,order_id,reason)
-           VALUES($1,$2,$3)
-           RETURNING *`,
-          [returnNo, b.order_id, b.reason || null]
-        )).rows[0]
+      console.error(
+        'Database initialization failed:',
+        e.message
       );
-
-      return send(res, 201, { success: true, data: row });
     }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/returns') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`SELECT * FROM return_requests ORDER BY id DESC`)).rows
-        )
-      });
-    }
-
-    if (req.method === 'GET' && u.pathname === '/api/v1/audit-logs') {
-      return send(res, 200, {
-        success: true,
-        data: await db(async c =>
-          (await c.query(`
-            SELECT * FROM audit_logs
-            ORDER BY id DESC
-            LIMIT 100
-          `)).rows
-        )
-      });
-    }
-
-    return send(res, 404, {
-      success: false,
-      error: 'NOT_FOUND'
-    });
-
-  } catch (e) {
-    console.error(e);
-    return send(res, 500, {
-      success: false,
-      error: e.message
-    });
   }
-});
-
-server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v13.1 running');
-
-  try {
-    await initDb();
-    console.log('Database schema v13.1 ready');
-  } catch (e) {
-    console.error('Database initialization failed:', e.message);
-  }
-});
+);
