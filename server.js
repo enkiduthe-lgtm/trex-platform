@@ -957,7 +957,160 @@ if (req.method === 'POST' && returnApproveMatch) {
     data: result
   });
 }
-    if (req.method === 'POST' && u.pathname === '/api/v1/dealers') {
+   if (req.method === 'POST' && u.pathname === '/api/v1/returns') {
+  const b = await body(req);
+
+  if (!b.order_id) {
+    throw new Error('ORDER_ID_REQUIRED');
+  }
+
+  if (!Array.isArray(b.items) || !b.items.length) {
+    throw new Error('RETURN_ITEMS_REQUIRED');
+  }
+
+  const result = await db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const order = await c.query(
+        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
+        [b.order_id]
+      );
+
+      if (!order.rowCount) {
+        throw new Error('ORDER_NOT_FOUND');
+      }
+
+      const returnNo =
+        'RET-' + Date.now();
+
+      const created = await c.query(
+        `INSERT INTO return_requests
+         (
+           return_no,
+           order_id,
+           reason
+         )
+         VALUES($1,$2,$3)
+         RETURNING *`,
+        [
+          returnNo,
+          b.order_id,
+          b.reason || null
+        ]
+      );
+
+      const returnRequest =
+        created.rows[0];
+
+      for (const item of b.items) {
+        const quantity =
+          Number(item.quantity);
+
+        if (
+          !Number.isInteger(quantity) ||
+          quantity < 1
+        ) {
+          throw new Error(
+            'INVALID_RETURN_QUANTITY'
+          );
+        }
+
+        const orderItem =
+          await c.query(
+            `SELECT *
+             FROM order_items
+             WHERE id=$1
+             AND order_id=$2`,
+            [
+              item.order_item_id,
+              b.order_id
+            ]
+          );
+
+        if (!orderItem.rowCount) {
+          throw new Error(
+            'ORDER_ITEM_NOT_FOUND'
+          );
+        }
+
+        const previous =
+          await c.query(
+            `SELECT
+               COALESCE(
+                 SUM(ri.quantity),
+                 0
+               )::int AS quantity
+             FROM return_items ri
+             JOIN return_requests rr
+               ON rr.id=ri.return_request_id
+             WHERE
+               ri.order_item_id=$1
+               AND rr.status <> 'REJECTED'`,
+            [item.order_item_id]
+          );
+
+        const alreadyReturned =
+          Number(
+            previous.rows[0].quantity || 0
+          );
+
+        const orderedQuantity =
+          Number(
+            orderItem.rows[0].quantity
+          );
+
+        if (
+          alreadyReturned + quantity >
+          orderedQuantity
+        ) {
+          throw new Error(
+            'RETURN_QUANTITY_EXCEEDS_ORDER'
+          );
+        }
+
+        await c.query(
+          `INSERT INTO return_items
+           (
+             return_request_id,
+             order_item_id,
+             quantity
+           )
+           VALUES($1,$2,$3)`,
+          [
+            returnRequest.id,
+            item.order_item_id,
+            quantity
+          ]
+        );
+      }
+
+      await audit(
+        c,
+        'RETURN_REQUESTED',
+        'return_request',
+        returnRequest.id,
+        {
+          order_id: b.order_id,
+          items: b.items
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return returnRequest;
+
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+
+  return send(res, 201, {
+    success: true,
+    data: result
+  });
+}
       const b = await body(req);
 
       const row = await db(async c =>
