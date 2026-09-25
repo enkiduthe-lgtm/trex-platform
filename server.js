@@ -169,7 +169,35 @@ async function initDb() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
+await c.query(`
+  ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS dealer_id
+  BIGINT REFERENCES dealers(id);
 
+  ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS updated_at
+  TIMESTAMPTZ DEFAULT NOW();
+
+  ALTER TABLE dealer_ledger
+  ADD COLUMN IF NOT EXISTS order_id
+  BIGINT REFERENCES orders(id);
+
+  ALTER TABLE dealer_ledger
+  ADD COLUMN IF NOT EXISTS description TEXT;
+
+  ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS price
+  NUMERIC(12,2) NOT NULL DEFAULT 0;
+
+  ALTER TABLE audit_logs
+  ADD COLUMN IF NOT EXISTS details JSONB;
+
+  ALTER TABLE return_requests
+  ADD COLUMN IF NOT EXISTS reason TEXT;
+
+  ALTER TABLE return_requests
+  ADD COLUMN IF NOT EXISTS qc_result TEXT;
+`);
     const products = [
       ['TREX-TEA-60','Trex Tea','60 saşe'],
       ['TREX-COFFEE-30','Trex Coffee','30 saşe'],
