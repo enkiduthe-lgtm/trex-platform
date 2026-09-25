@@ -161,7 +161,14 @@ async function initDb() {
         qc_result TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
-
+CREATE TABLE IF NOT EXISTS return_items(
+  id BIGSERIAL PRIMARY KEY,
+  return_request_id BIGINT REFERENCES return_requests(id) ON DELETE CASCADE,
+  order_item_id BIGINT REFERENCES order_items(id),
+  quantity INT NOT NULL CHECK(quantity > 0),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(return_request_id, order_item_id)
+);
       CREATE TABLE IF NOT EXISTS audit_logs(
         id BIGSERIAL PRIMARY KEY,
         actor TEXT NOT NULL,
