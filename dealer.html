@@ -1,1 +1,758 @@
-<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trex Bayi Demo</title><link rel="stylesheet" href="/styles.css"></head><body><header class="top"><div class="bar"><div class="brand">TREX BAYİ</div><div class="pill">Demo Bayi • Seviye 2</div></div></header><main class="wrap"><nav class="nav"><a href="/">Müşteri</a><a href="/bayi">Ana Sayfa</a><a href="#">Ürünler</a><a href="#">Siparişler</a><a href="#">Primler</a><a href="#">Cari Hesap</a><a href="#">Alt Bayiler</a><a href="#">Profil</a></nav><div class="grid"><div class="card metric"><strong>12.450 TL</strong><span>Aylık satış</span></div><div class="card metric"><strong>1.420 TL</strong><span>Kullanılabilir prim</span></div><div class="card metric"><strong>3</strong><span>Alt bayi</span></div><div class="card metric"><strong>8</strong><span>Aktif sipariş</span></div></div><section class="hero" style="margin-top:18px"><div class="card"><h2>Prim Cüzdanı</h2><div class="list"><div class="row"><span>Bekleyen</span><b>380 TL</b></div><div class="row"><span>Onaylanan</span><b>620 TL</b></div><div class="row"><span>Kullanılabilir</span><b>1.420 TL</b></div></div></div><div class="card"><h2>Bayi Bilgisi</h2><p><span class="tick">✓</span> Bayilik şartları kabul edildi</p><p><span class="tick">✓</span> IBAN doğrulama kaydı mevcut</p><p><span class="tick">✓</span> Cari hesap aktif</p><p class="muted">Gerçek banka ve ödeme işlemleri bu demo ortamında yapılmaz.</p></div></section></main><footer class="foot">Trex Bayi Portalı • Demo verileridir</footer></body></html>
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trex Bayi Portalı</title>
+  <link rel="stylesheet" href="/styles.css">
+
+  <style>
+    .status-ok {
+      color: #157347;
+      font-weight: 700;
+    }
+
+    .status-error {
+      color: #b42318;
+      font-weight: 700;
+    }
+
+    .muted-small {
+      opacity: .7;
+      font-size: 13px;
+    }
+
+    select {
+      width: 100%;
+      max-width: 360px;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fff;
+      font-size: 15px;
+    }
+  </style>
+</head>
+
+<body>
+
+<header class="top">
+  <div class="bar">
+    <div class="brand">TREX BAYİ</div>
+    <div class="pill" id="dealerLevel">
+      Bayi Portalı
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <nav class="nav">
+    <a href="/">Müşteri</a>
+    <a href="/dealer.html">Ana Sayfa</a>
+    <a href="#orders">Siparişler</a>
+    <a href="#commissions">Primler</a>
+    <a href="#account">Cari Hesap</a>
+  </nav>
+
+  <section class="card">
+    <h2>Bayi Seçimi</h2>
+
+    <select id="dealerSelect">
+      <option value="">
+        Bayiler yükleniyor...
+      </option>
+    </select>
+
+    <p id="apiStatus" class="muted-small">
+      API bağlantısı kontrol ediliyor...
+    </p>
+  </section>
+
+  <div class="grid">
+
+    <div class="card metric">
+      <strong id="monthlySales">-</strong>
+      <span>Bu ay sipariş tutarı</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="commissionBalance">-</strong>
+      <span>Prim bakiyesi</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="activeOrders">-</strong>
+      <span>Aktif sipariş</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="completedOrders">-</strong>
+      <span>Tamamlanan sipariş</span>
+    </div>
+
+  </div>
+
+  <section class="hero" style="margin-top:18px">
+
+    <div class="card" id="account">
+      <h2>Bayi Bilgisi</h2>
+
+      <div class="list">
+        <div class="row">
+          <span>Bayi</span>
+          <b id="dealerName">-</b>
+        </div>
+
+        <div class="row">
+          <span>Bayi Kodu</span>
+          <b id="dealerCode">-</b>
+        </div>
+
+        <div class="row">
+          <span>Seviye</span>
+          <b id="levelText">-</b>
+        </div>
+
+        <div class="row">
+          <span>Durum</span>
+          <b id="dealerStatus">-</b>
+        </div>
+      </div>
+
+      <p class="muted">
+        Alt bayi, IBAN doğrulama ve ödeme talebi modülleri henüz
+        gerçek backend verisine bağlanmadı.
+      </p>
+    </div>
+
+    <div class="card" id="commissions">
+      <h2>Prim Özeti</h2>
+
+      <div class="list">
+
+        <div class="row">
+          <span>Kazanılan Prim</span>
+          <b id="earnedCommission">-</b>
+        </div>
+
+        <div class="row">
+          <span>İade / Geri Alma</span>
+          <b id="clawbackCommission">-</b>
+        </div>
+
+        <div class="row">
+          <span>Net Prim</span>
+          <b id="netCommission">-</b>
+        </div>
+
+      </div>
+    </div>
+
+  </section>
+
+  <section class="card" id="orders" style="margin-top:18px">
+
+    <h2>Son Siparişler</h2>
+
+    <table class="table">
+
+      <thead>
+        <tr>
+          <th>No</th>
+          <th>Tutar</th>
+          <th>Durum</th>
+          <th>Tarih</th>
+        </tr>
+      </thead>
+
+      <tbody id="ordersBody">
+        <tr>
+          <td colspan="4">
+            Veriler yükleniyor...
+          </td>
+        </tr>
+      </tbody>
+
+    </table>
+
+  </section>
+
+  <section class="card" style="margin-top:18px">
+
+    <h2>Prim Hareketleri</h2>
+
+    <table class="table">
+
+      <thead>
+        <tr>
+          <th>Tür</th>
+          <th>Tutar</th>
+          <th>Açıklama</th>
+          <th>Tarih</th>
+        </tr>
+      </thead>
+
+      <tbody id="ledgerBody">
+        <tr>
+          <td colspan="4">
+            Veriler yükleniyor...
+          </td>
+        </tr>
+      </tbody>
+
+    </table>
+
+  </section>
+
+  <section class="card" style="margin-top:18px">
+
+    <div class="notice">
+      Bu ekran gerçek PostgreSQL demo verisini kullanmaktadır.
+      Gerçek banka transferi, prim ödemesi veya IBAN işlemi yapılmaz.
+    </div>
+
+  </section>
+
+</main>
+
+<footer class="foot">
+  Trex Bayi Portalı • PostgreSQL bağlantılı demo
+</footer>
+
+<script>
+
+const API_BASE =
+  'https://trex-platform-core-db.onrender.com';
+
+let dealers = [];
+let orders = [];
+let ledger = [];
+
+function money(value) {
+  return Number(value || 0).toLocaleString(
+    'tr-TR',
+    {
+      style: 'currency',
+      currency: 'TRY'
+    }
+  );
+}
+
+function dateText(value) {
+  if (!value) return '-';
+
+  return new Date(value).toLocaleString(
+    'tr-TR'
+  );
+}
+
+function statusText(status) {
+  const map = {
+    NEW: 'Yeni',
+    PAYMENT_PENDING: 'Ödeme Bekliyor',
+    APPROVED: 'Onaylandı',
+    STOCK_RESERVED: 'Stok Ayrıldı',
+    PICKING: 'Toplanıyor',
+    PACKING: 'Paketleniyor',
+    READY_TO_SHIP: 'Kargoya Hazır',
+    SHIPPED: 'Kargolandı',
+    DELIVERED: 'Teslim Edildi',
+    COMPLETED: 'Tamamlandı',
+    CANCELLED: 'İptal',
+    PROBLEM: 'Sorun'
+  };
+
+  return map[status] || status || '-';
+}
+
+function ledgerText(type) {
+  const map = {
+    COMMISSION_ACCRUAL: 'Prim Tahakkuku',
+    COMMISSION_CLAWBACK: 'Prim Geri Alma'
+  };
+
+  return map[type] || type || '-';
+}
+
+async function api(path) {
+  const response =
+    await fetch(API_BASE + path);
+
+  if (!response.ok) {
+    throw new Error(
+      'HTTP ' + response.status
+    );
+  }
+
+  const result =
+    await response.json();
+
+  if (!result.success) {
+    throw new Error(
+      result.error || 'API_ERROR'
+    );
+  }
+
+  return result.data || [];
+}
+
+async function loadAll() {
+  const status =
+    document.getElementById(
+      'apiStatus'
+    );
+
+  try {
+
+    [
+      dealers,
+      orders,
+      ledger
+    ] = await Promise.all([
+      api('/api/v1/dealers'),
+      api('/api/v1/orders'),
+      api('/api/v1/dealer-ledger')
+    ]);
+
+    fillDealerSelect();
+
+    status.textContent =
+      'Core API bağlantısı aktif';
+
+    status.className =
+      'status-ok';
+
+  } catch (error) {
+
+    console.error(error);
+
+    status.textContent =
+      'API bağlantı hatası: ' +
+      error.message;
+
+    status.className =
+      'status-error';
+
+  }
+}
+
+function fillDealerSelect() {
+
+  const select =
+    document.getElementById(
+      'dealerSelect'
+    );
+
+  select.innerHTML = '';
+
+  if (!dealers.length) {
+
+    select.innerHTML = `
+      <option value="">
+        Henüz bayi kaydı yok
+      </option>
+    `;
+
+    clearDealer();
+
+    return;
+  }
+
+  for (const dealer of dealers) {
+
+    const option =
+      document.createElement(
+        'option'
+      );
+
+    option.value =
+      dealer.id;
+
+    option.textContent =
+      dealer.name +
+      ' • ' +
+      dealer.code;
+
+    select.appendChild(
+      option
+    );
+  }
+
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const requestedDealer =
+    params.get('dealer');
+
+  if (
+    requestedDealer &&
+    dealers.some(
+      d =>
+        String(d.id) ===
+        String(requestedDealer)
+    )
+  ) {
+    select.value =
+      requestedDealer;
+  }
+
+  select.addEventListener(
+    'change',
+    () => {
+      renderDealer(
+        Number(select.value)
+      );
+    }
+  );
+
+  renderDealer(
+    Number(select.value)
+  );
+}
+
+function clearDealer() {
+
+  const ids = [
+    'monthlySales',
+    'commissionBalance',
+    'activeOrders',
+    'completedOrders',
+    'dealerName',
+    'dealerCode',
+    'levelText',
+    'dealerStatus',
+    'earnedCommission',
+    'clawbackCommission',
+    'netCommission'
+  ];
+
+  for (const id of ids) {
+    document.getElementById(
+      id
+    ).textContent = '-';
+  }
+
+  document.getElementById(
+    'ordersBody'
+  ).innerHTML = `
+    <tr>
+      <td colspan="4">
+        Henüz bayi kaydı yok
+      </td>
+    </tr>
+  `;
+
+  document.getElementById(
+    'ledgerBody'
+  ).innerHTML = `
+    <tr>
+      <td colspan="4">
+        Henüz prim hareketi yok
+      </td>
+    </tr>
+  `;
+}
+
+function renderDealer(dealerId) {
+
+  const dealer =
+    dealers.find(
+      d =>
+        Number(d.id) ===
+        Number(dealerId)
+    );
+
+  if (!dealer) {
+    clearDealer();
+    return;
+  }
+
+  document.getElementById(
+    'dealerName'
+  ).textContent =
+    dealer.name || '-';
+
+  document.getElementById(
+    'dealerCode'
+  ).textContent =
+    dealer.code || '-';
+
+  document.getElementById(
+    'levelText'
+  ).textContent =
+    'Seviye ' +
+    dealer.dealer_level;
+
+  document.getElementById(
+    'dealerStatus'
+  ).textContent =
+    dealer.status || '-';
+
+  document.getElementById(
+    'dealerLevel'
+  ).textContent =
+    'Seviye ' +
+    dealer.dealer_level;
+
+  const dealerOrders =
+    orders.filter(
+      o =>
+        Number(o.dealer_id) ===
+        Number(dealerId)
+    );
+
+  const dealerLedger =
+    ledger.filter(
+      l =>
+        Number(l.dealer_id) ===
+        Number(dealerId)
+    );
+
+  const now =
+    new Date();
+
+  const monthlyOrders =
+    dealerOrders.filter(
+      o => {
+        const d =
+          new Date(
+            o.created_at
+          );
+
+        return (
+          d.getFullYear() ===
+            now.getFullYear() &&
+          d.getMonth() ===
+            now.getMonth()
+        );
+      }
+    );
+
+  const monthlySales =
+    monthlyOrders.reduce(
+      (sum, o) =>
+        sum +
+        Number(
+          o.total_amount || 0
+        ),
+      0
+    );
+
+  const active =
+    dealerOrders.filter(
+      o =>
+        ![
+          'COMPLETED',
+          'CANCELLED'
+        ].includes(
+          o.status
+        )
+    ).length;
+
+  const completed =
+    dealerOrders.filter(
+      o =>
+        o.status ===
+        'COMPLETED'
+    ).length;
+
+  const earned =
+    dealerLedger
+      .filter(
+        x =>
+          x.entry_type ===
+          'COMMISSION_ACCRUAL'
+      )
+      .reduce(
+        (sum, x) =>
+          sum +
+          Number(x.amount || 0),
+        0
+      );
+
+  const clawback =
+    dealerLedger
+      .filter(
+        x =>
+          x.entry_type ===
+          'COMMISSION_CLAWBACK'
+      )
+      .reduce(
+        (sum, x) =>
+          sum +
+          Math.abs(
+            Number(
+              x.amount || 0
+            )
+          ),
+        0
+      );
+
+  const net =
+    dealerLedger.reduce(
+      (sum, x) =>
+        sum +
+        Number(x.amount || 0),
+      0
+    );
+
+  document.getElementById(
+    'monthlySales'
+  ).textContent =
+    money(monthlySales);
+
+  document.getElementById(
+    'commissionBalance'
+  ).textContent =
+    money(net);
+
+  document.getElementById(
+    'activeOrders'
+  ).textContent =
+    active;
+
+  document.getElementById(
+    'completedOrders'
+  ).textContent =
+    completed;
+
+  document.getElementById(
+    'earnedCommission'
+  ).textContent =
+    money(earned);
+
+  document.getElementById(
+    'clawbackCommission'
+  ).textContent =
+    money(clawback);
+
+  document.getElementById(
+    'netCommission'
+  ).textContent =
+    money(net);
+
+  renderOrders(
+    dealerOrders
+  );
+
+  renderLedger(
+    dealerLedger
+  );
+}
+
+function renderOrders(list) {
+
+  const body =
+    document.getElementById(
+      'ordersBody'
+    );
+
+  body.innerHTML = '';
+
+  if (!list.length) {
+
+    body.innerHTML = `
+      <tr>
+        <td colspan="4">
+          Bu bayiye ait sipariş yok
+        </td>
+      </tr>
+    `;
+
+    return;
+  }
+
+  const sorted =
+    [...list]
+      .sort(
+        (a, b) =>
+          Number(b.id) -
+          Number(a.id)
+      )
+      .slice(0, 10);
+
+  for (const order of sorted) {
+
+    const row =
+      document.createElement(
+        'tr'
+      );
+
+    row.innerHTML = `
+      <td>${order.order_no}</td>
+      <td>${money(order.total_amount)}</td>
+      <td>
+        <span class="tag">
+          ${statusText(order.status)}
+        </span>
+      </td>
+      <td>${dateText(order.created_at)}</td>
+    `;
+
+    body.appendChild(row);
+  }
+}
+
+function renderLedger(list) {
+
+  const body =
+    document.getElementById(
+      'ledgerBody'
+    );
+
+  body.innerHTML = '';
+
+  if (!list.length) {
+
+    body.innerHTML = `
+      <tr>
+        <td colspan="4">
+          Henüz prim hareketi yok
+        </td>
+      </tr>
+    `;
+
+    return;
+  }
+
+  const sorted =
+    [...list]
+      .sort(
+        (a, b) =>
+          Number(b.id) -
+          Number(a.id)
+      )
+      .slice(0, 20);
+
+  for (const item of sorted) {
+
+    const row =
+      document.createElement(
+        'tr'
+      );
+
+    row.innerHTML = `
+      <td>${ledgerText(item.entry_type)}</td>
+      <td>${money(item.amount)}</td>
+      <td>${item.description || '-'}</td>
+      <td>${dateText(item.created_at)}</td>
+    `;
+
+    body.appendChild(row);
+  }
+}
+
+loadAll();
+
+setInterval(
+  loadAll,
+  30000
+);
+
+</script>
+
+</body>
+</html>
