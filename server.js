@@ -2426,6 +2426,1012 @@ const server =
             200,
             {
               success: true
+                      if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/auth/bootstrap-admin'
+        ) {
+
+          const b =
+            await body(req);
+
+          if (
+            !process.env
+              .DEMO_BOOTSTRAP_SECRET
+            ||
+            b.secret
+            !==
+            process.env
+              .DEMO_BOOTSTRAP_SECRET
+          ) {
+            throw Object.assign(
+              new Error(
+                'FORBIDDEN'
+              ),
+              {
+                statusCode: 403
+              }
+            );
+          }
+
+          if (
+            !b.email
+            ||
+            !b.password
+            ||
+            !b.full_name
+          ) {
+            throw Object.assign(
+              new Error(
+                'EMAIL_PASSWORD_NAME_REQUIRED'
+              ),
+              {
+                statusCode: 400
+              }
+            );
+          }
+
+          const row =
+            await db(
+              async c => {
+
+                const count =
+                  await c.query(
+                    `SELECT
+                      COUNT(*)::int
+                      count
+                    FROM app_users`
+                  );
+
+                if (
+                  count.rows[0]
+                    .count > 0
+                ) {
+                  throw Object.assign(
+                    new Error(
+                      'BOOTSTRAP_ALREADY_COMPLETED'
+                    ),
+                    {
+                      statusCode: 409
+                    }
+                  );
+                }
+
+                return (
+                  await c.query(
+                    `INSERT INTO
+                     app_users(
+                       email,
+                       full_name,
+                       password_hash,
+                       role
+                     )
+                     VALUES(
+                       $1,
+                       $2,
+                       $3,
+                       'ADMIN'
+                     )
+                     RETURNING
+                       id,
+                       email,
+                       full_name,
+                       role,
+                       created_at`,
+                    [
+                      b.email,
+                      b.full_name,
+                      hashPassword(
+                        b.password
+                      )
+                    ]
+                  )
+                ).rows[0];
+              }
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dashboard'
+        ) {
+
+          const data =
+            await db(
+              async c => {
+
+                const [
+                  orders,
+                  customers,
+                  dealers,
+                  stock,
+                  returns
+                ] =
+                  await Promise.all(
+                    [
+                      c.query(
+                        `SELECT
+                          COUNT(*)::int
+                          count,
+                          COALESCE(
+                            SUM(
+                              total_amount
+                            ),
+                            0
+                          )
+                          total
+                        FROM orders`
+                      ),
+
+                      c.query(
+                        `SELECT
+                          COUNT(*)::int
+                          count
+                        FROM customers`
+                      ),
+
+                      c.query(
+                        `SELECT
+                          COUNT(*)::int
+                          count
+                        FROM dealers
+                        WHERE
+                          status='ACTIVE'`
+                      ),
+
+                      c.query(
+                        `SELECT
+                          COALESCE(
+                            SUM(
+                              quantity_on_hand
+                            ),
+                            0
+                          )::int
+                          total
+                        FROM
+                          inventory_lots`
+                      ),
+
+                      c.query(
+                        `SELECT
+                          COUNT(*)::int
+                          count
+                        FROM return_requests
+                        WHERE
+                          status='REQUESTED'`
+                      )
+                    ]
+                  );
+
+                const latestOrders =
+                  await c.query(
+                    `SELECT
+                      id,
+                      order_no,
+                      status,
+                      total_amount,
+                      created_at
+                    FROM orders
+                    ORDER BY
+                      id DESC
+                    LIMIT 10`
+                  );
+
+                return {
+                  orders:
+                    orders.rows[0]
+                      .count,
+
+                  revenue:
+                    Number(
+                      orders.rows[0]
+                        .total
+                    ),
+
+                  customers:
+                    customers.rows[0]
+                      .count,
+
+                  active_dealers:
+                    dealers.rows[0]
+                      .count,
+
+                  stock_units:
+                    stock.rows[0]
+                      .total,
+
+                  pending_returns:
+                    returns.rows[0]
+                      .count,
+
+                  latest_orders:
+                    latestOrders.rows
+                };
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/products'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM products
+                         ORDER BY id`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/customers'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO
+                     customers(
+                       full_name,
+                       email,
+                       phone
+                     )
+                     VALUES(
+                       $1,
+                       $2,
+                       $3
+                     )
+                     RETURNING *`,
+                    [
+                      b.full_name,
+                      b.email || null,
+                      b.phone || null
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/customers'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM customers
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/orders'
+        ) {
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+
+              data:
+                await createOrder(
+                  await body(req)
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/orders'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM orders
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        const reserveMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/reserve-stock$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          reserveMatch
+        ) {
+
+          return send(
+            res,
+            200,
+            await reserve(
+              Number(
+                reserveMatch[1]
+              )
+            )
+          );
+        }
+
+        const statusMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/status$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          statusMatch
+        ) {
+
+          const b =
+            await body(req);
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await status(
+                  Number(
+                    statusMatch[1]
+                  ),
+                  b.status
+                )
+            }
+          );
+        }
+
+        const paymentMatch =
+          u.pathname.match(
+            /^\/api\/v1\/orders\/(\d+)\/payment-status$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          paymentMatch
+        ) {
+
+          const b =
+            await body(req);
+
+          const allowed = [
+            'PAYMENT_PENDING',
+            'PAID',
+            'FAILED',
+            'REFUNDED',
+            'COD_PENDING'
+          ];
+
+          if (
+            !allowed.includes(
+              b.payment_status
+            )
+          ) {
+            throw new Error(
+              'INVALID_PAYMENT_STATUS'
+            );
+          }
+
+          const result =
+            await db(
+              async c => {
+
+                await c.query(
+                  'BEGIN'
+                );
+
+                try {
+
+                  const current =
+                    await c.query(
+                      `SELECT *
+                       FROM orders
+                       WHERE id=$1
+                       FOR UPDATE`,
+                      [
+                        Number(
+                          paymentMatch[1]
+                        )
+                      ]
+                    );
+
+                  if (
+                    !current.rowCount
+                  ) {
+                    throw new Error(
+                      'ORDER_NOT_FOUND'
+                    );
+                  }
+
+                  const order =
+                    current.rows[0];
+
+                  const updated =
+                    await c.query(
+                      `UPDATE orders
+                       SET
+                         payment_status=$1,
+                         updated_at=NOW()
+                       WHERE id=$2
+                       RETURNING *`,
+                      [
+                        b.payment_status,
+                        Number(
+                          paymentMatch[1]
+                        )
+                      ]
+                    );
+
+                  await audit(
+                    c,
+                    'PAYMENT_STATUS_CHANGED',
+                    'order',
+                    order.id,
+                    {
+                      old_payment_status:
+                        order.payment_status,
+
+                      new_payment_status:
+                        b.payment_status
+                    }
+                  );
+
+                  await c.query(
+                    'COMMIT'
+                  );
+
+                  return updated.rows[0];
+
+                } catch (e) {
+
+                  await c.query(
+                    'ROLLBACK'
+                  );
+
+                  throw e;
+                }
+              }
+            );
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+              data: result
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/inventory/lots'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO
+                     inventory_lots(
+                       product_id,
+                       lot_no,
+                       expiry_date,
+                       quantity_on_hand
+                     )
+                     VALUES(
+                       $1,
+                       $2,
+                       $3,
+                       $4
+                     )
+                     RETURNING *`,
+                    [
+                      b.product_id,
+                      b.lot_no,
+                      b.expiry_date || null,
+                      Number(
+                        b.quantity_on_hand
+                        || 0
+                      )
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/inventory/lots'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                          l.*,
+                          p.name
+                            product_name,
+                          p.sku
+
+                        FROM
+                          inventory_lots l
+
+                        JOIN products p
+                          ON
+                          p.id=
+                          l.product_id
+
+                        ORDER BY
+                          l.expiry_date
+                          ASC
+                          NULLS LAST,
+                          l.id`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/dealers'
+        ) {
+
+          const b =
+            await body(req);
+
+          const row =
+            await db(
+              async c =>
+                (
+                  await c.query(
+                    `INSERT INTO
+                     dealers(
+                       code,
+                       name,
+                       dealer_level,
+                       status
+                     )
+                     VALUES(
+                       $1,
+                       $2,
+                       $3,
+                       $4
+                     )
+                     RETURNING *`,
+                    [
+                      b.code,
+                      b.name,
+                      Number(
+                        b.dealer_level
+                        || 1
+                      ),
+                      b.status
+                        || 'ACTIVE'
+                    ]
+                  )
+                ).rows[0]
+            );
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+              data: row
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dealers'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM dealers
+                         ORDER BY id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/dealer-ledger'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                          dl.*,
+                          d.name
+                            dealer_name
+
+                        FROM dealer_ledger dl
+
+                        JOIN dealers d
+                          ON
+                          d.id=
+                          dl.dealer_id
+
+                        ORDER BY
+                          dl.id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'POST'
+          &&
+          u.pathname ===
+          '/api/v1/returns'
+        ) {
+
+          return send(
+            res,
+            201,
+            {
+              success: true,
+
+              data:
+                await createReturn(
+                  await body(req)
+                )
+            }
+          );
+        }
+
+        const returnApproveMatch =
+          u.pathname.match(
+            /^\/api\/v1\/returns\/(\d+)\/approve$/
+          );
+
+        if (
+          req.method === 'POST'
+          &&
+          returnApproveMatch
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await approveReturn(
+                  Number(
+                    returnApproveMatch[1]
+                  )
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/returns'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT
+                          rr.*,
+
+                          COALESCE(
+                            json_agg(
+                              json_build_object(
+                                'id',
+                                ri.id,
+
+                                'order_item_id',
+                                ri.order_item_id,
+
+                                'quantity',
+                                ri.quantity
+                              )
+                            )
+                            FILTER(
+                              WHERE
+                                ri.id
+                                IS NOT NULL
+                            ),
+                            '[]'
+                          )
+                          items
+
+                        FROM
+                          return_requests rr
+
+                        LEFT JOIN
+                          return_items ri
+                          ON
+                          ri.return_request_id=
+                          rr.id
+
+                        GROUP BY
+                          rr.id
+
+                        ORDER BY
+                          rr.id DESC`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        if (
+          req.method === 'GET'
+          &&
+          u.pathname ===
+          '/api/v1/audit-logs'
+        ) {
+
+          return send(
+            res,
+            200,
+            {
+              success: true,
+
+              data:
+                await db(
+                  async c =>
+                    (
+                      await c.query(
+                        `SELECT *
+                         FROM audit_logs
+                         ORDER BY id DESC
+                         LIMIT 100`
+                      )
+                    ).rows
+                )
+            }
+          );
+        }
+
+        return send(
+          res,
+          404,
+          {
+            success: false,
+            error:
+              'NOT_FOUND'
+          }
+        );
+
+      } catch (e) {
+
+        console.error(e);
+
+        const statusCode =
+          e.statusCode
+          ||
+          (
+            [
+              'INVALID_JSON',
+              'EMAIL_AND_PASSWORD_REQUIRED',
+              'EMAIL_PASSWORD_NAME_REQUIRED',
+              'INVALID_PAYMENT_STATUS',
+              'CUSTOMER_ID_REQUIRED',
+              'ORDER_ITEMS_REQUIRED',
+              'INVALID_QUANTITY',
+              'ORDER_ID_REQUIRED',
+              'RETURN_ITEMS_REQUIRED',
+              'INVALID_RETURN_QUANTITY',
+              'RETURN_QUANTITY_EXCEEDS_ORDER'
+            ].includes(
+              e.message
+            )
+              ? 400
+              : 500
+          );
+
+        return send(
+          res,
+          statusCode,
+          {
+            success: false,
+            error:
+              e.message
+          }
+        );
+      }
+    }
+  );
+
+server.listen(
+  port,
+  '0.0.0.0',
+  async () => {
+
+    console.log(
+      'Trex Platform Core API v15 running'
+    );
+
+    try {
+
+      await initDb();
+
+      console.log(
+        'Database schema v15 ready'
+      );
+
+    } catch (e) {
+
+      console.error(
+        'Database initialization failed:',
+        e.message
+      );
+    }
+  }
+);
             }
           );
         }
