@@ -6,7 +6,10 @@ const port = process.env.PORT || 10000;
 function send(res, status, data) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
   });
   res.end(JSON.stringify(data));
 }
