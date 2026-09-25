@@ -1,1 +1,354 @@
-<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trex Admin Demo</title><link rel="stylesheet" href="/styles.css"></head><body><header class="top"><div class="bar"><div class="brand">TREX ADMIN</div><div class="pill">Patron / Demo</div></div></header><main class="wrap"><nav class="nav"><a href="/">Müşteri</a><a href="/admin">Kontrol Paneli</a><a href="#">Siparişler</a><a href="#">Müşteriler</a><a href="#">Bayiler</a><a href="#">Stok</a><a href="#">Finans</a><a href="#">İadeler</a><a href="#">Primler</a></nav><div class="grid"><div class="card metric"><strong>24</strong><span>Bugünkü sipariş</span></div><div class="card metric"><strong>18.450 TL</strong><span>Bugünkü ciro</span></div><div class="card metric"><strong>37</strong><span>Aktif bayi</span></div><div class="card metric"><strong>3</strong><span>Düşük stok uyarısı</span></div></div><section class="hero" style="margin-top:18px"><div class="card"><h2>Son Siparişler</h2><table class="table"><thead><tr><th>No</th><th>Kanal</th><th>Tutar</th><th>Durum</th></tr></thead><tbody><tr><td>TRX-260925-024</td><td>Web</td><td>1.250,00 TL</td><td><span class="tag">Onaylandı</span></td></tr><tr><td>TRX-260925-023</td><td>Bayi</td><td>4.980,00 TL</td><td><span class="tag warn">Hazırlanıyor</span></td></tr></tbody></table></div><div class="card"><h2>Operasyon</h2><div class="list"><div class="row"><span>İade inceleme</span><b>2</b></div><div class="row"><span>Kargoya hazır</span><b>8</b></div><div class="row"><span>Prim inceleme</span><b>4</b></div></div></div></section><section class="card" style="margin-top:18px"><h2>Canlıya Geçiş</h2><div class="notice"><b>Production bloklu:</b> gerçek ödeme sağlayıcısı, Aras Kargo, UAT, yasal onay ve production smoke kanıtları olmadan v1.0.0 yayınlanmaz.</div></section></main><footer class="foot">Trex Admin • Demo verileridir</footer></body></html>
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trex Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .status-ok {
+      color: #157347;
+      font-weight: 700;
+    }
+
+    .status-error {
+      color: #b42318;
+      font-weight: 700;
+    }
+
+    .muted {
+      opacity: .7;
+      font-size: 14px;
+    }
+
+    .loading {
+      opacity: .65;
+    }
+  </style>
+</head>
+
+<body>
+
+<header class="top">
+  <div class="bar">
+    <div class="brand">TREX ADMIN</div>
+    <div class="pill">Patron / Demo</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <nav class="nav">
+    <a href="/">Müşteri</a>
+    <a href="/admin">Kontrol Paneli</a>
+    <a href="#">Siparişler</a>
+    <a href="#">Müşteriler</a>
+    <a href="#">Bayiler</a>
+    <a href="#">Stok</a>
+    <a href="#">Finans</a>
+    <a href="#">İadeler</a>
+    <a href="#">Primler</a>
+  </nav>
+
+  <div style="margin:14px 0">
+    <span id="apiStatus" class="muted">
+      API bağlantısı kontrol ediliyor...
+    </span>
+  </div>
+
+  <div class="grid" id="metrics">
+
+    <div class="card metric">
+      <strong id="orderCount">-</strong>
+      <span>Toplam sipariş</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="revenue">-</strong>
+      <span>Toplam sipariş tutarı</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="customerCount">-</strong>
+      <span>Müşteri</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="dealerCount">-</strong>
+      <span>Aktif bayi</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="stockCount">-</strong>
+      <span>Toplam stok adedi</span>
+    </div>
+
+    <div class="card metric">
+      <strong id="returnCount">-</strong>
+      <span>Bekleyen iade</span>
+    </div>
+
+  </div>
+
+  <section class="hero" style="margin-top:18px">
+
+    <div class="card">
+      <h2>Son Siparişler</h2>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Tutar</th>
+            <th>Durum</th>
+            <th>Tarih</th>
+          </tr>
+        </thead>
+
+        <tbody id="ordersBody">
+          <tr>
+            <td colspan="4">
+              Veriler yükleniyor...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Sistem Durumu</h2>
+
+      <div class="list">
+
+        <div class="row">
+          <span>Core API</span>
+          <b id="coreStatus">Kontrol ediliyor</b>
+        </div>
+
+        <div class="row">
+          <span>Veritabanı</span>
+          <b id="dbStatus">PostgreSQL</b>
+        </div>
+
+        <div class="row">
+          <span>Ödeme</span>
+          <b>Mock</b>
+        </div>
+
+        <div class="row">
+          <span>Kargo</span>
+          <b>Mock</b>
+        </div>
+
+      </div>
+    </div>
+
+  </section>
+
+  <section class="card" style="margin-top:18px">
+    <h2>Operasyon Notu</h2>
+
+    <div class="notice">
+      Bu panel şu anda Trex Platform Core API üzerindeki gerçek demo verilerini
+      göstermektedir. Ödeme ve kargo entegrasyonları henüz mock durumundadır.
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  Trex Admin • PostgreSQL bağlantılı demo
+</footer>
+
+<script>
+const API_BASE =
+  'https://trex-platform-core-db.onrender.com';
+
+function money(value) {
+  return Number(value || 0).toLocaleString(
+    'tr-TR',
+    {
+      style: 'currency',
+      currency: 'TRY'
+    }
+  );
+}
+
+function dateText(value) {
+  if (!value) return '-';
+
+  return new Date(value).toLocaleString(
+    'tr-TR'
+  );
+}
+
+function statusText(status) {
+  const map = {
+    NEW: 'Yeni',
+    PAYMENT_PENDING: 'Ödeme Bekliyor',
+    APPROVED: 'Onaylandı',
+    STOCK_RESERVED: 'Stok Ayrıldı',
+    PICKING: 'Toplanıyor',
+    PACKING: 'Paketleniyor',
+    READY_TO_SHIP: 'Kargoya Hazır',
+    SHIPPED: 'Kargolandı',
+    DELIVERED: 'Teslim Edildi',
+    COMPLETED: 'Tamamlandı',
+    CANCELLED: 'İptal',
+    PROBLEM: 'Sorun'
+  };
+
+  return map[status] || status || '-';
+}
+
+async function loadDashboard() {
+  const apiStatus =
+    document.getElementById('apiStatus');
+
+  const coreStatus =
+    document.getElementById('coreStatus');
+
+  try {
+    const response = await fetch(
+      API_BASE + '/api/v1/dashboard'
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        'HTTP ' + response.status
+      );
+    }
+
+    const result =
+      await response.json();
+
+    if (!result.success) {
+      throw new Error(
+        result.error || 'API_ERROR'
+      );
+    }
+
+    const data =
+      result.data;
+
+    document.getElementById(
+      'orderCount'
+    ).textContent =
+      data.orders ?? 0;
+
+    document.getElementById(
+      'revenue'
+    ).textContent =
+      money(data.revenue);
+
+    document.getElementById(
+      'customerCount'
+    ).textContent =
+      data.customers ?? 0;
+
+    document.getElementById(
+      'dealerCount'
+    ).textContent =
+      data.active_dealers ?? 0;
+
+    document.getElementById(
+      'stockCount'
+    ).textContent =
+      data.stock_units ?? 0;
+
+    document.getElementById(
+      'returnCount'
+    ).textContent =
+      data.pending_returns ?? 0;
+
+    const body =
+      document.getElementById(
+        'ordersBody'
+      );
+
+    body.innerHTML = '';
+
+    if (
+      !data.latest_orders ||
+      data.latest_orders.length === 0
+    ) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="4">
+            Henüz sipariş yok
+          </td>
+        </tr>
+      `;
+    } else {
+      for (
+        const order
+        of data.latest_orders
+      ) {
+        const row =
+          document.createElement('tr');
+
+        row.innerHTML = `
+          <td>${order.order_no}</td>
+          <td>${money(order.total_amount)}</td>
+          <td>
+            <span class="tag">
+              ${statusText(order.status)}
+            </span>
+          </td>
+          <td>${dateText(order.created_at)}</td>
+        `;
+
+        body.appendChild(row);
+      }
+    }
+
+    apiStatus.textContent =
+      'Core API bağlantısı aktif';
+
+    apiStatus.className =
+      'status-ok';
+
+    coreStatus.textContent =
+      'Çalışıyor';
+
+    coreStatus.className =
+      'status-ok';
+
+  } catch (error) {
+    console.error(error);
+
+    apiStatus.textContent =
+      'Core API bağlantı hatası: ' +
+      error.message;
+
+    apiStatus.className =
+      'status-error';
+
+    coreStatus.textContent =
+      'Bağlantı Hatası';
+
+    coreStatus.className =
+      'status-error';
+
+    document.getElementById(
+      'ordersBody'
+    ).innerHTML = `
+      <tr>
+        <td colspan="4">
+          API verisi alınamadı.
+        </td>
+      </tr>
+    `;
+  }
+}
+
+loadDashboard();
+
+setInterval(
+  loadDashboard,
+  30000
+);
+</script>
+
+</body>
+</html>
