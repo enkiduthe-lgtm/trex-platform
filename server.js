@@ -698,7 +698,76 @@ if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
 
     const statusMatch =
       u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/status$/);
+const paymentMatch =
+  u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/payment-status$/);
 
+if (req.method === 'POST' && paymentMatch) {
+  const b = await body(req);
+
+  const allowedPaymentStatuses = [
+    'PAYMENT_PENDING',
+    'PAID',
+    'FAILED',
+    'REFUNDED',
+    'COD_PENDING'
+  ];
+
+  if (!allowedPaymentStatuses.includes(b.payment_status)) {
+    throw new Error('INVALID_PAYMENT_STATUS');
+  }
+
+  const result = await db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const current = await c.query(
+        `SELECT * FROM orders WHERE id=$1 FOR UPDATE`,
+        [Number(paymentMatch[1])]
+      );
+
+      if (!current.rowCount) {
+        throw new Error('ORDER_NOT_FOUND');
+      }
+
+      const order = current.rows[0];
+
+      const updated = await c.query(
+        `UPDATE orders
+         SET payment_status=$1,updated_at=NOW()
+         WHERE id=$2
+         RETURNING *`,
+        [
+          b.payment_status,
+          Number(paymentMatch[1])
+        ]
+      );
+
+      await audit(
+        c,
+        'PAYMENT_STATUS_CHANGED',
+        'order',
+        order.id,
+        {
+          old_payment_status: order.payment_status,
+          new_payment_status: b.payment_status
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return updated.rows[0];
+
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+
+  return send(res, 200, {
+    success: true,
+    data: result
+  });
+}
     if (req.method === 'POST' && statusMatch) {
       const b = await body(req);
 
@@ -745,7 +814,142 @@ if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
         )
       });
     }
+const returnApproveMatch =
+  u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/approve$/);
 
+if (req.method === 'POST' && returnApproveMatch) {
+  const returnId =
+    Number(returnApproveMatch[1]);
+
+  const result = await db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const rr = await c.query(
+        `SELECT
+           rr.*,
+           o.dealer_id,
+           o.order_no
+         FROM return_requests rr
+         JOIN orders o
+           ON o.id=rr.order_id
+         WHERE rr.id=$1
+         FOR UPDATE`,
+        [returnId]
+      );
+
+      if (!rr.rowCount) {
+        throw new Error('RETURN_NOT_FOUND');
+      }
+
+      const ret = rr.rows[0];
+
+      if (ret.status === 'APPROVED') {
+        throw new Error('RETURN_ALREADY_APPROVED');
+      }
+
+      await c.query(
+        `UPDATE return_requests
+         SET
+           status='APPROVED',
+           qc_result='APPROVED'
+         WHERE id=$1`,
+        [returnId]
+      );
+
+      let clawback = 0;
+
+      if (ret.dealer_id) {
+        const accrual = await c.query(
+          `SELECT COALESCE(SUM(amount),0) amount
+           FROM dealer_ledger
+           WHERE order_id=$1
+           AND entry_type='COMMISSION_ACCRUAL'`,
+          [ret.order_id]
+        );
+
+        const previous = await c.query(
+          `SELECT COALESCE(SUM(amount),0) amount
+           FROM dealer_ledger
+           WHERE order_id=$1
+           AND entry_type='COMMISSION_CLAWBACK'`,
+          [ret.order_id]
+        );
+
+        const accrued =
+          Number(accrual.rows[0].amount || 0);
+
+        const alreadyClawed =
+          Math.abs(
+            Number(previous.rows[0].amount || 0)
+          );
+
+        clawback =
+          Math.max(
+            accrued - alreadyClawed,
+            0
+          );
+
+        if (clawback > 0) {
+          await c.query(
+            `INSERT INTO dealer_ledger
+             (
+               dealer_id,
+               order_id,
+               entry_type,
+               amount,
+               reference_no,
+               description
+             )
+             VALUES
+             (
+               $1,
+               $2,
+               'COMMISSION_CLAWBACK',
+               $3,
+               $4,
+               'İade nedeniyle prim geri alma'
+             )`,
+            [
+              ret.dealer_id,
+              ret.order_id,
+              -clawback,
+              ret.return_no
+            ]
+          );
+        }
+      }
+
+      await audit(
+        c,
+        'RETURN_APPROVED',
+        'return_request',
+        returnId,
+        {
+          order_id: ret.order_id,
+          commission_clawback: clawback
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return {
+        return_id: returnId,
+        status: 'APPROVED',
+        commission_clawback: clawback
+      };
+
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+
+  return send(res, 200, {
+    success: true,
+    data: result
+  });
+}
     if (req.method === 'POST' && u.pathname === '/api/v1/dealers') {
       const b = await body(req);
 
