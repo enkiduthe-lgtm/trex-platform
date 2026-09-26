@@ -355,6 +355,65 @@
   >
 
     <h2>
+      Şifre Değiştir
+    </h2>
+
+    <form id="passwordForm">
+
+      <div style="margin-bottom:12px">
+        <label for="currentPassword">
+          Mevcut Şifre
+        </label>
+
+        <input
+          id="currentPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+          style="width:100%;padding:12px;margin-top:6px"
+        >
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label for="newPassword">
+          Yeni Şifre
+        </label>
+
+        <input
+          id="newPassword"
+          type="password"
+          autocomplete="new-password"
+          minlength="10"
+          required
+          style="width:100%;padding:12px;margin-top:6px"
+        >
+      </div>
+
+      <button
+        id="passwordBtn"
+        type="submit"
+        class="logout-btn"
+      >
+        Şifreyi Güncelle
+      </button>
+
+      <div
+        id="passwordStatus"
+        class="muted"
+        style="margin-top:10px"
+      ></div>
+
+    </form>
+
+  </section>
+
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
       Operasyon Notu
     </h2>
 
@@ -839,6 +898,123 @@ async function loadDashboard() {
     `;
   }
 }
+
+async function changePassword() {
+  const currentPassword =
+    document.getElementById(
+      'currentPassword'
+    ).value;
+
+  const newPassword =
+    document.getElementById(
+      'newPassword'
+    ).value;
+
+  const status =
+    document.getElementById(
+      'passwordStatus'
+    );
+
+  const button =
+    document.getElementById(
+      'passwordBtn'
+    );
+
+  if (!currentPassword || !newPassword) {
+    status.textContent =
+      'Mevcut ve yeni şifre gerekli.';
+    status.className =
+      'status-error';
+    return;
+  }
+
+  if (newPassword.length < 10) {
+    status.textContent =
+      'Yeni şifre en az 10 karakter olmalı.';
+    status.className =
+      'status-error';
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent =
+    'Şifre güncelleniyor...';
+  status.className =
+    'muted';
+
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/auth/change-password',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              'Bearer ' + TOKEN
+          },
+          body:
+            JSON.stringify({
+              current_password:
+                currentPassword,
+              new_password:
+                newPassword
+            })
+        }
+      );
+
+    const result =
+      await response.json();
+
+    if (
+      response.status === 401 &&
+      result.error ===
+      'CURRENT_PASSWORD_INVALID'
+    ) {
+      throw new Error(
+        'Mevcut şifre yanlış.'
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+        'Şifre değiştirilemedi.'
+      );
+    }
+
+    document.getElementById(
+      'passwordForm'
+    ).reset();
+
+    status.textContent =
+      'Şifre başarıyla değiştirildi.';
+    status.className =
+      'status-ok';
+
+  } catch (error) {
+    status.textContent =
+      error.message ||
+      'Şifre değiştirilemedi.';
+    status.className =
+      'status-error';
+
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById(
+  'passwordForm'
+).addEventListener(
+  'submit',
+  async event => {
+    event.preventDefault();
+    await changePassword();
+  }
+);
 
 async function startAdmin() {
   const valid =
