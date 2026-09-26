@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trex Platform Giriş</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(
+          circle at top,
+          #17324a 0,
+          #0b1520 42%,
+          #071018 100%
+        );
+      color: #f5f7fa;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: 430px;
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .brand h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    .brand p {
+      margin: 0;
+      color: #aab6c2;
+      font-size: 14px;
+    }
+
+    .card {
+      background: rgba(16, 27, 39, .94);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 22px;
+      padding: 24px;
+      box-shadow: 0 28px 70px rgba(0,0,0,.35);
+    }
+
+    label {
+      display: block;
+      margin: 0 0 8px;
+      color: #cbd5df;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid #2d4358;
+      background: #0b1621;
+      color: #fff;
+      border-radius: 14px;
+      padding: 15px 14px;
+      font-size: 16px;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #5aa7ff;
+      box-shadow: 0 0 0 3px rgba(90,167,255,.12);
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 15px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      background: #f0f3f7;
+      color: #0b1520;
+      margin-top: 4px;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .status {
+      min-height: 22px;
+      margin-top: 14px;
+      font-size: 13px;
+      text-align: center;
+      color: #9fb0c0;
+    }
+
+    .status.error {
+      color: #ff8f8f;
+    }
+
+    .status.ok {
+      color: #8fe0ac;
+    }
+
+    .foot {
+      margin-top: 16px;
+      text-align: center;
+      color: #718091;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body>
+
+  <main class="wrap">
+
+    <div class="brand">
+      <h1>Trex Platform</h1>
+      <p>Yönetim paneli güvenli girişi</p>
+    </div>
+
+    <section class="card">
+
+      <form id="loginForm">
+
+        <div class="field">
+          <label for="email">E-posta</label>
+
+          <input
+            id="email"
+            type="email"
+            autocomplete="username"
+            required
+            placeholder="ornek@firma.com"
+          />
+        </div>
+
+        <div class="field">
+          <label for="password">Şifre</label>
+
+          <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            placeholder="Şifreniz"
+          />
+        </div>
+
+        <button
+          id="submitBtn"
+          type="submit"
+        >
+          Giriş Yap
+        </button>
+
+        <div
+          id="status"
+          class="status"
+        ></div>
+
+      </form>
+
+    </section>
+
+    <div class="foot">
+      Trex Platform Demo
+      <br />
+      Yetkisiz erişim denemeleri kayıt altına alınabilir.
+    </div>
+
+  </main>
+
+  <script>
+
+    const API =
+      'https://trex-platform-core-db.onrender.com';
+
+    const form =
+      document.getElementById(
+        'loginForm'
+      );
+
+    const statusEl =
+      document.getElementById(
+        'status'
+      );
+
+    const submitBtn =
+      document.getElementById(
+        'submitBtn'
+      );
+
+    function setStatus(
+      message,
+      type = ''
+    ) {
+
+      statusEl.textContent =
+        message;
+
+      statusEl.className =
+        'status ' + type;
+    }
+
+    async function checkExistingSession() {
+
+      const token =
+        localStorage.getItem(
+          'trex_token'
+        );
+
+      if (!token) {
+        return;
+      }
+
+      try {
+
+        const r =
+          await fetch(
+            API +
+            '/api/v1/auth/me',
+            {
+              headers: {
+                Authorization:
+                  'Bearer ' +
+                  token
+              }
+            }
+          );
+
+        if (!r.ok) {
+
+          localStorage.removeItem(
+            'trex_token'
+          );
+
+          localStorage.removeItem(
+            'trex_user'
+          );
+
+          return;
+        }
+
+        const json =
+          await r.json();
+
+        if (
+          json.success
+          &&
+          json.data
+        ) {
+
+          window.location.href =
+            '/admin.html';
+        }
+
+      } catch {
+
+        setStatus(
+          'Sunucu bağlantısı kontrol edilemedi.',
+          'error'
+        );
+      }
+    }
+
+    form.addEventListener(
+      'submit',
+      async event => {
+
+        event.preventDefault();
+
+        submitBtn.disabled =
+          true;
+
+        setStatus(
+          'Giriş kontrol ediliyor...'
+        );
+
+        try {
+
+          const r =
+            await fetch(
+              API +
+              '/api/v1/auth/login',
+              {
+                method:
+                  'POST',
+
+                headers: {
+                  'Content-Type':
+                    'application/json'
+                },
+
+                body:
+                  JSON.stringify({
+                    email:
+                      document
+                        .getElementById(
+                          'email'
+                        )
+                        .value
+                        .trim(),
+
+                    password:
+                      document
+                        .getElementById(
+                          'password'
+                        )
+                        .value
+                  })
+              }
+            );
+
+          const json =
+            await r.json();
+
+          if (
+            !r.ok
+            ||
+            !json.success
+          ) {
+
+            throw new Error(
+              json.error
+              ===
+              'INVALID_CREDENTIALS'
+
+                ?
+                'E-posta veya şifre hatalı.'
+
+                :
+                (
+                  json.error
+                  ||
+                  'Giriş başarısız.'
+                )
+            );
+          }
+
+          const user =
+            json.data.user;
+
+          if (
+            user.role
+            !==
+            'ADMIN'
+          ) {
+
+            throw new Error(
+              'Bu giriş ekranı yalnızca yönetici hesabı içindir.'
+            );
+          }
+
+          localStorage.setItem(
+            'trex_token',
+            json.data.token
+          );
+
+          localStorage.setItem(
+            'trex_user',
+            JSON.stringify(
+              user
+            )
+          );
+
+          setStatus(
+            'Giriş başarılı. Yönlendiriliyor...',
+            'ok'
+          );
+
+          window.location.href =
+            '/admin.html';
+
+        } catch (error) {
+
+          setStatus(
+            error.message
+            ||
+            'Beklenmeyen bir hata oluştu.',
+            'error'
+          );
+
+        } finally {
+
+          submitBtn.disabled =
+            false;
+        }
+      }
+    );
+
+    checkExistingSession();
+
+  </script>
+
+</body>
+</html>
