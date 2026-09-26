@@ -188,7 +188,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.15' };
+    return { ok: true, version: '1.0.0-demo.16' };
   });
 }
 
@@ -504,7 +504,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.15', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.16', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
@@ -566,6 +566,104 @@ const server = http.createServer(async (req, res) => {
         await c.query(`UPDATE auth_sessions SET revoked_at=NOW() WHERE token_hash=$1`, [tokenHash(token)]);
       });
       return send(res, 200, { success:true });
+    }
+
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/change-password') {
+      const authUser = await getAuth(req);
+      if (!authUser) {
+        throw Object.assign(new Error('UNAUTHORIZED'), { statusCode: 401 });
+      }
+
+      const b = await body(req);
+
+      if (!b.current_password || !b.new_password) {
+        throw Object.assign(
+          new Error('CURRENT_AND_NEW_PASSWORD_REQUIRED'),
+          { statusCode: 400 }
+        );
+      }
+
+      if (String(b.new_password).length < 10) {
+        throw Object.assign(
+          new Error('PASSWORD_TOO_SHORT'),
+          { statusCode: 400 }
+        );
+      }
+
+      const token = bearer(req);
+
+      await db(async c => {
+        await c.query('BEGIN');
+
+        try {
+          const r = await c.query(
+            `SELECT *
+             FROM app_users
+             WHERE id=$1
+             FOR UPDATE`,
+            [authUser.id]
+          );
+
+          if (
+            !r.rowCount ||
+            !verifyPassword(
+              b.current_password,
+              r.rows[0].password_hash
+            )
+          ) {
+            throw Object.assign(
+              new Error('CURRENT_PASSWORD_INVALID'),
+              { statusCode: 401 }
+            );
+          }
+
+          await c.query(
+            `UPDATE app_users
+             SET
+               password_hash=$1,
+               updated_at=NOW()
+             WHERE id=$2`,
+            [
+              hashPassword(b.new_password),
+              authUser.id
+            ]
+          );
+
+          await c.query(
+            `UPDATE auth_sessions
+             SET revoked_at=NOW()
+             WHERE
+               user_id=$1
+               AND token_hash<>$2
+               AND revoked_at IS NULL`,
+            [
+              authUser.id,
+              tokenHash(token)
+            ]
+          );
+
+          await audit(
+            c,
+            'PASSWORD_CHANGED',
+            'app_user',
+            authUser.id
+          );
+
+          await c.query('COMMIT');
+        } catch (e) {
+          await c.query('ROLLBACK');
+          throw e;
+        }
+      });
+
+      return send(
+        res,
+        200,
+        {
+          success: true
+        }
+      );
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/auth/bootstrap-admin') {
@@ -764,6 +862,8 @@ const server = http.createServer(async (req, res) => {
     const statusCode = e.statusCode || (
       [
         'INVALID_JSON','EMAIL_AND_PASSWORD_REQUIRED','EMAIL_PASSWORD_NAME_REQUIRED',
+              'CURRENT_AND_NEW_PASSWORD_REQUIRED',
+              'PASSWORD_TOO_SHORT',
         'INVALID_PAYMENT_STATUS','CUSTOMER_ID_REQUIRED','ORDER_ITEMS_REQUIRED','INVALID_QUANTITY',
         'ORDER_ID_REQUIRED','RETURN_ITEMS_REQUIRED','INVALID_RETURN_QUANTITY','RETURN_QUANTITY_EXCEEDS_ORDER'
       ].includes(e.message) ? 400 : 500
@@ -773,10 +873,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v15 running');
+  console.log('Trex Platform Core API v16 running');
   try {
     await initDb();
-    console.log('Database schema v15 ready');
+    console.log('Database schema v16 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
