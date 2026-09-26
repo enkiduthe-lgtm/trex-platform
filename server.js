@@ -13,48 +13,27 @@ function send(res, status, data) {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization'
   });
-
   res.end(JSON.stringify(data));
 }
 
 function body(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
-
-    req.on('data', c => {
-      raw += c;
-    });
-
+    req.on('data', c => raw += c);
     req.on('end', () => {
-      try {
-        resolve(
-          raw
-            ? JSON.parse(raw)
-            : {}
-        );
-      } catch {
-        reject(
-          new Error('INVALID_JSON')
-        );
-      }
+      try { resolve(raw ? JSON.parse(raw) : {}); }
+      catch { reject(new Error('INVALID_JSON')); }
     });
-
     req.on('error', reject);
   });
 }
 
 async function db(fn) {
-  if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL_NOT_SET');
-  }
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_NOT_SET');
 
   const c = new Client({
-    connectionString:
-      process.env.DATABASE_URL,
-
-    ssl: {
-      rejectUnauthorized: false
-    }
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
   });
 
   await c.connect();
@@ -66,69 +45,32 @@ async function db(fn) {
   }
 }
 
-async function audit(
-  c,
-  action,
-  type,
-  id,
-  details = {}
-) {
+async function audit(c, action, type, id, details = {}) {
   await c.query(
-    `INSERT INTO audit_logs(
-      actor,
-      action,
-      entity_type,
-      entity_id,
-      details
-    )
-    VALUES(
-      'demo-api',
-      $1,
-      $2,
-      $3,
-      $4
-    )`,
-    [
-      action,
-      type,
-      String(id),
-      JSON.stringify(details)
-    ]
+    `INSERT INTO audit_logs(actor,action,entity_type,entity_id,details)
+     VALUES('demo-api',$1,$2,$3,$4)`,
+    [action, type, String(id), JSON.stringify(details)]
   );
 }
 
 function hashPassword(
   password,
-  salt = crypto
-    .randomBytes(16)
-    .toString('hex')
+  salt = crypto.randomBytes(16).toString('hex')
 ) {
   const hash = crypto
-    .scryptSync(
-      password,
-      salt,
-      64
-    )
+    .scryptSync(password, salt, 64)
     .toString('hex');
 
   return `${salt}:${hash}`;
 }
 
-function verifyPassword(
-  password,
-  stored
-) {
-  if (
-    !stored ||
-    !stored.includes(':')
-  ) {
+function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) {
     return false;
   }
 
-  const [
-    salt,
-    expectedHex
-  ] = stored.split(':');
+  const [salt, expectedHex] =
+    stored.split(':');
 
   const actual =
     crypto.scryptSync(
@@ -144,9 +86,7 @@ function verifyPassword(
     );
 
   return (
-    expected.length ===
-    actual.length
-    &&
+    expected.length === actual.length &&
     crypto.timingSafeEqual(
       expected,
       actual
@@ -169,8 +109,7 @@ function tokenHash(token) {
 
 function bearer(req) {
   const h =
-    req.headers.authorization
-    || '';
+    req.headers.authorization || '';
 
   return h.startsWith('Bearer ')
     ? h.slice(7).trim()
@@ -189,71 +128,27 @@ async function getAuth(req) {
     const r =
       await c.query(
         `SELECT
-          u.id,
-          u.email,
-          u.full_name,
-          u.role,
-          u.dealer_id,
-          u.customer_id
-
-        FROM auth_sessions s
-
-        JOIN app_users u
-          ON u.id=s.user_id
-
-        WHERE
-          s.token_hash=$1
-
-          AND
-          s.revoked_at
-          IS NULL
-
-          AND
-          s.expires_at>NOW()
-
-          AND
-          u.active=TRUE`,
+           u.id,
+           u.email,
+           u.full_name,
+           u.role,
+           u.dealer_id,
+           u.customer_id
+         FROM auth_sessions s
+         JOIN app_users u
+           ON u.id=s.user_id
+         WHERE
+           s.token_hash=$1
+           AND s.revoked_at IS NULL
+           AND s.expires_at>NOW()
+           AND u.active=TRUE`,
         [
           tokenHash(token)
         ]
       );
 
-    return (
-      r.rows[0]
-      || null
-    );
+    return r.rows[0] || null;
   });
-}
-
-function requireRole(
-  user,
-  allowed
-) {
-  if (!user) {
-    throw Object.assign(
-      new Error(
-        'UNAUTHORIZED'
-      ),
-      {
-        statusCode: 401
-      }
-    );
-  }
-
-  if (
-    !allowed.includes(
-      user.role
-    )
-  ) {
-    throw Object.assign(
-      new Error(
-        'FORBIDDEN'
-      ),
-      {
-        statusCode: 403
-      }
-    );
-  }
 }
 
 async function initDb() {
@@ -288,232 +183,107 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS orders(
         id BIGSERIAL PRIMARY KEY,
         order_no TEXT UNIQUE NOT NULL,
-        customer_id BIGINT
-          REFERENCES customers(id),
-
-        dealer_id BIGINT
-          REFERENCES dealers(id),
-
-        status TEXT NOT NULL
-          DEFAULT 'NEW',
-
-        payment_status TEXT NOT NULL
-          DEFAULT 'PAYMENT_PENDING',
-
+        customer_id BIGINT REFERENCES customers(id),
+        dealer_id BIGINT REFERENCES dealers(id),
+        status TEXT NOT NULL DEFAULT 'NEW',
+        payment_status TEXT NOT NULL DEFAULT 'PAYMENT_PENDING',
         payment_method TEXT,
-
-        total_amount NUMERIC(12,2)
-          NOT NULL
-          DEFAULT 0,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW(),
-
-        updated_at TIMESTAMPTZ
-          DEFAULT NOW()
+        total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS order_items(
         id BIGSERIAL PRIMARY KEY,
-
-        order_id BIGINT
-          REFERENCES orders(id)
-          ON DELETE CASCADE,
-
-        product_id BIGINT
-          REFERENCES products(id),
-
-        quantity INT NOT NULL
-          CHECK(quantity>0),
-
-        unit_price NUMERIC(12,2)
-          NOT NULL
-          DEFAULT 0
+        order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+        product_id BIGINT REFERENCES products(id),
+        quantity INT NOT NULL CHECK(quantity>0),
+        unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS inventory_lots(
         id BIGSERIAL PRIMARY KEY,
-
-        product_id BIGINT
-          REFERENCES products(id),
-
+        product_id BIGINT REFERENCES products(id),
         lot_no TEXT NOT NULL,
-
         expiry_date DATE,
-
-        quantity_on_hand INT
-          NOT NULL
-          DEFAULT 0,
-
-        quantity_reserved INT
-          NOT NULL
-          DEFAULT 0,
-
-        UNIQUE(
-          product_id,
-          lot_no
-        )
+        quantity_on_hand INT NOT NULL DEFAULT 0,
+        quantity_reserved INT NOT NULL DEFAULT 0,
+        UNIQUE(product_id,lot_no)
       );
 
       CREATE TABLE IF NOT EXISTS order_inventory_allocations(
         id BIGSERIAL PRIMARY KEY,
-
-        order_id BIGINT
-          REFERENCES orders(id)
-          ON DELETE CASCADE,
-
-        order_item_id BIGINT
-          REFERENCES order_items(id)
-          ON DELETE CASCADE,
-
-        inventory_lot_id BIGINT
-          REFERENCES inventory_lots(id),
-
-        quantity INT NOT NULL
-          CHECK(quantity>0),
-
-        consumed BOOLEAN
-          NOT NULL
-          DEFAULT FALSE
+        order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+        order_item_id BIGINT REFERENCES order_items(id) ON DELETE CASCADE,
+        inventory_lot_id BIGINT REFERENCES inventory_lots(id),
+        quantity INT NOT NULL CHECK(quantity>0),
+        consumed BOOLEAN NOT NULL DEFAULT FALSE
       );
 
       CREATE TABLE IF NOT EXISTS order_status_history(
         id BIGSERIAL PRIMARY KEY,
-
-        order_id BIGINT
-          REFERENCES orders(id)
-          ON DELETE CASCADE,
-
+        order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
         old_status TEXT,
-
         new_status TEXT NOT NULL,
-
         actor TEXT,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS dealer_commission_rules(
         id BIGSERIAL PRIMARY KEY,
-
-        product_id BIGINT
-          REFERENCES products(id),
-
+        product_id BIGINT REFERENCES products(id),
         dealer_level INT NOT NULL,
-
-        amount_per_unit NUMERIC(12,2)
-          NOT NULL
-          DEFAULT 0,
-
-        active BOOLEAN
-          NOT NULL
-          DEFAULT TRUE,
-
-        UNIQUE(
-          product_id,
-          dealer_level
-        )
+        amount_per_unit NUMERIC(12,2) NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        UNIQUE(product_id,dealer_level)
       );
 
       CREATE TABLE IF NOT EXISTS dealer_ledger(
         id BIGSERIAL PRIMARY KEY,
-
-        dealer_id BIGINT
-          REFERENCES dealers(id),
-
-        order_id BIGINT
-          REFERENCES orders(id),
-
+        dealer_id BIGINT REFERENCES dealers(id),
+        order_id BIGINT REFERENCES orders(id),
         entry_type TEXT NOT NULL,
-
-        amount NUMERIC(12,2)
-          NOT NULL,
-
+        amount NUMERIC(12,2) NOT NULL,
         reference_no TEXT,
-
         description TEXT,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS return_requests(
         id BIGSERIAL PRIMARY KEY,
-
-        return_no TEXT
-          UNIQUE
-          NOT NULL,
-
-        order_id BIGINT
-          REFERENCES orders(id),
-
-        status TEXT
-          NOT NULL
-          DEFAULT 'REQUESTED',
-
+        return_no TEXT UNIQUE NOT NULL,
+        order_id BIGINT REFERENCES orders(id),
+        status TEXT NOT NULL DEFAULT 'REQUESTED',
         reason TEXT,
-
         qc_result TEXT,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS return_items(
         id BIGSERIAL PRIMARY KEY,
-
-        return_request_id BIGINT
-          REFERENCES return_requests(id)
-          ON DELETE CASCADE,
-
-        order_item_id BIGINT
-          REFERENCES order_items(id),
-
-        quantity INT NOT NULL
-          CHECK(quantity>0),
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW(),
-
-        UNIQUE(
-          return_request_id,
-          order_item_id
-        )
+        return_request_id BIGINT REFERENCES return_requests(id) ON DELETE CASCADE,
+        order_item_id BIGINT REFERENCES order_items(id),
+        quantity INT NOT NULL CHECK(quantity>0),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(return_request_id,order_item_id)
       );
 
       CREATE TABLE IF NOT EXISTS audit_logs(
         id BIGSERIAL PRIMARY KEY,
-
         actor TEXT NOT NULL,
-
         action TEXT NOT NULL,
-
         entity_type TEXT,
-
         entity_id TEXT,
-
         details JSONB,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS app_users(
         id BIGSERIAL PRIMARY KEY,
-
-        email TEXT
-          UNIQUE
-          NOT NULL,
-
-        full_name TEXT
-          NOT NULL,
-
-        password_hash TEXT
-          NOT NULL,
-
-        role TEXT
-          NOT NULL
+        email TEXT UNIQUE NOT NULL,
+        full_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL
           CHECK(
             role IN(
               'ADMIN',
@@ -522,42 +292,21 @@ async function initDb() {
               'CUSTOMER'
             )
           ),
-
-        dealer_id BIGINT
-          REFERENCES dealers(id),
-
-        customer_id BIGINT
-          REFERENCES customers(id),
-
-        active BOOLEAN
-          NOT NULL
-          DEFAULT TRUE,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW(),
-
-        updated_at TIMESTAMPTZ
-          DEFAULT NOW()
+        dealer_id BIGINT REFERENCES dealers(id),
+        customer_id BIGINT REFERENCES customers(id),
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS auth_sessions(
         id BIGSERIAL PRIMARY KEY,
-
-        user_id BIGINT
-          NOT NULL
+        user_id BIGINT NOT NULL
           REFERENCES app_users(id)
           ON DELETE CASCADE,
-
-        token_hash TEXT
-          UNIQUE
-          NOT NULL,
-
-        expires_at TIMESTAMPTZ
-          NOT NULL,
-
-        created_at TIMESTAMPTZ
-          DEFAULT NOW(),
-
+        token_hash TEXT UNIQUE NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
         revoked_at TIMESTAMPTZ
       );
     `);
@@ -580,20 +329,16 @@ async function initDb() {
 
       ALTER TABLE products
       ADD COLUMN IF NOT EXISTS price
-      NUMERIC(12,2)
-      NOT NULL DEFAULT 0;
+      NUMERIC(12,2) NOT NULL DEFAULT 0;
 
       ALTER TABLE audit_logs
-      ADD COLUMN IF NOT EXISTS details
-      JSONB;
+      ADD COLUMN IF NOT EXISTS details JSONB;
 
       ALTER TABLE return_requests
-      ADD COLUMN IF NOT EXISTS reason
-      TEXT;
+      ADD COLUMN IF NOT EXISTS reason TEXT;
 
       ALTER TABLE return_requests
-      ADD COLUMN IF NOT EXISTS qc_result
-      TEXT;
+      ADD COLUMN IF NOT EXISTS qc_result TEXT;
     `);
 
     const products = [
@@ -624,10 +369,7 @@ async function initDb() {
       ]
     ];
 
-    for (
-      const p
-      of products
-    ) {
+    for (const p of products) {
       await c.query(
         `INSERT INTO products(
           sku,
@@ -651,34 +393,28 @@ async function initDb() {
          FROM products`
       );
 
-    for (
-      const p
-      of ids.rows
-    ) {
-
+    for (const p of ids.rows) {
       for (
         let level = 1;
         level <= 4;
         level++
       ) {
-
         await c.query(
-          `INSERT INTO
-           dealer_commission_rules(
-             product_id,
-             dealer_level,
-             amount_per_unit
-           )
-           VALUES(
-             $1,
-             $2,
-             $3
-           )
-           ON CONFLICT(
-             product_id,
-             dealer_level
-           )
-           DO NOTHING`,
+          `INSERT INTO dealer_commission_rules(
+            product_id,
+            dealer_level,
+            amount_per_unit
+          )
+          VALUES(
+            $1,
+            $2,
+            $3
+          )
+          ON CONFLICT(
+            product_id,
+            dealer_level
+          )
+          DO NOTHING`,
           [
             p.id,
             level,
@@ -695,12 +431,11 @@ async function initDb() {
     };
   });
 }
+
 async function createOrder(data) {
   return db(async c => {
 
-    await c.query(
-      'BEGIN'
-    );
+    await c.query('BEGIN');
 
     try {
 
@@ -723,10 +458,7 @@ async function createOrder(data) {
 
       const items = [];
 
-      for (
-        const i
-        of data.items
-      ) {
+      for (const i of data.items) {
 
         const r =
           await c.query(
@@ -806,8 +538,7 @@ async function createOrder(data) {
             orderNo,
             data.customer_id,
             data.dealer_id || null,
-            data.payment_method
-              || 'MOCK',
+            data.payment_method || 'MOCK',
             total
           ]
         );
@@ -815,10 +546,7 @@ async function createOrder(data) {
       const order =
         r.rows[0];
 
-      for (
-        const i
-        of items
-      ) {
+      for (const i of items) {
 
         await c.query(
           `INSERT INTO order_items(
@@ -881,7 +609,6 @@ async function createOrder(data) {
     }
   });
 }
-
 async function reserve(orderId) {
   return db(async c => {
 
@@ -932,9 +659,7 @@ async function reserve(orderId) {
           ]
         );
 
-      if (
-        exists.rowCount
-      ) {
+      if (exists.rowCount) {
         throw new Error(
           'ORDER_ALREADY_RESERVED'
         );
@@ -1016,11 +741,8 @@ async function reserve(orderId) {
           await c.query(
             `UPDATE inventory_lots
              SET
-               quantity_reserved
-               =
-               quantity_reserved
-               +
-               $1
+               quantity_reserved=
+               quantity_reserved+$1
              WHERE id=$2`,
             [
               take,
@@ -1137,29 +859,16 @@ async function consume(
       await c.query(
         `UPDATE inventory_lots
          SET
-           quantity_on_hand
-           =
-           quantity_on_hand
-           -
-           $1,
+           quantity_on_hand=
+           quantity_on_hand-$1,
 
-           quantity_reserved
-           =
-           quantity_reserved
-           -
-           $1
+           quantity_reserved=
+           quantity_reserved-$1
 
-         WHERE id=$2
-
-         AND
-           quantity_on_hand
-           >=
-           $1
-
-         AND
-           quantity_reserved
-           >=
-           $1
+         WHERE
+           id=$2
+           AND quantity_on_hand >= $1
+           AND quantity_reserved >= $1
 
          RETURNING id`,
         [
@@ -1215,12 +924,9 @@ async function release(
     await c.query(
       `UPDATE inventory_lots
        SET
-         quantity_reserved
-         =
+         quantity_reserved=
          GREATEST(
-           quantity_reserved
-           -
-           $1,
+           quantity_reserved-$1,
            0
          )
        WHERE id=$2`,
@@ -1351,8 +1057,7 @@ async function status(
         !(
           transitions[
             order.status
-          ]
-          || []
+          ] || []
         ).includes(next)
       ) {
         throw new Error(
@@ -1438,9 +1143,9 @@ async function status(
           const dealer =
             await c.query(
               `SELECT
-                dealer_level
-              FROM dealers
-              WHERE id=$1`,
+                 dealer_level
+               FROM dealers
+               WHERE id=$1`,
               [
                 order.dealer_id
               ]
@@ -1466,15 +1171,15 @@ async function status(
             const rule =
               await c.query(
                 `SELECT
-                  amount_per_unit
-                FROM
-                  dealer_commission_rules
-                WHERE
-                  product_id=$1
-                  AND
-                  dealer_level=$2
-                  AND
-                  active=TRUE`,
+                   amount_per_unit
+                 FROM
+                   dealer_commission_rules
+                 WHERE
+                   product_id=$1
+                   AND
+                   dealer_level=$2
+                   AND
+                   active=TRUE`,
                 [
                   i.product_id,
                   dealer.rows[0]
@@ -1564,7 +1269,6 @@ async function status(
     }
   });
 }
-
 
 async function createReturn(
   data
@@ -1691,28 +1395,24 @@ async function createReturn(
         const previous =
           await c.query(
             `SELECT
-              COALESCE(
-                SUM(
-                  ri.quantity
-                ),
-                0
-              )::int
-              quantity
-
-            FROM return_items ri
-
-            JOIN return_requests rr
-              ON
-              rr.id=
-              ri.return_request_id
-
-            WHERE
-              ri.order_item_id=$1
-
-              AND
-              rr.status
-              <>
-              'REJECTED'`,
+               COALESCE(
+                 SUM(
+                   ri.quantity
+                 ),
+                 0
+               )::int
+               quantity
+             FROM return_items ri
+             JOIN return_requests rr
+               ON
+               rr.id=
+               ri.return_request_id
+             WHERE
+               ri.order_item_id=$1
+               AND
+               rr.status
+               <>
+               'REJECTED'`,
             [
               item.order_item_id
             ]
@@ -1721,8 +1421,7 @@ async function createReturn(
         const alreadyReturned =
           Number(
             previous.rows[0]
-              .quantity
-            || 0
+              .quantity || 0
           );
 
         const orderedQuantity =
@@ -1808,16 +1507,16 @@ async function approveReturn(
       const rr =
         await c.query(
           `SELECT
-            rr.*,
-            o.dealer_id,
-            o.order_no
-          FROM return_requests rr
-          JOIN orders o
-            ON o.id=
-            rr.order_id
-          WHERE
-            rr.id=$1
-          FOR UPDATE`,
+             rr.*,
+             o.dealer_id,
+             o.order_no
+           FROM return_requests rr
+           JOIN orders o
+             ON o.id=
+             rr.order_id
+           WHERE
+             rr.id=$1
+           FOR UPDATE`,
           [
             returnId
           ]
@@ -1844,16 +1543,16 @@ async function approveReturn(
       const items =
         await c.query(
           `SELECT
-            ri.quantity
-              return_quantity,
-            oi.product_id
-          FROM return_items ri
-          JOIN order_items oi
-            ON
-            oi.id=
-            ri.order_item_id
-          WHERE
-            ri.return_request_id=$1`,
+             ri.quantity
+               return_quantity,
+             oi.product_id
+           FROM return_items ri
+           JOIN order_items oi
+             ON
+             oi.id=
+             ri.order_item_id
+           WHERE
+             ri.return_request_id=$1`,
           [
             returnId
           ]
@@ -1876,9 +1575,9 @@ async function approveReturn(
         const dealer =
           await c.query(
             `SELECT
-              dealer_level
-            FROM dealers
-            WHERE id=$1`,
+               dealer_level
+             FROM dealers
+             WHERE id=$1`,
             [
               ret.dealer_id
             ]
@@ -1900,15 +1599,15 @@ async function approveReturn(
           const rule =
             await c.query(
               `SELECT
-                amount_per_unit
-              FROM
-                dealer_commission_rules
-              WHERE
-                product_id=$1
-                AND
-                dealer_level=$2
-                AND
-                active=TRUE`,
+                 amount_per_unit
+               FROM
+                 dealer_commission_rules
+               WHERE
+                 product_id=$1
+                 AND
+                 dealer_level=$2
+                 AND
+                 active=TRUE`,
               [
                 item.product_id,
                 dealer.rows[0]
@@ -1935,17 +1634,17 @@ async function approveReturn(
         const accrued =
           await c.query(
             `SELECT
-              COALESCE(
-                SUM(amount),
-                0
-              )
-              amount
-            FROM dealer_ledger
-            WHERE
-              order_id=$1
-              AND
-              entry_type=
-              'COMMISSION_ACCRUAL'`,
+               COALESCE(
+                 SUM(amount),
+                 0
+               )
+               amount
+             FROM dealer_ledger
+             WHERE
+               order_id=$1
+               AND
+               entry_type=
+               'COMMISSION_ACCRUAL'`,
             [
               ret.order_id
             ]
@@ -1954,17 +1653,17 @@ async function approveReturn(
         const previous =
           await c.query(
             `SELECT
-              COALESCE(
-                SUM(amount),
-                0
-              )
-              amount
-            FROM dealer_ledger
-            WHERE
-              order_id=$1
-              AND
-              entry_type=
-              'COMMISSION_CLAWBACK'`,
+               COALESCE(
+                 SUM(amount),
+                 0
+               )
+               amount
+             FROM dealer_ledger
+             WHERE
+               order_id=$1
+               AND
+               entry_type=
+               'COMMISSION_CLAWBACK'`,
             [
               ret.order_id
             ]
@@ -1974,15 +1673,13 @@ async function approveReturn(
           Math.max(
             Number(
               accrued.rows[0]
-                .amount
-              || 0
+                .amount || 0
             )
             -
             Math.abs(
               Number(
                 previous.rows[0]
-                  .amount
-                || 0
+                  .amount || 0
               )
             ),
             0
@@ -2029,11 +1726,9 @@ async function approveReturn(
       await c.query(
         `UPDATE
          return_requests
-
          SET
            status='APPROVED',
            qc_result='APPROVED'
-
          WHERE id=$1`,
         [
           returnId
@@ -2076,7 +1771,6 @@ async function approveReturn(
     }
   });
 }
-
 const server =
   http.createServer(
     async (
@@ -2190,16 +1884,19 @@ const server =
                 const r =
                   await c.query(
                     `SELECT
-                      COUNT(*)::int
-                      count
-                    FROM app_users`
+                       COUNT(*)::int
+                       count
+                     FROM app_users`
                   );
 
                 return {
                   has_users:
-                    r.rows[0].count > 0,
+                    r.rows[0]
+                      .count > 0,
+
                   user_count:
-                    r.rows[0].count
+                    r.rows[0]
+                      .count
                 };
               }
             );
@@ -2329,14 +2026,19 @@ const server =
                   user: {
                     id:
                       user.id,
+
                     email:
                       user.email,
+
                     full_name:
                       user.full_name,
+
                     role:
                       user.role,
+
                     dealer_id:
                       user.dealer_id,
+
                     customer_id:
                       user.customer_id
                   }
@@ -2427,7 +2129,11 @@ const server =
             200,
             {
               success: true
-                      if (
+            }
+          );
+        }
+
+        if (
           req.method === 'POST'
           &&
           u.pathname ===
@@ -2480,9 +2186,9 @@ const server =
                 const count =
                   await c.query(
                     `SELECT
-                      COUNT(*)::int
-                      count
-                    FROM app_users`
+                       COUNT(*)::int
+                       count
+                     FROM app_users`
                   );
 
                 if (
@@ -2564,54 +2270,54 @@ const server =
                     [
                       c.query(
                         `SELECT
-                          COUNT(*)::int
-                          count,
-                          COALESCE(
-                            SUM(
-                              total_amount
-                            ),
-                            0
-                          )
-                          total
-                        FROM orders`
+                           COUNT(*)::int
+                           count,
+                           COALESCE(
+                             SUM(
+                               total_amount
+                             ),
+                             0
+                           )
+                           total
+                         FROM orders`
                       ),
 
                       c.query(
                         `SELECT
-                          COUNT(*)::int
-                          count
-                        FROM customers`
+                           COUNT(*)::int
+                           count
+                         FROM customers`
                       ),
 
                       c.query(
                         `SELECT
-                          COUNT(*)::int
-                          count
-                        FROM dealers
-                        WHERE
-                          status='ACTIVE'`
+                           COUNT(*)::int
+                           count
+                         FROM dealers
+                         WHERE
+                           status='ACTIVE'`
                       ),
 
                       c.query(
                         `SELECT
-                          COALESCE(
-                            SUM(
-                              quantity_on_hand
-                            ),
-                            0
-                          )::int
-                          total
-                        FROM
-                          inventory_lots`
+                           COALESCE(
+                             SUM(
+                               quantity_on_hand
+                             ),
+                             0
+                           )::int
+                           total
+                         FROM
+                           inventory_lots`
                       ),
 
                       c.query(
                         `SELECT
-                          COUNT(*)::int
-                          count
-                        FROM return_requests
-                        WHERE
-                          status='REQUESTED'`
+                           COUNT(*)::int
+                           count
+                         FROM return_requests
+                         WHERE
+                           status='REQUESTED'`
                       )
                     ]
                   );
@@ -2619,15 +2325,15 @@ const server =
                 const latestOrders =
                   await c.query(
                     `SELECT
-                      id,
-                      order_no,
-                      status,
-                      total_amount,
-                      created_at
-                    FROM orders
-                    ORDER BY
-                      id DESC
-                    LIMIT 10`
+                       id,
+                       order_no,
+                       status,
+                       total_amount,
+                       created_at
+                     FROM orders
+                     ORDER BY
+                       id DESC
+                     LIMIT 10`
                   );
 
                 return {
@@ -3071,24 +2777,21 @@ const server =
                     (
                       await c.query(
                         `SELECT
-                          l.*,
-                          p.name
-                            product_name,
-                          p.sku
-
-                        FROM
-                          inventory_lots l
-
-                        JOIN products p
-                          ON
-                          p.id=
-                          l.product_id
-
-                        ORDER BY
-                          l.expiry_date
-                          ASC
-                          NULLS LAST,
-                          l.id`
+                           l.*,
+                           p.name
+                             product_name,
+                           p.sku
+                         FROM
+                           inventory_lots l
+                         JOIN products p
+                           ON
+                           p.id=
+                           l.product_id
+                         ORDER BY
+                           l.expiry_date
+                           ASC
+                           NULLS LAST,
+                           l.id`
                       )
                     ).rows
                 )
@@ -3129,11 +2832,9 @@ const server =
                       b.code,
                       b.name,
                       Number(
-                        b.dealer_level
-                        || 1
+                        b.dealer_level || 1
                       ),
-                      b.status
-                        || 'ACTIVE'
+                      b.status || 'ACTIVE'
                     ]
                   )
                 ).rows[0]
@@ -3196,19 +2897,16 @@ const server =
                     (
                       await c.query(
                         `SELECT
-                          dl.*,
-                          d.name
-                            dealer_name
-
-                        FROM dealer_ledger dl
-
-                        JOIN dealers d
-                          ON
-                          d.id=
-                          dl.dealer_id
-
-                        ORDER BY
-                          dl.id DESC`
+                           dl.*,
+                           d.name
+                             dealer_name
+                         FROM dealer_ledger dl
+                         JOIN dealers d
+                           ON
+                           d.id=
+                           dl.dealer_id
+                         ORDER BY
+                           dl.id DESC`
                       )
                     ).rows
                 )
@@ -3283,44 +2981,37 @@ const server =
                     (
                       await c.query(
                         `SELECT
-                          rr.*,
-
-                          COALESCE(
-                            json_agg(
-                              json_build_object(
-                                'id',
-                                ri.id,
-
-                                'order_item_id',
-                                ri.order_item_id,
-
-                                'quantity',
-                                ri.quantity
-                              )
-                            )
-                            FILTER(
-                              WHERE
-                                ri.id
-                                IS NOT NULL
-                            ),
-                            '[]'
-                          )
-                          items
-
-                        FROM
-                          return_requests rr
-
-                        LEFT JOIN
-                          return_items ri
-                          ON
-                          ri.return_request_id=
-                          rr.id
-
-                        GROUP BY
-                          rr.id
-
-                        ORDER BY
-                          rr.id DESC`
+                           rr.*,
+                           COALESCE(
+                             json_agg(
+                               json_build_object(
+                                 'id',
+                                 ri.id,
+                                 'order_item_id',
+                                 ri.order_item_id,
+                                 'quantity',
+                                 ri.quantity
+                               )
+                             )
+                             FILTER(
+                               WHERE
+                                 ri.id
+                                 IS NOT NULL
+                             ),
+                             '[]'
+                           )
+                           items
+                         FROM
+                           return_requests rr
+                         LEFT JOIN
+                           return_items ri
+                           ON
+                           ri.return_request_id=
+                           rr.id
+                         GROUP BY
+                           rr.id
+                         ORDER BY
+                           rr.id DESC`
                       )
                     ).rows
                 )
@@ -3433,6 +3124,3 @@ server.listen(
     }
   }
 );
-            }
-          );
-        }
