@@ -1,10 +1,23 @@
 <!doctype html>
 <html lang="tr">
+
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Trex Admin</title>
-  <link rel="stylesheet" href="/styles.css">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
+
+  <title>
+    Trex Admin
+  </title>
+
+  <link
+    rel="stylesheet"
+    href="/styles.css"
+  >
+
   <style>
     .status-ok {
       color: #157347;
@@ -24,198 +37,660 @@
     .loading {
       opacity: .65;
     }
+
+    .admin-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logout-btn {
+      border: 0;
+      border-radius: 9px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-weight: 700;
+    }
   </style>
 </head>
 
 <body>
 
 <header class="top">
+
   <div class="bar">
-    <div class="brand">TREX ADMIN</div>
-    <div class="pill">Patron / Demo</div>
+
+    <div class="brand">
+      TREX ADMIN
+    </div>
+
+    <div class="admin-user">
+
+      <div
+        id="adminName"
+        class="pill"
+      >
+        Yönetici
+      </div>
+
+      <button
+        id="logoutBtn"
+        class="logout-btn"
+        type="button"
+      >
+        Çıkış
+      </button>
+
+    </div>
+
   </div>
+
 </header>
+
 
 <main class="wrap">
 
   <nav class="nav">
-    <a href="/">Müşteri</a>
-    <a href="/admin">Kontrol Paneli</a>
-    <a href="#">Siparişler</a>
-    <a href="#">Müşteriler</a>
-    <a href="#">Bayiler</a>
-    <a href="#">Stok</a>
-    <a href="#">Finans</a>
-    <a href="#">İadeler</a>
-    <a href="#">Primler</a>
+
+    <a href="/">
+      Müşteri
+    </a>
+
+    <a href="/admin.html">
+      Kontrol Paneli
+    </a>
+
+    <a href="#">
+      Siparişler
+    </a>
+
+    <a href="#">
+      Müşteriler
+    </a>
+
+    <a href="#">
+      Bayiler
+    </a>
+
+    <a href="#">
+      Stok
+    </a>
+
+    <a href="#">
+      Finans
+    </a>
+
+    <a href="#">
+      İadeler
+    </a>
+
+    <a href="#">
+      Primler
+    </a>
+
   </nav>
 
+
   <div style="margin:14px 0">
-    <span id="apiStatus" class="muted">
+
+    <span
+      id="apiStatus"
+      class="muted"
+    >
       API bağlantısı kontrol ediliyor...
     </span>
-  </div>
-
-  <div class="grid" id="metrics">
-
-    <div class="card metric">
-      <strong id="orderCount">-</strong>
-      <span>Toplam sipariş</span>
-    </div>
-
-    <div class="card metric">
-      <strong id="revenue">-</strong>
-      <span>Toplam sipariş tutarı</span>
-    </div>
-
-    <div class="card metric">
-      <strong id="customerCount">-</strong>
-      <span>Müşteri</span>
-    </div>
-
-    <div class="card metric">
-      <strong id="dealerCount">-</strong>
-      <span>Aktif bayi</span>
-    </div>
-
-    <div class="card metric">
-      <strong id="stockCount">-</strong>
-      <span>Toplam stok adedi</span>
-    </div>
-
-    <div class="card metric">
-      <strong id="returnCount">-</strong>
-      <span>Bekleyen iade</span>
-    </div>
 
   </div>
 
-  <section class="hero" style="margin-top:18px">
+
+  <div
+    class="grid"
+    id="metrics"
+  >
+
+    <div class="card metric">
+
+      <strong id="orderCount">
+        -
+      </strong>
+
+      <span>
+        Toplam sipariş
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="revenue">
+        -
+      </strong>
+
+      <span>
+        Toplam sipariş tutarı
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="customerCount">
+        -
+      </strong>
+
+      <span>
+        Müşteri
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="dealerCount">
+        -
+      </strong>
+
+      <span>
+        Aktif bayi
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="stockCount">
+        -
+      </strong>
+
+      <span>
+        Toplam stok adedi
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="returnCount">
+        -
+      </strong>
+
+      <span>
+        Bekleyen iade
+      </span>
+
+    </div>
+
+  </div>
+
+
+  <section
+    class="hero"
+    style="margin-top:18px"
+  >
 
     <div class="card">
-      <h2>Son Siparişler</h2>
+
+      <h2>
+        Son Siparişler
+      </h2>
 
       <table class="table">
+
         <thead>
+
           <tr>
-            <th>No</th>
-            <th>Tutar</th>
-            <th>Durum</th>
-            <th>Tarih</th>
+
+            <th>
+              No
+            </th>
+
+            <th>
+              Tutar
+            </th>
+
+            <th>
+              Durum
+            </th>
+
+            <th>
+              Tarih
+            </th>
+
           </tr>
+
         </thead>
 
+
         <tbody id="ordersBody">
+
           <tr>
+
             <td colspan="4">
               Veriler yükleniyor...
             </td>
+
           </tr>
+
         </tbody>
+
       </table>
+
     </div>
 
+
     <div class="card">
-      <h2>Sistem Durumu</h2>
+
+      <h2>
+        Sistem Durumu
+      </h2>
 
       <div class="list">
 
         <div class="row">
-          <span>Core API</span>
-          <b id="coreStatus">Kontrol ediliyor</b>
+
+          <span>
+            Core API
+          </span>
+
+          <b id="coreStatus">
+            Kontrol ediliyor
+          </b>
+
         </div>
 
-        <div class="row">
-          <span>Veritabanı</span>
-          <b id="dbStatus">PostgreSQL</b>
-        </div>
 
         <div class="row">
-          <span>Ödeme</span>
-          <b>Mock</b>
+
+          <span>
+            Veritabanı
+          </span>
+
+          <b id="dbStatus">
+            PostgreSQL
+          </b>
+
         </div>
 
+
         <div class="row">
-          <span>Kargo</span>
-          <b>Mock</b>
+
+          <span>
+            Ödeme
+          </span>
+
+          <b>
+            Mock
+          </b>
+
+        </div>
+
+
+        <div class="row">
+
+          <span>
+            Kargo
+          </span>
+
+          <b>
+            Mock
+          </b>
+
         </div>
 
       </div>
+
     </div>
 
   </section>
 
-  <section class="card" style="margin-top:18px">
-    <h2>Operasyon Notu</h2>
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      Operasyon Notu
+    </h2>
 
     <div class="notice">
       Bu panel şu anda Trex Platform Core API üzerindeki gerçek demo verilerini
       göstermektedir. Ödeme ve kargo entegrasyonları henüz mock durumundadır.
     </div>
+
   </section>
 
 </main>
+
 
 <footer class="foot">
   Trex Admin • PostgreSQL bağlantılı demo
 </footer>
 
+
 <script>
+
 const API_BASE =
   'https://trex-platform-core-db.onrender.com';
 
+const TOKEN =
+  localStorage.getItem(
+    'trex_token'
+  );
+
+const USER_RAW =
+  localStorage.getItem(
+    'trex_user'
+  );
+
+if (!TOKEN) {
+  window.location.replace(
+    '/login.html'
+  );
+
+  throw new Error(
+    'AUTH_TOKEN_MISSING'
+  );
+}
+
+let CURRENT_USER =
+  null;
+
+try {
+  CURRENT_USER =
+    USER_RAW
+      ?
+      JSON.parse(
+        USER_RAW
+      )
+      :
+      null;
+} catch {
+  CURRENT_USER =
+    null;
+}
+
+if (
+  CURRENT_USER
+  &&
+  CURRENT_USER.full_name
+) {
+  document.getElementById(
+    'adminName'
+  ).textContent =
+    CURRENT_USER.full_name;
+}
+
+function clearSession() {
+  localStorage.removeItem(
+    'trex_token'
+  );
+
+  localStorage.removeItem(
+    'trex_user'
+  );
+}
+
+function redirectLogin() {
+  clearSession();
+
+  window.location.replace(
+    '/login.html'
+  );
+}
+
+async function verifySession() {
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/auth/me',
+        {
+          headers: {
+            Authorization:
+              'Bearer ' +
+              TOKEN
+          }
+        }
+      );
+
+    if (
+      response.status === 401
+      ||
+      response.status === 403
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        'HTTP ' +
+        response.status
+      );
+    }
+
+    const result =
+      await response.json();
+
+    if (
+      !result.success
+      ||
+      !result.data
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    if (
+      result.data.role
+      !==
+      'ADMIN'
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    CURRENT_USER =
+      result.data;
+
+    localStorage.setItem(
+      'trex_user',
+      JSON.stringify(
+        CURRENT_USER
+      )
+    );
+
+    document.getElementById(
+      'adminName'
+    ).textContent =
+      CURRENT_USER.full_name
+      ||
+      CURRENT_USER.email
+      ||
+      'Yönetici';
+
+    return true;
+
+  } catch (error) {
+    console.error(
+      'Oturum kontrol hatası:',
+      error
+    );
+
+    document.getElementById(
+      'apiStatus'
+    ).textContent =
+      'Oturum doğrulama bağlantı hatası';
+
+    document.getElementById(
+      'apiStatus'
+    ).className =
+      'status-error';
+
+    return false;
+  }
+}
+
+async function logout() {
+  const button =
+    document.getElementById(
+      'logoutBtn'
+    );
+
+  button.disabled =
+    true;
+
+  try {
+    await fetch(
+      API_BASE +
+      '/api/v1/auth/logout',
+      {
+        method:
+          'POST',
+
+        headers: {
+          Authorization:
+            'Bearer ' +
+            TOKEN
+        }
+      }
+    );
+  } catch (error) {
+    console.error(
+      'Logout API hatası:',
+      error
+    );
+  }
+
+  redirectLogin();
+}
+
+document.getElementById(
+  'logoutBtn'
+).addEventListener(
+  'click',
+  logout
+);
+
 function money(value) {
-  return Number(value || 0).toLocaleString(
+  return Number(
+    value || 0
+  ).toLocaleString(
     'tr-TR',
     {
-      style: 'currency',
-      currency: 'TRY'
+      style:
+        'currency',
+
+      currency:
+        'TRY'
     }
   );
 }
 
 function dateText(value) {
-  if (!value) return '-';
+  if (!value) {
+    return '-';
+  }
 
-  return new Date(value).toLocaleString(
+  return new Date(
+    value
+  ).toLocaleString(
     'tr-TR'
   );
 }
 
 function statusText(status) {
   const map = {
-    NEW: 'Yeni',
-    PAYMENT_PENDING: 'Ödeme Bekliyor',
-    APPROVED: 'Onaylandı',
-    STOCK_RESERVED: 'Stok Ayrıldı',
-    PICKING: 'Toplanıyor',
-    PACKING: 'Paketleniyor',
-    READY_TO_SHIP: 'Kargoya Hazır',
-    SHIPPED: 'Kargolandı',
-    DELIVERED: 'Teslim Edildi',
-    COMPLETED: 'Tamamlandı',
-    CANCELLED: 'İptal',
-    PROBLEM: 'Sorun'
+    NEW:
+      'Yeni',
+
+    PAYMENT_PENDING:
+      'Ödeme Bekliyor',
+
+    APPROVED:
+      'Onaylandı',
+
+    STOCK_RESERVED:
+      'Stok Ayrıldı',
+
+    PICKING:
+      'Toplanıyor',
+
+    PACKING:
+      'Paketleniyor',
+
+    READY_TO_SHIP:
+      'Kargoya Hazır',
+
+    SHIPPED:
+      'Kargolandı',
+
+    DELIVERED:
+      'Teslim Edildi',
+
+    COMPLETED:
+      'Tamamlandı',
+
+    CANCELLED:
+      'İptal',
+
+    PROBLEM:
+      'Sorun'
   };
 
-  return map[status] || status || '-';
+  return (
+    map[status]
+    ||
+    status
+    ||
+    '-'
+  );
 }
 
 async function loadDashboard() {
   const apiStatus =
-    document.getElementById('apiStatus');
+    document.getElementById(
+      'apiStatus'
+    );
 
   const coreStatus =
-    document.getElementById('coreStatus');
+    document.getElementById(
+      'coreStatus'
+    );
 
   try {
-    const response = await fetch(
-      API_BASE + '/api/v1/dashboard'
-    );
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/dashboard',
+        {
+          headers: {
+            Authorization:
+              'Bearer ' +
+              TOKEN
+          }
+        }
+      );
+
+    if (
+      response.status === 401
+      ||
+      response.status === 403
+    ) {
+      redirectLogin();
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(
-        'HTTP ' + response.status
+        'HTTP ' +
+        response.status
       );
     }
 
@@ -224,7 +699,9 @@ async function loadDashboard() {
 
     if (!result.success) {
       throw new Error(
-        result.error || 'API_ERROR'
+        result.error
+        ||
+        'API_ERROR'
       );
     }
 
@@ -234,42 +711,56 @@ async function loadDashboard() {
     document.getElementById(
       'orderCount'
     ).textContent =
-      data.orders ?? 0;
+      data.orders
+      ??
+      0;
 
     document.getElementById(
       'revenue'
     ).textContent =
-      money(data.revenue);
+      money(
+        data.revenue
+      );
 
     document.getElementById(
       'customerCount'
     ).textContent =
-      data.customers ?? 0;
+      data.customers
+      ??
+      0;
 
     document.getElementById(
       'dealerCount'
     ).textContent =
-      data.active_dealers ?? 0;
+      data.active_dealers
+      ??
+      0;
 
     document.getElementById(
       'stockCount'
     ).textContent =
-      data.stock_units ?? 0;
+      data.stock_units
+      ??
+      0;
 
     document.getElementById(
       'returnCount'
     ).textContent =
-      data.pending_returns ?? 0;
+      data.pending_returns
+      ??
+      0;
 
     const body =
       document.getElementById(
         'ordersBody'
       );
 
-    body.innerHTML = '';
+    body.innerHTML =
+      '';
 
     if (
-      !data.latest_orders ||
+      !data.latest_orders
+      ||
       data.latest_orders.length === 0
     ) {
       body.innerHTML = `
@@ -285,7 +776,9 @@ async function loadDashboard() {
         of data.latest_orders
       ) {
         const row =
-          document.createElement('tr');
+          document.createElement(
+            'tr'
+          );
 
         row.innerHTML = `
           <td>${order.order_no}</td>
@@ -298,7 +791,9 @@ async function loadDashboard() {
           <td>${dateText(order.created_at)}</td>
         `;
 
-        body.appendChild(row);
+        body.appendChild(
+          row
+        );
       }
     }
 
@@ -315,10 +810,13 @@ async function loadDashboard() {
       'status-ok';
 
   } catch (error) {
-    console.error(error);
+    console.error(
+      error
+    );
 
     apiStatus.textContent =
-      'Core API bağlantı hatası: ' +
+      'Core API bağlantı hatası: '
+      +
       error.message;
 
     apiStatus.className =
@@ -342,13 +840,26 @@ async function loadDashboard() {
   }
 }
 
-loadDashboard();
+async function startAdmin() {
+  const valid =
+    await verifySession();
 
-setInterval(
-  loadDashboard,
-  30000
-);
+  if (!valid) {
+    return;
+  }
+
+  await loadDashboard();
+
+  setInterval(
+    loadDashboard,
+    30000
+  );
+}
+
+startAdmin();
+
 </script>
 
 </body>
+
 </html>
