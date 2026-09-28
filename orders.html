@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sipariş Yönetimi • Trex Admin</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+</style>
+</head>
+<body>
+<header><strong>TREX ADMIN</strong> · Siparişler</header>
+<main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/">Müşteri sitesi</a></nav>
+<h1>Sipariş yönetimi</h1>
+<p class="muted">Siparişleri inceleyin, ürün kalemlerini görün ve operasyon durumunu güncelleyin.</p>
+<section class="card" aria-label="Sipariş listesi">
+<div class="toolbar">
+<label>Sipariş ara<input id="search" type="search" placeholder="Sipariş numarası veya ID"></label>
+<label>Durum<select id="filter"><option value="">Tüm durumlar</option></select></label>
+<button id="refresh" type="button">Yenile</button>
+</div>
+<p id="listStatus" role="status" aria-live="polite">Oturum kontrol ediliyor…</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Sipariş</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>Ödeme</th><th>İşlem</th></tr></thead>
+<tbody id="ordersList"></tbody>
+</table></div>
+</section>
+<section class="card" id="detail" hidden aria-labelledby="detailTitle">
+<div class="detail-title"><h2 id="detailTitle" tabindex="-1">Sipariş detayı</h2><button id="closeDetail" type="button">Kapat</button></div>
+<p id="detailStatus" role="status" aria-live="polite"></p>
+<div id="detailContent" hidden>
+<dl id="summary" class="summary"></dl>
+<h3>Ürünler</h3>
+<div class="table-wrap"><table><thead><tr><th>Ürün</th><th>SKU</th><th>Adet</th><th>Birim fiyat</th><th>Toplam</th></tr></thead><tbody id="items"></tbody></table></div>
+<h3>Durum güncelle</h3>
+<p class="muted">Bu işlem siparişin operasyon durumunu değiştirir. Ödeme veya para iadesi gerçekleştirmez.</p>
+<form id="statusForm">
+<div class="toolbar"><label>Yeni durum<select id="nextStatus"></select></label><button class="primary" id="saveStatus" type="submit">Durumu güncelle</button></div>
+<p id="actionNote" class="notice"></p>
+<p id="actionStatus" role="status" aria-live="polite"></p>
+</form>
+<h3>Durum geçmişi</h3><ol id="history"></ol>
+</div>
+</section>
+</main>
+<script>
+const API = 'https://trex-platform-core-db.onrender.com';
+const token = localStorage.getItem('trex_token');
+const labels = {NEW:'Yeni',PAYMENT_PENDING:'Ödeme bekliyor',APPROVED:'Onaylandı',STOCK_RESERVED:'Stok ayrıldı',PICKING:'Toplanıyor',PACKING:'Paketleniyor',READY_TO_SHIP:'Kargoya hazır',SHIPPED:'Kargolandı',DELIVERED:'Teslim edildi',COMPLETED:'Tamamlandı',CANCELLED:'İptal',PROBLEM:'Sorun'};
+const paymentLabels = {PAYMENT_PENDING:'Ödeme bekliyor',PAID:'Ödendi',FAILED:'Başarısız',REFUNDED:'İade edildi',COD_PENDING:'Kapıda ödeme bekliyor'};
+const notes = {STOCK_RESERVED:'Uygun lotlardan stok ayrılır. Stok yetersizse işlem uygulanmaz.',SHIPPED:'Ayrılmış stok sevkiyat için düşülür.',CANCELLED:'Sipariş iptal edilir ve ayrılmış stok serbest bırakılır. Para iadesi yapılmaz.',COMPLETED:'Sipariş tamamlanır; varsa bayi prim tahakkuku oluşturulur.'};
+const el = id => document.getElementById(id);
+const text = (tag,value) => {const node=document.createElement(tag);node.textContent=String(value ?? '—');return node;};
+const money = value => Number(value || 0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+const date = value => value ? new Date(value).toLocaleString('tr-TR') : '—';
+let orders=[],selected=null,detailRequest=0,loading=false,saving=false,verified=false,lastDetailButton=null;
+function message(id,value,error=false){el(id).textContent=value;el(id).className=error?'notice error':'';}
+function logoutToLogin(){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');}
+async function api(path,options={}){
+  const response=await fetch(API+path,{...options,headers:{Authorization:'Bearer '+token,...options.headers}});
+  if(response.status===401){logoutToLogin();throw new Error('Oturum sona erdi. Yeniden giriş yapın.');}
+  const result=await response.json();
+  if(!response.ok || result.success===false){
+    const messages={FORBIDDEN:'Bu işlem için yetkiniz yok.',ORDER_NOT_FOUND:'Sipariş bulunamadı.',INVALID_STATUS_TRANSITION:'Sipariş durumu değişmiş olabilir. Listeyi yenileyin.',INSUFFICIENT_STOCK:'Yeterli kullanılabilir stok yok.',ORDER_NOT_RESERVABLE:'Bu siparişin durumu stok ayırmaya uygun değil.',ORDER_ALREADY_RESERVED:'Bu sipariş için stok zaten ayrılmış.'};
+    throw new Error(messages[result.error] || 'İşlem tamamlanamadı. Lütfen yeniden deneyin.');
+  }
+  return result.data ?? result;
+}
+function emptyRow(target,count,value){const row=document.createElement('tr');const cell=text('td',value);cell.colSpan=count;row.appendChild(cell);target.appendChild(row);}
+function filteredOrders(){
+  const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),status=el('filter').value;
+  return orders.filter(o=>(!status||o.status===status)&&(!term||String(o.order_no||'').toLocaleLowerCase('tr-TR').includes(term)||String(o.id).includes(term)));
+}
+function renderOrders(){
+  const body=el('ordersList');body.replaceChildren();const rows=filteredOrders();
+  message('listStatus',rows.length+' sipariş gösteriliyor · Toplam '+orders.length);
+  if(!rows.length){emptyRow(body,6,orders.length?'Filtreye uygun sipariş yok.':'Henüz sipariş yok.');return;}
+  for(const order of rows){
+    const row=document.createElement('tr');
+    for(const value of [order.order_no||order.id,date(order.created_at),money(order.total_amount),labels[order.status]||order.status,paymentLabels[order.payment_status]||order.payment_status])row.appendChild(text('td',value));
+    const cell=document.createElement('td'),button=text('button','Detay');
+    button.type='button';button.disabled=saving;button.setAttribute('aria-label',(order.order_no||order.id)+' sipariş detayını aç');
+    button.addEventListener('click',()=>{lastDetailButton=button;openOrder(order.id);});cell.appendChild(button);row.appendChild(cell);body.appendChild(row);
+  }
+}
+async function loadOrders(){
+  if(loading||!verified)return;
+  loading=true;el('refresh').disabled=true;message('listStatus','Siparişler yükleniyor…');
+  try{orders=await api('/api/v1/orders');if(!Array.isArray(orders))throw new Error('Sipariş yanıtı okunamadı.');renderOrders();}
+  catch(error){el('ordersList').replaceChildren();message('listStatus',error.message,true);}
+  finally{loading=false;el('refresh').disabled=saving;}
+}
+function summaryItem(label,value){const group=document.createElement('div');group.append(text('dt',label),text('dd',value));el('summary').appendChild(group);}
+function renderDetail(order){
+  selected=order;el('detailContent').hidden=false;el('detailTitle').textContent='Sipariş '+(order.order_no||order.id);
+  el('summary').replaceChildren();
+  for(const [label,value] of [['Durum',labels[order.status]||order.status],['Toplam',money(order.total_amount)],['Müşteri',order.customer_name||'—'],['Müşteri e-postası',order.customer_email||'—'],['Bayi',order.dealer_name||'—'],['Ödeme',paymentLabels[order.payment_status]||order.payment_status],['Oluşturulma',date(order.created_at)]])summaryItem(label,value);
+  el('items').replaceChildren();
+  for(const item of order.items||[]){const row=document.createElement('tr');for(const value of [item.product_name||'Ürün #'+item.product_id,item.sku||'—',item.quantity,money(item.unit_price),money(Number(item.quantity)*Number(item.unit_price))])row.appendChild(text('td',value));el('items').appendChild(row);}
+  if(!(order.items||[]).length)emptyRow(el('items'),5,'Ürün kalemi bulunmuyor.');
+  el('nextStatus').replaceChildren();
+  const next=order.next_statuses||[];
+  for(const value of next){const option=text('option',labels[value]||value);option.value=value;el('nextStatus').appendChild(option);}
+  el('nextStatus').disabled=!next.length;el('saveStatus').disabled=!next.length||saving;
+  if(!next.length){const option=text('option','Geçiş yok');option.value='';el('nextStatus').appendChild(option);}
+  updateNote();
+  el('history').replaceChildren();
+  for(const entry of order.history||[]){el('history').appendChild(text('li',date(entry.created_at)+' · '+(labels[entry.old_status]||entry.old_status||'Başlangıç')+' → '+(labels[entry.new_status]||entry.new_status)));}
+  if(!(order.history||[]).length)el('history').appendChild(text('li','Kayıtlı durum geçmişi yok.'));
+}
+async function openOrder(id){
+  if(saving)return;
+  const request=++detailRequest;selected=null;el('detail').hidden=false;el('detailContent').hidden=true;el('detailTitle').textContent='Sipariş detayı';
+  message('actionStatus','');message('detailStatus','Sipariş yükleniyor…');el('detailTitle').focus();
+  try{const data=await api('/api/v1/orders/'+encodeURIComponent(id));if(request!==detailRequest)return;renderDetail(data);message('detailStatus','');}
+  catch(error){if(request===detailRequest)message('detailStatus',error.message,true);}
+}
+function updateNote(){el('actionNote').textContent=el('nextStatus').value?(notes[el('nextStatus').value]||'Sipariş durumu “'+labels[el('nextStatus').value]+'” olarak güncellenir.'):'Bu sipariş için başka durum geçişi bulunmuyor.';}
+async function changeStatus(event){
+  event.preventDefault();if(saving||!selected)return;
+  const id=selected.id,next=el('nextStatus').value;
+  if(!(selected.next_statuses||[]).includes(next))return;
+  if(!confirm((selected.order_no||id)+': '+(labels[next]||next)+'\n\n'+el('actionNote').textContent+'\n\nOnaylıyor musunuz?'))return;
+  saving=true;el('saveStatus').disabled=true;el('nextStatus').disabled=true;el('closeDetail').disabled=true;el('refresh').disabled=true;
+  message('actionStatus','İşlem uygulanıyor…');
+  try{
+    const reserve=next==='STOCK_RESERVED';
+    await api('/api/v1/orders/'+encodeURIComponent(id)+(reserve?'/reserve-stock':'/status'),reserve?{method:'POST'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:next})});
+    message('actionStatus','Sipariş durumu güncellendi.');
+    try{renderDetail(await api('/api/v1/orders/'+encodeURIComponent(id)));await loadOrders();}
+    catch(error){selected=null;message('actionStatus','İşlem kaydedildi, ancak güncel detay alınamadı. Yenile düğmesiyle listeyi yenileyin.',true);}
+  }catch(error){message('actionStatus',error.message,true);}
+  finally{saving=false;renderOrders();el('closeDetail').disabled=false;el('refresh').disabled=false;el('nextStatus').disabled=!selected?.next_statuses?.length;el('saveStatus').disabled=!selected?.next_statuses?.length;}
+}
+for(const [value,label] of Object.entries(labels)){const option=text('option',label);option.value=value;el('filter').appendChild(option);}
+el('search').addEventListener('input',()=>{if(!loading)renderOrders();});
+el('filter').addEventListener('change',()=>{if(!loading)renderOrders();});
+el('refresh').addEventListener('click',loadOrders);
+el('nextStatus').addEventListener('change',updateNote);
+el('statusForm').addEventListener('submit',changeStatus);
+el('closeDetail').addEventListener('click',()=>{if(saving)return;++detailRequest;selected=null;el('detail').hidden=true;if(lastDetailButton?.isConnected)lastDetailButton.focus();});
+async function start(){
+  el('refresh').disabled=true;
+  if(!token){location.replace('/login.html');return;}
+  try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Sipariş yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;await loadOrders();}
+  catch(error){message('listStatus',error.message,true);}
+}
+start();
+</script>
+</body>
+</html>

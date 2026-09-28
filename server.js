@@ -397,6 +397,37 @@ const transitions = {
   PROBLEM:['PICKING','PACKING','READY_TO_SHIP','CANCELLED']
 };
 
+
+async function getOrderDetails(orderId) {
+  return db(async c => {
+    const result = await c.query(
+      `SELECT o.*,cu.full_name customer_name,cu.email customer_email,
+              d.name dealer_name,d.code dealer_code
+       FROM orders o
+       LEFT JOIN customers cu ON cu.id=o.customer_id
+       LEFT JOIN dealers d ON d.id=o.dealer_id
+       WHERE o.id=$1`, [orderId]
+    );
+    if (!result.rowCount) {
+      throw Object.assign(new Error('ORDER_NOT_FOUND'), { statusCode:404 });
+    }
+    const items = await c.query(
+      `SELECT oi.*,p.name product_name,p.sku
+       FROM order_items oi LEFT JOIN products p ON p.id=oi.product_id
+       WHERE oi.order_id=$1 ORDER BY oi.id`, [orderId]
+    );
+    const history = await c.query(
+      `SELECT id,old_status,new_status,actor,created_at
+       FROM order_status_history WHERE order_id=$1 ORDER BY created_at,id`, [orderId]
+    );
+    const order = result.rows[0];
+    return {
+      ...order, items:items.rows, history:history.rows,
+      next_statuses:transitions[order.status] || []
+    };
+  });
+}
+
 async function status(orderId, next) {
   return db(async c => {
     await c.query('BEGIN');
@@ -1039,6 +1070,15 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { success:true, data });
     }
 
+
+    const orderDetailMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)$/);
+    if (req.method === 'GET' && orderDetailMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, {
+        success:true, data:await getOrderDetails(orderDetailMatch[1])
+      });
+    }
+
     const reserveMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/reserve-stock$/);
     if (req.method === 'POST' && reserveMatch) {
       await requireRole(req, ['ADMIN','STAFF']);
@@ -1227,3 +1267,4 @@ server.listen(port, '0.0.0.0', async () => {
     console.error('Database initialization failed:', e.message);
   }
 });
+
