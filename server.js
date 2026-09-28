@@ -237,6 +237,8 @@ async function initDb() {
       ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS reason TEXT;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS qc_result TEXT;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
     `);
 
     const products = [
@@ -259,7 +261,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.18' };
+    return { ok: true, version: '1.0.0-demo.19' };
   });
 }
 
@@ -310,7 +312,7 @@ async function reserve(orderId) {
     try {
       const o = await c.query(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [orderId]);
       if (!o.rowCount) throw new Error('ORDER_NOT_FOUND');
-      if (!['APPROVED','PAYMENT_PENDING'].includes(o.rows[0].status)) throw new Error('ORDER_NOT_RESERVABLE');
+      if (o.rows[0].status !== 'APPROVED') throw new Error('ORDER_NOT_RESERVABLE');
       const exists = await c.query(`SELECT id FROM order_inventory_allocations WHERE order_id=$1 LIMIT 1`, [orderId]);
       if (exists.rowCount) throw new Error('ORDER_ALREADY_RESERVED');
       const items = await c.query(`SELECT * FROM order_items WHERE order_id=$1`, [orderId]);
@@ -506,7 +508,13 @@ async function approveReturn(returnId) {
       );
       if (!rr.rowCount) throw new Error('RETURN_NOT_FOUND');
       const ret = rr.rows[0];
-      if (ret.status === 'APPROVED') throw new Error('RETURN_ALREADY_APPROVED');
+      if (ret.status !== 'REQUESTED') {
+        throw new Error(
+          ret.status === 'APPROVED'
+            ? 'RETURN_ALREADY_APPROVED'
+            : 'RETURN_NOT_PENDING'
+        );
+      }
       const items = await c.query(
         `SELECT ri.quantity return_quantity,oi.product_id
          FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id
@@ -549,10 +557,89 @@ async function approveReturn(returnId) {
           );
         }
       }
-      await c.query(`UPDATE return_requests SET status='APPROVED',qc_result='APPROVED' WHERE id=$1`, [returnId]);
+      await c.query(
+        `UPDATE return_requests
+         SET status='APPROVED',qc_result='APPROVED',processed_at=NOW(),rejection_reason=NULL
+         WHERE id=$1`,
+        [returnId]
+      );
       await audit(c, 'RETURN_APPROVED', 'return_request', returnId, { order_id:ret.order_id, commission_clawback:clawback });
       await c.query('COMMIT');
       return { return_id:returnId, status:'APPROVED', commission_clawback:clawback };
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+
+async function rejectReturn(returnId, reason) {
+  return db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const rr = await c.query(
+        `SELECT *
+         FROM return_requests
+         WHERE id=$1
+         FOR UPDATE`,
+        [returnId]
+      );
+
+      if (!rr.rowCount) {
+        throw new Error('RETURN_NOT_FOUND');
+      }
+
+      const ret = rr.rows[0];
+
+      if (ret.status !== 'REQUESTED') {
+        throw new Error('RETURN_NOT_PENDING');
+      }
+
+      const rejectionReason =
+        String(reason || '').trim();
+
+      if (!rejectionReason) {
+        throw Object.assign(
+          new Error('REJECTION_REASON_REQUIRED'),
+          { statusCode:400 }
+        );
+      }
+
+      await c.query(
+        `UPDATE return_requests
+         SET
+           status='REJECTED',
+           qc_result='REJECTED',
+           rejection_reason=$1,
+           processed_at=NOW()
+         WHERE id=$2`,
+        [
+          rejectionReason,
+          returnId
+        ]
+      );
+
+      await audit(
+        c,
+        'RETURN_REJECTED',
+        'return_request',
+        returnId,
+        {
+          order_id:ret.order_id,
+          rejection_reason:rejectionReason
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return {
+        return_id:returnId,
+        status:'REJECTED',
+        rejection_reason:rejectionReason
+      };
+
     } catch (e) {
       await c.query('ROLLBACK');
       throw e;
@@ -575,13 +662,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.18', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.19', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'18' });
+      return send(res, 200, { ok:true, version:'19' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -772,23 +859,96 @@ const server = http.createServer(async (req, res) => {
         throw Object.assign(new Error('DEALER_ID_REQUIRED'), { statusCode:400 });
       }
 
-      const row = await db(async c => {
-        const created = (await c.query(
-          `INSERT INTO app_users(email,full_name,password_hash,role,dealer_id,customer_id)
-           VALUES($1,$2,$3,$4,$5,$6)
-           RETURNING id,email,full_name,role,dealer_id,customer_id,active,created_at`,
-          [
-            String(b.email).trim().toLowerCase(),
-            b.full_name,
-            hashPassword(b.password),
-            b.role,
-            b.dealer_id || null,
-            b.customer_id || null
-          ]
-        )).rows[0];
+      if (b.role === 'CUSTOMER' && !b.customer_id) {
+        throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'), { statusCode:400 });
+      }
 
-        await audit(c, 'USER_CREATED', 'app_user', created.id, { role:created.role });
-        return created;
+      const row = await db(async c => {
+        await c.query('BEGIN');
+
+        try {
+          const normalizedEmail =
+            String(b.email).trim().toLowerCase();
+
+          const existing =
+            await c.query(
+              `SELECT id
+               FROM app_users
+               WHERE LOWER(email)=LOWER($1)
+               LIMIT 1`,
+              [normalizedEmail]
+            );
+
+          if (existing.rowCount) {
+            throw Object.assign(
+              new Error('EMAIL_ALREADY_EXISTS'),
+              { statusCode:409 }
+            );
+          }
+
+          if (b.role === 'DEALER') {
+            const dealer = await c.query(
+              `SELECT id
+               FROM dealers
+               WHERE id=$1
+                 AND status='ACTIVE'`,
+              [Number(b.dealer_id)]
+            );
+
+            if (!dealer.rowCount) {
+              throw Object.assign(
+                new Error('DEALER_NOT_FOUND_OR_INACTIVE'),
+                { statusCode:400 }
+              );
+            }
+          }
+
+          if (b.role === 'CUSTOMER') {
+            const customer = await c.query(
+              `SELECT id
+               FROM customers
+               WHERE id=$1`,
+              [Number(b.customer_id)]
+            );
+
+            if (!customer.rowCount) {
+              throw Object.assign(
+                new Error('CUSTOMER_NOT_FOUND'),
+                { statusCode:400 }
+              );
+            }
+          }
+
+          const created = (await c.query(
+            `INSERT INTO app_users(email,full_name,password_hash,role,dealer_id,customer_id)
+             VALUES($1,$2,$3,$4,$5,$6)
+             RETURNING id,email,full_name,role,dealer_id,customer_id,active,created_at`,
+            [
+              normalizedEmail,
+              b.full_name,
+              hashPassword(b.password),
+              b.role,
+              b.role === 'DEALER' ? Number(b.dealer_id) : null,
+              b.role === 'CUSTOMER' ? Number(b.customer_id) : null
+            ]
+          )).rows[0];
+
+          await audit(
+            c,
+            'USER_CREATED',
+            'app_user',
+            created.id,
+            { role:created.role }
+          );
+
+          await c.query('COMMIT');
+
+          return created;
+
+        } catch (e) {
+          await c.query('ROLLBACK');
+          throw e;
+        }
       });
 
       return send(res, 201, { success:true, data:row });
@@ -1003,6 +1163,23 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { success:true, data:await approveReturn(Number(returnApproveMatch[1])) });
     }
 
+    const returnRejectMatch = u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/reject$/);
+    if (req.method === 'POST' && returnRejectMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      const b = await body(req);
+      return send(
+        res,
+        200,
+        {
+          success:true,
+          data:await rejectReturn(
+            Number(returnRejectMatch[1]),
+            b.reason
+          )
+        }
+      );
+    }
+
     if (req.method === 'GET' && u.pathname === '/api/v1/returns') {
       await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, { success:true, data:await db(async c => (await c.query(
@@ -1034,7 +1211,7 @@ const server = http.createServer(async (req, res) => {
       [
         'INVALID_JSON','EMAIL_AND_PASSWORD_REQUIRED','EMAIL_PASSWORD_NAME_REQUIRED',
               'CURRENT_AND_NEW_PASSWORD_REQUIRED',
-              'PASSWORD_TOO_SHORT','INVALID_USER_INPUT','DEALER_ID_REQUIRED',
+              'PASSWORD_TOO_SHORT','INVALID_USER_INPUT','DEALER_ID_REQUIRED','DEALER_NOT_FOUND_OR_INACTIVE','CUSTOMER_NOT_FOUND','REJECTION_REASON_REQUIRED',
         'INVALID_PAYMENT_STATUS','CUSTOMER_ID_REQUIRED','ORDER_ITEMS_REQUIRED','INVALID_QUANTITY',
         'ORDER_ID_REQUIRED','RETURN_ITEMS_REQUIRED','INVALID_RETURN_QUANTITY','RETURN_QUANTITY_EXCEEDS_ORDER'
       ].includes(e.message) ? 400 : 500
@@ -1044,10 +1221,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v18 running');
+  console.log('Trex Platform Core API v19 running');
   try {
     await initDb();
-    console.log('Database schema v18 ready');
+    console.log('Database schema v19 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
