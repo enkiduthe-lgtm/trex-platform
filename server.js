@@ -259,7 +259,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.17' };
+    return { ok: true, version: '1.0.0-demo.18' };
   });
 }
 
@@ -575,13 +575,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.17', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.18', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'17' });
+      return send(res, 200, { ok:true, version:'18' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -755,6 +755,45 @@ const server = http.createServer(async (req, res) => {
       );
     }
 
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/users') {
+      await requireRole(req, ['ADMIN']);
+      const b = await body(req);
+      const allowedRoles = ['ADMIN','STAFF','DEALER','CUSTOMER'];
+
+      if (!b.email || !b.password || !b.full_name || !allowedRoles.includes(b.role)) {
+        throw Object.assign(new Error('INVALID_USER_INPUT'), { statusCode:400 });
+      }
+
+      if (String(b.password).length < 10) {
+        throw Object.assign(new Error('PASSWORD_TOO_SHORT'), { statusCode:400 });
+      }
+
+      if (b.role === 'DEALER' && !b.dealer_id) {
+        throw Object.assign(new Error('DEALER_ID_REQUIRED'), { statusCode:400 });
+      }
+
+      const row = await db(async c => {
+        const created = (await c.query(
+          `INSERT INTO app_users(email,full_name,password_hash,role,dealer_id,customer_id)
+           VALUES($1,$2,$3,$4,$5,$6)
+           RETURNING id,email,full_name,role,dealer_id,customer_id,active,created_at`,
+          [
+            String(b.email).trim().toLowerCase(),
+            b.full_name,
+            hashPassword(b.password),
+            b.role,
+            b.dealer_id || null,
+            b.customer_id || null
+          ]
+        )).rows[0];
+
+        await audit(c, 'USER_CREATED', 'app_user', created.id, { role:created.role });
+        return created;
+      });
+
+      return send(res, 201, { success:true, data:row });
+    }
+
     if (req.method === 'POST' && u.pathname === '/api/v1/auth/bootstrap-admin') {
       const b = await body(req);
       if (!process.env.DEMO_BOOTSTRAP_SECRET || b.secret !== process.env.DEMO_BOOTSTRAP_SECRET) {
@@ -828,7 +867,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/orders') {
-      return send(res, 200, { success:true, data:await db(async c => (await c.query(`SELECT * FROM orders ORDER BY id DESC`)).rows) });
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT * FROM orders WHERE dealer_id=$1 ORDER BY id DESC`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(`SELECT * FROM orders ORDER BY id DESC`)).rows;
+      });
+      return send(res, 200, { success:true, data });
     }
 
     const reserveMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/reserve-stock$/);
@@ -905,13 +955,42 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/dealers') {
-      return send(res, 200, { success:true, data:await db(async c => (await c.query(`SELECT * FROM dealers ORDER BY id DESC`)).rows) });
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT * FROM dealers WHERE id=$1`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(`SELECT * FROM dealers ORDER BY id DESC`)).rows;
+      });
+      return send(res, 200, { success:true, data });
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/dealer-ledger') {
-      return send(res, 200, { success:true, data:await db(async c => (await c.query(
-        `SELECT dl.*,d.name dealer_name FROM dealer_ledger dl JOIN dealers d ON d.id=dl.dealer_id ORDER BY dl.id DESC`
-      )).rows) });
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT dl.*,d.name dealer_name
+             FROM dealer_ledger dl
+             JOIN dealers d ON d.id=dl.dealer_id
+             WHERE dl.dealer_id=$1
+             ORDER BY dl.id DESC`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(
+          `SELECT dl.*,d.name dealer_name
+           FROM dealer_ledger dl
+           JOIN dealers d ON d.id=dl.dealer_id
+           ORDER BY dl.id DESC`
+        )).rows;
+      });
+      return send(res, 200, { success:true, data });
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/returns') {
@@ -955,7 +1034,7 @@ const server = http.createServer(async (req, res) => {
       [
         'INVALID_JSON','EMAIL_AND_PASSWORD_REQUIRED','EMAIL_PASSWORD_NAME_REQUIRED',
               'CURRENT_AND_NEW_PASSWORD_REQUIRED',
-              'PASSWORD_TOO_SHORT',
+              'PASSWORD_TOO_SHORT','INVALID_USER_INPUT','DEALER_ID_REQUIRED',
         'INVALID_PAYMENT_STATUS','CUSTOMER_ID_REQUIRED','ORDER_ITEMS_REQUIRED','INVALID_QUANTITY',
         'ORDER_ID_REQUIRED','RETURN_ITEMS_REQUIRED','INVALID_RETURN_QUANTITY','RETURN_QUANTITY_EXCEEDS_ORDER'
       ].includes(e.message) ? 400 : 500
@@ -965,10 +1044,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v17 running');
+  console.log('Trex Platform Core API v18 running');
   try {
     await initDb();
-    console.log('Database schema v17 ready');
+    console.log('Database schema v18 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
