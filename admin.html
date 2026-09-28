@@ -445,6 +445,49 @@
 
   <section
     class="card"
+    id="returnsAdmin"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      İade Yönetimi
+    </h2>
+
+    <div
+      id="returnsStatus"
+      class="muted"
+      style="margin-bottom:12px"
+    >
+      İadeler yükleniyor...
+    </div>
+
+    <table class="table">
+
+      <thead>
+        <tr>
+          <th>İade No</th>
+          <th>Sipariş</th>
+          <th>Durum</th>
+          <th>Neden</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+
+      <tbody id="returnsBody">
+        <tr>
+          <td colspan="5">
+            Veriler yükleniyor...
+          </td>
+        </tr>
+      </tbody>
+
+    </table>
+
+  </section>
+
+
+  <section
+    class="card"
     style="margin-top:18px"
   >
 
@@ -1146,6 +1189,288 @@ async function createDealerUser(event) {
 }
 
 document.getElementById('dealerUserForm').addEventListener('submit', createDealerUser);
+
+
+function returnStatusText(status) {
+  const map = {
+    REQUESTED: 'Bekliyor',
+    APPROVED: 'Onaylandı',
+    REJECTED: 'Reddedildi'
+  };
+
+  return map[status] || status || '-';
+}
+
+async function returnAction(path, bodyData = null) {
+  const options = {
+    method: 'POST',
+    headers: {
+      Authorization:
+        'Bearer ' + TOKEN
+    }
+  };
+
+  if (bodyData) {
+    options.headers['Content-Type'] =
+      'application/json';
+
+    options.body =
+      JSON.stringify(bodyData);
+  }
+
+  const response =
+    await fetch(
+      API_BASE + path,
+      options
+    );
+
+  const result =
+    await response.json();
+
+  if (
+    response.status === 401
+    ||
+    response.status === 403
+  ) {
+    redirectLogin();
+    throw new Error('UNAUTHORIZED');
+  }
+
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.error
+      ||
+      'İade işlemi başarısız.'
+    );
+  }
+
+  return result.data;
+}
+
+async function approveReturnAdmin(id) {
+  if (!confirm('Bu iadeyi onaylamak istiyor musunuz?')) {
+    return;
+  }
+
+  try {
+    await returnAction(
+      '/api/v1/returns/' +
+      id +
+      '/approve'
+    );
+
+    await loadReturns();
+    await loadDashboard();
+
+  } catch (error) {
+    alert(
+      error.message
+      ||
+      'İade onaylanamadı.'
+    );
+  }
+}
+
+async function rejectReturnAdmin(id) {
+  const reason =
+    prompt(
+      'İade reddetme nedenini yazın:'
+    );
+
+  if (reason === null) {
+    return;
+  }
+
+  const clean =
+    String(reason).trim();
+
+  if (!clean) {
+    alert(
+      'Red nedeni boş bırakılamaz.'
+    );
+    return;
+  }
+
+  try {
+    await returnAction(
+      '/api/v1/returns/' +
+      id +
+      '/reject',
+      {
+        reason:clean
+      }
+    );
+
+    await loadReturns();
+    await loadDashboard();
+
+  } catch (error) {
+    alert(
+      error.message
+      ||
+      'İade reddedilemedi.'
+    );
+  }
+}
+
+async function loadReturns() {
+  const status =
+    document.getElementById(
+      'returnsStatus'
+    );
+
+  const body =
+    document.getElementById(
+      'returnsBody'
+    );
+
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/returns',
+        {
+          headers: {
+            Authorization:
+              'Bearer ' +
+              TOKEN
+          }
+        }
+      );
+
+    if (
+      response.status === 401
+      ||
+      response.status === 403
+    ) {
+      redirectLogin();
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.error
+        ||
+        'İadeler alınamadı.'
+      );
+    }
+
+    const items =
+      result.data || [];
+
+    body.innerHTML = '';
+
+    if (!items.length) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="5">
+            Henüz iade kaydı yok
+          </td>
+        </tr>
+      `;
+
+      status.textContent =
+        'İade kaydı bulunmuyor.';
+
+      status.className =
+        'muted';
+
+      return;
+    }
+
+    for (const item of items) {
+      const row =
+        document.createElement(
+          'tr'
+        );
+
+      const reason =
+        item.status === 'REJECTED'
+          ?
+          (
+            item.rejection_reason
+            ||
+            item.reason
+            ||
+            '-'
+          )
+          :
+          (
+            item.reason
+            ||
+            '-'
+          );
+
+      const actions =
+        item.status === 'REQUESTED'
+          ?
+          `
+            <button
+              type="button"
+              class="logout-btn"
+              onclick="approveReturnAdmin(${Number(item.id)})"
+            >
+              Onayla
+            </button>
+
+            <button
+              type="button"
+              class="logout-btn"
+              onclick="rejectReturnAdmin(${Number(item.id)})"
+            >
+              Reddet
+            </button>
+          `
+          :
+          'İşlem tamamlandı';
+
+      row.innerHTML = `
+        <td>${item.return_no || '-'}</td>
+        <td>${item.order_id || '-'}</td>
+        <td>${returnStatusText(item.status)}</td>
+        <td>${reason}</td>
+        <td>${actions}</td>
+      `;
+
+      body.appendChild(row);
+    }
+
+    status.textContent =
+      items.filter(
+        x =>
+          x.status ===
+          'REQUESTED'
+      ).length +
+      ' bekleyen iade';
+
+    status.className =
+      'status-ok';
+
+  } catch (error) {
+    console.error(
+      'İade yükleme hatası:',
+      error
+    );
+
+    status.textContent =
+      'İadeler yüklenemedi: ' +
+      error.message;
+
+    status.className =
+      'status-error';
+
+    body.innerHTML = `
+      <tr>
+        <td colspan="5">
+          İade verisi alınamadı.
+        </td>
+      </tr>
+    `;
+  }
+}
 
 async function startAdmin() {
   const valid =
