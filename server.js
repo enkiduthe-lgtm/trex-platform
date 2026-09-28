@@ -4,6 +4,56 @@ const { Client } = require('pg');
 
 const port = process.env.PORT || 10000;
 const SESSION_HOURS = 12;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
+const loginAttempts = new Map();
+
+function loginKey(req, email) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = (
+    Array.isArray(forwarded)
+      ? forwarded[0]
+      : String(forwarded || req.socket.remoteAddress || '')
+  ).split(',')[0].trim();
+
+  return `${ip}|${String(email || '').trim().toLowerCase()}`;
+}
+
+function checkLoginThrottle(key) {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+
+  if (!entry) return;
+
+  if (now - entry.first > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return;
+  }
+
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    throw Object.assign(
+      new Error('TOO_MANY_LOGIN_ATTEMPTS'),
+      { statusCode:429 }
+    );
+  }
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+
+  if (!entry || now - entry.first > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count:1, first:now });
+    return;
+  }
+
+  entry.count += 1;
+  loginAttempts.set(key, entry);
+}
+
+function clearLoginFailures(key) {
+  loginAttempts.delete(key);
+}
 
 function send(res, status, data) {
   res.writeHead(status, {
@@ -77,6 +127,27 @@ async function getAuth(req) {
     );
     return r.rows[0] || null;
   });
+}
+
+
+async function requireRole(req, roles) {
+  const user = await getAuth(req);
+
+  if (!user) {
+    throw Object.assign(
+      new Error('UNAUTHORIZED'),
+      { statusCode:401 }
+    );
+  }
+
+  if (!roles.includes(user.role)) {
+    throw Object.assign(
+      new Error('FORBIDDEN'),
+      { statusCode:403 }
+    );
+  }
+
+  return user;
 }
 
 async function initDb() {
@@ -188,7 +259,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.16' };
+    return { ok: true, version: '1.0.0-demo.17' };
   });
 }
 
@@ -504,16 +575,17 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.16', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.17', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'15' });
+      return send(res, 200, { ok:true, version:'17' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
+      await requireRole(req, ['ADMIN']);
       return send(res, 200, await initDb());
     }
 
@@ -528,7 +600,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && u.pathname === '/api/v1/auth/login') {
       const b = await body(req);
       if (!b.email || !b.password) throw Object.assign(new Error('EMAIL_AND_PASSWORD_REQUIRED'), { statusCode:400 });
-      const result = await db(async c => {
+
+      const throttleKey = loginKey(req, b.email);
+      checkLoginThrottle(throttleKey);
+
+      let result;
+
+      try {
+        result = await db(async c => {
         const r = await c.query(
           `SELECT * FROM app_users WHERE LOWER(email)=LOWER($1) AND active=TRUE`,
           [b.email]
@@ -549,7 +628,17 @@ const server = http.createServer(async (req, res) => {
           expires_in_hours:SESSION_HOURS,
           user:{ id:user.id, email:user.email, full_name:user.full_name, role:user.role, dealer_id:user.dealer_id, customer_id:user.customer_id }
         };
-      });
+        });
+
+        clearLoginFailures(throttleKey);
+
+      } catch (e) {
+        if (e.message === 'INVALID_CREDENTIALS') {
+          recordLoginFailure(throttleKey);
+        }
+        throw e;
+      }
+
       return send(res, 200, { success:true, data:result });
     }
 
@@ -690,14 +779,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
-      const authUser = await getAuth(req);
-
-      if (!authUser || authUser.role !== 'ADMIN') {
-        throw Object.assign(
-          new Error('UNAUTHORIZED'),
-          { statusCode: 401 }
-        );
-      }
+      await requireRole(req, ['ADMIN']);
 
       const data = await db(async c => {
         const [orders,customers,dealers,stock,returns] = await Promise.all([
@@ -737,6 +819,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/customers') {
+      await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, { success:true, data:await db(async c => (await c.query(`SELECT * FROM customers ORDER BY id DESC`)).rows) });
     }
 
@@ -750,17 +833,20 @@ const server = http.createServer(async (req, res) => {
 
     const reserveMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/reserve-stock$/);
     if (req.method === 'POST' && reserveMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, await reserve(Number(reserveMatch[1])));
     }
 
     const statusMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/status$/);
     if (req.method === 'POST' && statusMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
       const b = await body(req);
       return send(res, 200, { success:true, data:await status(Number(statusMatch[1]), b.status) });
     }
 
     const paymentMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/payment-status$/);
     if (req.method === 'POST' && paymentMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
       const b = await body(req);
       const allowed = ['PAYMENT_PENDING','PAID','FAILED','REFUNDED','COD_PENDING'];
       if (!allowed.includes(b.payment_status)) throw new Error('INVALID_PAYMENT_STATUS');
@@ -789,6 +875,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/inventory/lots') {
+      await requireRole(req, ['ADMIN','STAFF']);
       const b = await body(req);
       const row = await db(async c => (await c.query(
         `INSERT INTO inventory_lots(product_id,lot_no,expiry_date,quantity_on_hand)
@@ -799,6 +886,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/inventory/lots') {
+      await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, { success:true, data:await db(async c => (await c.query(
         `SELECT l.*,p.name product_name,p.sku
          FROM inventory_lots l JOIN products p ON p.id=l.product_id
@@ -807,6 +895,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/dealers') {
+      await requireRole(req, ['ADMIN']);
       const b = await body(req);
       const row = await db(async c => (await c.query(
         `INSERT INTO dealers(code,name,dealer_level,status) VALUES($1,$2,$3,$4) RETURNING *`,
@@ -831,10 +920,12 @@ const server = http.createServer(async (req, res) => {
 
     const returnApproveMatch = u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/approve$/);
     if (req.method === 'POST' && returnApproveMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, { success:true, data:await approveReturn(Number(returnApproveMatch[1])) });
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/returns') {
+      await requireRole(req, ['ADMIN','STAFF']);
       return send(res, 200, { success:true, data:await db(async c => (await c.query(
         `SELECT rr.*,
           COALESCE(
@@ -850,6 +941,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/audit-logs') {
+      await requireRole(req, ['ADMIN']);
       return send(res, 200, { success:true, data:await db(async c => (await c.query(
         `SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100`
       )).rows) });
@@ -873,10 +965,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v16 running');
+  console.log('Trex Platform Core API v17 running');
   try {
     await initDb();
-    console.log('Database schema v16 ready');
+    console.log('Database schema v17 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
