@@ -291,6 +291,25 @@ async function createInventoryLot(data) {
   });
 }
 
+async function createDealer(data) {
+  const invalid = (message, code=400) => Object.assign(new Error(message), {statusCode:code});
+  const code = typeof data.code === 'string' ? data.code.trim() : '';
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+  const level = data.dealer_level === undefined ? 1 : data.dealer_level;
+  const status = data.status === undefined ? 'ACTIVE' : data.status;
+  if (!code || code.length > 50 || !name || name.length > 150) throw invalid('INVALID_DEALER_INPUT');
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 2147483647) throw invalid('INVALID_DEALER_LEVEL');
+  if (!['ACTIVE','INACTIVE'].includes(status)) throw invalid('INVALID_DEALER_STATUS');
+  return db(async c => {
+    try {
+      return (await c.query('INSERT INTO dealers(code,name,dealer_level,status) VALUES($1,$2,$3,$4) RETURNING *', [code,name,level,status])).rows[0];
+    } catch(error) {
+      if (error.code === '23505') throw invalid('DEALER_CODE_EXISTS',409);
+      throw error;
+    }
+  });
+}
+
 async function createOrder(data) {
   return db(async c => {
     await c.query('BEGIN');
@@ -1167,10 +1186,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && u.pathname === '/api/v1/dealers') {
       await requireRole(req, ['ADMIN']);
       const b = await body(req);
-      const row = await db(async c => (await c.query(
-        `INSERT INTO dealers(code,name,dealer_level,status) VALUES($1,$2,$3,$4) RETURNING *`,
-        [b.code, b.name, Number(b.dealer_level || 1), b.status || 'ACTIVE']
-      )).rows[0]);
+      const row = await createDealer(b);
       return send(res, 201, { success:true, data:row });
     }
 
@@ -1289,5 +1305,6 @@ server.listen(port, '0.0.0.0', async () => {
     console.error('Database initialization failed:', e.message);
   }
 });
+
 
 
