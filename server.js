@@ -261,7 +261,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.19' };
+    return { ok: true, version: '1.0.0-demo.20' };
   });
 }
 
@@ -662,13 +662,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.19', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.20', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'19' });
+      return send(res, 200, { ok:true, version:'20' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -1221,10 +1221,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v19 running');
+  console.log('Trex Platform Core API v20 running');
   try {
     await initDb();
-    console.log('Database schema v19 ready');
+    console.log('Database schema v20 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
