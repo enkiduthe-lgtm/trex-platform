@@ -414,6 +414,41 @@
   >
 
     <h2>
+      Bayi Kullanıcısı Oluştur
+    </h2>
+
+    <form id="dealerUserForm">
+      <div style="margin-bottom:12px">
+        <label for="dealerUserDealer">Bayi</label>
+        <select id="dealerUserDealer" required style="width:100%;padding:12px;margin-top:6px">
+          <option value="">Bayiler yükleniyor...</option>
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserName">Ad Soyad</label>
+        <input id="dealerUserName" type="text" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserEmail">E-posta</label>
+        <input id="dealerUserEmail" type="email" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserPassword">Geçici Şifre</label>
+        <input id="dealerUserPassword" type="password" minlength="10" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <button id="dealerUserBtn" type="submit" class="logout-btn">Bayi Girişi Oluştur</button>
+      <div id="dealerUserStatus" class="muted" style="margin-top:10px"></div>
+    </form>
+
+  </section>
+
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
       Operasyon Notu
     </h2>
 
@@ -1016,6 +1051,102 @@ document.getElementById(
   }
 );
 
+async function loadDealerOptions() {
+  const select = document.getElementById('dealerUserDealer');
+
+  try {
+    const response = await fetch(
+      API_BASE + '/api/v1/dealers',
+      { headers: { Authorization: 'Bearer ' + TOKEN } }
+    );
+
+    if (response.status === 401 || response.status === 403) {
+      redirectLogin();
+      return;
+    }
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Bayiler alınamadı.');
+    }
+
+    select.innerHTML = '<option value="">Bayi seçin</option>';
+
+    for (const dealer of result.data || []) {
+      const option = document.createElement('option');
+      option.value = dealer.id;
+      option.textContent = dealer.name + ' • ' + dealer.code;
+      select.appendChild(option);
+    }
+
+    if (!(result.data || []).length) {
+      select.innerHTML = '<option value="">Önce bayi kaydı oluşturulmalı</option>';
+    }
+  } catch (error) {
+    select.innerHTML = '<option value="">Bayi listesi alınamadı</option>';
+  }
+}
+
+async function createDealerUser(event) {
+  event.preventDefault();
+
+  const status = document.getElementById('dealerUserStatus');
+  const button = document.getElementById('dealerUserBtn');
+  const password = document.getElementById('dealerUserPassword').value;
+
+  if (password.length < 10) {
+    status.textContent = 'Geçici şifre en az 10 karakter olmalı.';
+    status.className = 'status-error';
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent = 'Bayi hesabı oluşturuluyor...';
+  status.className = 'muted';
+
+  try {
+    const response = await fetch(
+      API_BASE + '/api/v1/auth/users',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + TOKEN
+        },
+        body: JSON.stringify({
+          role: 'DEALER',
+          dealer_id: Number(document.getElementById('dealerUserDealer').value),
+          full_name: document.getElementById('dealerUserName').value.trim(),
+          email: document.getElementById('dealerUserEmail').value.trim(),
+          password
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (response.status === 401 || response.status === 403) {
+      redirectLogin();
+      return;
+    }
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Bayi hesabı oluşturulamadı.');
+    }
+
+    document.getElementById('dealerUserForm').reset();
+    status.textContent = 'Bayi giriş hesabı oluşturuldu.';
+    status.className = 'status-ok';
+  } catch (error) {
+    status.textContent = error.message || 'Bayi hesabı oluşturulamadı.';
+    status.className = 'status-error';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById('dealerUserForm').addEventListener('submit', createDealerUser);
+
 async function startAdmin() {
   const valid =
     await verifySession();
@@ -1025,6 +1156,7 @@ async function startAdmin() {
   }
 
   await loadDashboard();
+  await loadDealerOptions();
 
   setInterval(
     loadDashboard,
