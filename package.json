@@ -1,6 +1,6 @@
 {
   "name": "trex-platform",
-  "version": "1.0.0-demo.11",
+  "version": "1.0.0-demo.19",
   "private": true,
   "description": "Trex Platform demo core service",
   "main": "server.js",
