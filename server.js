@@ -981,13 +981,11 @@ const server = http.createServer(async (req, res) => {
       await requireRole(req, ['ADMIN']);
 
       const data = await db(async c => {
-        const [orders,customers,dealers,stock,returns] = await Promise.all([
-          c.query(`SELECT COUNT(*)::int count,COALESCE(SUM(total_amount),0) total FROM orders`),
-          c.query(`SELECT COUNT(*)::int count FROM customers`),
-          c.query(`SELECT COUNT(*)::int count FROM dealers WHERE status='ACTIVE'`),
-          c.query(`SELECT COALESCE(SUM(quantity_on_hand),0)::int total FROM inventory_lots`),
-          c.query(`SELECT COUNT(*)::int count FROM return_requests WHERE status='REQUESTED'`)
-        ]);
+        const orders = await c.query(`SELECT COUNT(*)::int count,COALESCE(SUM(total_amount),0) total FROM orders`);
+        const customers = await c.query(`SELECT COUNT(*)::int count FROM customers`);
+        const dealers = await c.query(`SELECT COUNT(*)::int count FROM dealers WHERE status='ACTIVE'`);
+        const stock = await c.query(`SELECT COALESCE(SUM(quantity_on_hand),0)::int total FROM inventory_lots`);
+        const returns = await c.query(`SELECT COUNT(*)::int count FROM return_requests WHERE status='REQUESTED'`);
         const latestOrders = await c.query(
           `SELECT id,order_no,status,total_amount,created_at FROM orders ORDER BY id DESC LIMIT 10`
         );
