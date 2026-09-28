@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stok Yönetimi • Trex Admin</title><link rel="stylesheet" href="/styles.css"><style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}.stats strong{display:block;font-size:26px;margin-top:6px}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}.form-grid label{display:grid;gap:6px}
+.warning{color:#9a4c00;background:#fff3db}.expired{color:#a02222;background:#fff0f0}
+</style></head><body>
+<header><strong>TREX ADMIN</strong> · Stok</header><main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/">Müşteri sitesi</a></nav>
+<h1>Stok yönetimi</h1><p class="muted">Ürün lotlarını, ayrılan miktarları ve son kullanma tarihlerini takip edin.</p>
+<div class="stats" aria-label="Stok özeti"><div class="card">Toplam stok<strong id="total">—</strong></div><div class="card">Ayrılan<strong id="reserved">—</strong></div><div class="card">Kullanılabilir<strong id="available">—</strong></div><div class="card">Tarihi yaklaşan lot<strong id="soon">—</strong></div></div>
+<p class="muted">Kullanılabilir miktar = toplam stok − ayrılan miktar. Tarih uyarıları bilgi amaçlıdır; stoktan otomatik düşülmez.</p>
+<section class="card" aria-label="Stok listesi"><div class="toolbar">
+<label>Stok ara<input id="search" type="search" placeholder="Ürün, SKU veya lot numarası"></label>
+<label>Tarih durumu<select id="filter"><option value="">Tüm lotlar</option><option value="expired">Tarihi geçmiş</option><option value="soon">30 gün içinde</option><option value="valid">30 günden fazla</option><option value="none">Tarih belirtilmemiş</option></select></label>
+<button id="refresh" type="button" disabled>Yenile</button></div>
+<p id="listStatus" role="status" aria-live="polite">Oturum kontrol ediliyor…</p>
+<div class="table-wrap"><table><thead><tr><th>Ürün / SKU</th><th>Lot</th><th>Son kullanma</th><th>Toplam</th><th>Ayrılan</th><th>Kullanılabilir</th><th>Tarih durumu</th></tr></thead><tbody id="lots"></tbody></table></div></section>
+<section class="card" id="createSection" hidden><h2>Yeni stok lotu</h2>
+<p class="muted">Yeni bir lot kaydı oluşturur. Aynı ürünün mevcut lotuna miktar eklemez; her ürün için lot numarası benzersiz olmalıdır.</p>
+<form id="lotForm"><fieldset id="fields" style="border:0;padding:0;margin:0" disabled><div class="form-grid">
+<label>Ürün<select id="product" required><option value="">Ürün seçin</option></select></label>
+<label>Lot numarası<input id="lotNo" required maxlength="100" autocomplete="off"></label>
+<label>Adet<input id="quantity" type="number" min="1" max="2147483647" step="1" required inputmode="numeric"></label>
+<label>Son kullanma tarihi (isteğe bağlı)<input id="expiry" type="date" min="1900-01-01" max="9999-12-31"></label>
+</div><p><button class="primary" id="save" type="submit">Stok lotunu kaydet</button></p></fieldset>
+<p id="saveStatus" role="status" aria-live="polite"></p></form></section>
+</main><script>
+const API='https://trex-platform-core-db.onrender.com',token=localStorage.getItem('trex_token');
+const el=id=>document.getElementById(id);
+const text=(tag,value)=>{const node=document.createElement(tag);node.textContent=String(value??'—');return node;};
+const number=value=>Number(value||0).toLocaleString('tr-TR');
+let lots=[],products=[],verified=false,loading=false,saving=false,loaded=false;
+function message(id,value,error=false){el(id).textContent=value;el(id).className=error?'notice error':'';}
+async function api(path,options={}){
+ const response=await fetch(API+path,{...options,headers:{Authorization:'Bearer '+token,...options.headers}});
+ if(response.status===401){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');throw new Error('Oturum sona erdi.');}
+ const result=await response.json();
+ if(!response.ok||result.success===false){
+ const errors={INVALID_PRODUCT:'Geçerli bir ürün seçin.',INVALID_LOT_NUMBER:'Lot numarası 1–100 karakter olmalı.',INVALID_STOCK_QUANTITY:'Adet pozitif bir tam sayı olmalı.',INVALID_EXPIRY_DATE:'Geçerli bir tarih girin.',PRODUCT_NOT_FOUND_OR_INACTIVE:'Ürün bulunamadı veya aktif değil. Listeyi yenileyin.',LOT_ALREADY_EXISTS:'Bu ürün ve lot numarası zaten kayıtlı. Yeni kayıt oluşturulmadı.',FORBIDDEN:'Bu işlem için yetkiniz yok.'};
+ throw new Error(errors[result.error]||'İşlem tamamlanamadı. Kaydetmeyi yeniden denemeden önce listeyi yenileyin.');
+ }return result.data;
+}
+function dateKey(value){return value?String(value).slice(0,10):'';}
+function dateState(value){
+ const key=dateKey(value);if(!key)return 'none';
+ const now=new Date(),today=Date.UTC(now.getFullYear(),now.getMonth(),now.getDate());
+ const days=Math.round((Date.parse(key+'T00:00:00Z')-today)/86400000);
+ return days<0?'expired':days<=30?'soon':'valid';
+}
+function formatDate(value){const key=dateKey(value);return key?key.split('-').reverse().join('.'):'—';}
+function filteredLots(){
+ const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),filter=el('filter').value;
+ return lots.filter(l=>(!filter||dateState(l.expiry_date)===filter)&&(!term||[l.product_name,l.sku,l.lot_no].some(v=>String(v||'').toLocaleLowerCase('tr-TR').includes(term))));
+}
+function render(){
+ const rows=filteredLots(),body=el('lots');body.replaceChildren();
+ message('listStatus',rows.length+' lot gösteriliyor · Toplam '+lots.length);
+ for(const [id,value] of [['total',lots.reduce((s,l)=>s+Number(l.quantity_on_hand),0)],['reserved',lots.reduce((s,l)=>s+Number(l.quantity_reserved),0)],['available',lots.reduce((s,l)=>s+Number(l.quantity_on_hand)-Number(l.quantity_reserved),0)],['soon',lots.filter(l=>dateState(l.expiry_date)==='soon').length]])el(id).textContent=number(value);
+ if(!rows.length){const row=document.createElement('tr'),cell=text('td',lots.length?'Filtreye uygun stok yok.':'Henüz stok lotu yok.');cell.colSpan=7;row.appendChild(cell);body.appendChild(row);}
+ for(const lot of rows){
+ const row=document.createElement('tr');
+ for(const value of [lot.product_name+' / '+lot.sku,lot.lot_no,formatDate(lot.expiry_date),number(lot.quantity_on_hand),number(lot.quantity_reserved),number(Number(lot.quantity_on_hand)-Number(lot.quantity_reserved))])row.appendChild(text('td',value));
+ const state=dateState(lot.expiry_date),cell=document.createElement('td'),badge=text('span',({expired:'Tarihi geçmiş',soon:'30 gün içinde',valid:'Tarih uygun',none:'Tarih yok'})[state]);
+ badge.className='badge '+(state==='expired'?'expired':state==='soon'?'warning':'');cell.appendChild(badge);row.appendChild(cell);body.appendChild(row);
+ }
+}
+async function load(){
+ if(loading||!verified)return false;loading=true;el('refresh').disabled=true;el('fields').disabled=true;message('listStatus','Stoklar yükleniyor…');
+ try{
+ const [nextLots,nextProducts]=await Promise.all([api('/api/v1/inventory/lots'),api('/api/v1/products')]);
+ if(!Array.isArray(nextLots)||!Array.isArray(nextProducts))throw new Error('Stok bilgileri okunamadı.');
+ lots=nextLots;products=nextProducts.filter(p=>p.active!==false);const previous=el('product').value;
+ el('product').replaceChildren();const placeholder=text('option','Ürün seçin');placeholder.value='';el('product').appendChild(placeholder);
+ for(const p of products){const option=text('option',p.name+' / '+p.sku);option.value=String(p.id);el('product').appendChild(option);}
+ el('product').value=products.some(p=>String(p.id)===previous)?previous:'';
+ loaded=true;render();if(!products.length)message('saveStatus','Stok girişi için aktif ürün bulunmuyor.');return true;
+ }catch(error){loaded=false;el('lots').replaceChildren();for(const id of ['total','reserved','available','soon'])el(id).textContent='—';message('listStatus',error.message,true);return false;}
+ finally{loading=false;el('refresh').disabled=saving;el('fields').disabled=saving||!loaded||!products.length;}
+}
+async function save(event){
+ event.preventDefault();if(!verified||saving||loading||!loaded||!el('lotForm').reportValidity())return;
+ const product=products.find(p=>String(p.id)===el('product').value),lotNo=el('lotNo').value.trim(),quantity=Number(el('quantity').value),expiry=el('expiry').value;
+ if(!product||!lotNo||!Number.isInteger(quantity)||quantity<1||quantity>2147483647){message('saveStatus','Ürün, lot numarası ve pozitif tam sayı adet girin.',true);return;}
+ if(!confirm(product.name+' · Lot: '+lotNo+' · '+number(quantity)+' adet\nSon kullanma: '+formatDate(expiry)+'\n\nYeni stok lotu kaydedilsin mi?'))return;
+ saving=true;el('fields').disabled=true;el('refresh').disabled=true;message('saveStatus','Kaydediliyor…');
+ try{
+ await api('/api/v1/inventory/lots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:String(product.id),lot_no:lotNo,quantity_on_hand:quantity,expiry_date:expiry||null})});
+ el('lotForm').reset();
+ const updated=await load();message('saveStatus',updated?'Stok lotu kaydedildi.':'Stok lotu kaydedildi; liste yenilenemedi. Yenile düğmesini kullanın.',!updated);
+ }catch(error){message('saveStatus',error.message,true);}
+ finally{saving=false;el('fields').disabled=!loaded||!products.length;el('refresh').disabled=false;}
+}
+el('lotForm').addEventListener('submit',save);el('refresh').addEventListener('click',load);
+for(const [id,event] of [['search','input'],['filter','change']])el(id).addEventListener(event,()=>{if(loaded&&!loading)render();});
+async function start(){
+ if(!token){location.replace('/login.html');return;}
+ try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Stok yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;el('createSection').hidden=false;await load();}
+ catch(error){message('listStatus',error.message,true);}
+}
+start();
+</script></body></html>

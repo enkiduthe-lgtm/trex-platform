@@ -265,6 +265,32 @@ async function initDb() {
   });
 }
 
+async function createInventoryLot(data) {
+  const invalid = (message, code=400) => Object.assign(new Error(message), {statusCode:code});
+  const productId = String(data.product_id ?? '');
+  const lotNo = typeof data.lot_no === 'string' ? data.lot_no.trim() : '';
+  const quantity = data.quantity_on_hand;
+  const expiry = data.expiry_date || null;
+  if (!/^[1-9]\d*$/.test(productId) || productId.length > 18) throw invalid('INVALID_PRODUCT');
+  if (!lotNo || lotNo.length > 100) throw invalid('INVALID_LOT_NUMBER');
+  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 2147483647) throw invalid('INVALID_STOCK_QUANTITY');
+  if (expiry !== null && (typeof expiry !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(expiry) || !Number.isFinite(Date.parse(expiry)) || new Date(expiry).toISOString().slice(0,10) !== expiry || expiry < '1900-01-01')) throw invalid('INVALID_EXPIRY_DATE');
+  return db(async c => {
+    const product = await c.query('SELECT id FROM products WHERE id=$1 AND active=TRUE', [productId]);
+    if (!product.rowCount) throw invalid('PRODUCT_NOT_FOUND_OR_INACTIVE');
+    try {
+      return (await c.query(
+        'INSERT INTO inventory_lots(product_id,lot_no,expiry_date,quantity_on_hand) VALUES($1,$2,$3,$4) RETURNING *',
+        [productId,lotNo,expiry,quantity]
+      )).rows[0];
+    } catch(error) {
+      if (error.code === '23505') throw invalid('LOT_ALREADY_EXISTS',409);
+      if (error.code === '23503') throw invalid('PRODUCT_NOT_FOUND_OR_INACTIVE');
+      throw error;
+    }
+  });
+}
+
 async function createOrder(data) {
   return db(async c => {
     await c.query('BEGIN');
@@ -1125,11 +1151,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && u.pathname === '/api/v1/inventory/lots') {
       await requireRole(req, ['ADMIN','STAFF']);
       const b = await body(req);
-      const row = await db(async c => (await c.query(
-        `INSERT INTO inventory_lots(product_id,lot_no,expiry_date,quantity_on_hand)
-         VALUES($1,$2,$3,$4) RETURNING *`,
-        [b.product_id, b.lot_no, b.expiry_date || null, Number(b.quantity_on_hand || 0)]
-      )).rows[0]);
+      const row = await createInventoryLot(b);
       return send(res, 201, { success:true, data:row });
     }
 
@@ -1267,4 +1289,5 @@ server.listen(port, '0.0.0.0', async () => {
     console.error('Database initialization failed:', e.message);
   }
 });
+
 
