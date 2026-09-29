@@ -23,7 +23,7 @@ ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
 .warning{color:#9a4c00;background:#fff3db}.expired{color:#a02222;background:#fff0f0}
 </style></head>
 <body><header><strong>TREX ADMIN</strong> · Bayiler</header><main>
-<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/inventory.html">Stok yönetimi</a></nav>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/finance.html?view=commissions">Prim raporu</a><a href="/inventory.html">Stok yönetimi</a></nav>
 <h1>Bayi yönetimi</h1><p class="muted">Bayi kayıtlarını ve prim hareketlerini inceleyin, yeni bayi ekleyin.</p>
 <section class="card" aria-label="Bayi listesi"><div class="toolbar">
 <label>Bayi ara<input id="search" type="search" placeholder="Bayi adı veya kodu"></label>
@@ -87,3 +87,4 @@ for(const [id,event] of [['search','input'],['filter','change']])el(id).addEvent
 async function start(){if(!token){location.replace('/login.html');return;}try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Bayi yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;el('createSection').hidden=false;await load();}catch(error){message('listStatus',error.message,true);}}
 start();
 </script></body></html>
+
