@@ -5,370 +5,86 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Trex Platform</title>
   <link rel="stylesheet" href="/styles.css">
-
   <style>
-    .product-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 14px;
-      margin-top: 16px;
-    }
-
-    .product-card {
-      background: #fff;
-      border: 1px solid #e4e7e3;
-      border-radius: 18px;
-      padding: 18px;
-    }
-
-    .product-card h3 {
-      margin-top: 0;
-    }
-
-    .product-meta {
-      opacity: .72;
-      font-size: 14px;
-      margin: 6px 0;
-    }
-
-    .price {
-      font-size: 18px;
-      font-weight: 800;
-      margin: 12px 0;
-    }
-
-    .status-ok {
-      color: #157347;
-      font-weight: 700;
-    }
-
-    .status-error {
-      color: #b42318;
-      font-weight: 700;
-    }
-
-    .muted-small {
-      opacity: .7;
-      font-size: 13px;
-    }
-
-    @media(max-width:650px) {
-      .product-grid {
-        grid-template-columns: 1fr;
-      }
-    }
+    .product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:16px}
+    .product-card{background:#fff;border:1px solid #e4e7e3;border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:8px}
+    .product-card h3{margin:0}.product-meta{opacity:.72;font-size:14px;margin:2px 0}.price{font-size:18px;font-weight:800;margin:8px 0}
+    .status-ok{color:#157347;font-weight:700}.status-error{color:#b42318;font-weight:700}.muted-small{opacity:.7;font-size:13px}
+    .product-image{width:100%;aspect-ratio:4/3;object-fit:contain;background:#f7f7f4;border-radius:12px;margin-bottom:6px}
+    .image-placeholder{display:grid;place-items:center;aspect-ratio:4/3;background:#f3f2ec;border-radius:12px;color:#66756c;margin-bottom:6px;text-align:center;padding:12px}
+    .product-short{line-height:1.5;margin:4px 0;color:#46574e}.card-actions{margin-top:auto;padding-top:8px}
+    @media(max-width:650px){.product-grid{grid-template-columns:1fr}}
   </style>
 </head>
-
 <body>
-
-<header class="top">
-  <div class="bar">
-    <div class="brand">
-      TREX PLATFORM / Müşteri
-    </div>
-
-    <div class="pill">
-      Demo • Gerçek ödeme yapılmaz
-    </div>
-  </div>
-</header>
-
+<header class="top"><div class="bar"><div class="brand">TREX PLATFORM / Müşteri</div><div class="pill">Demo • Gerçek ödeme yapılmaz</div></div></header>
 <main class="wrap">
-
   <section class="hero">
-
     <div class="card">
       <h1>Trex Tea Dijital Ekosistemi</h1>
-
-      <p class="muted">
-        Müşteri mağazası, sipariş takibi,
-        Trex Club, bayi ağı ve operasyon
-        yönetimi için geliştirilen platform.
-      </p>
-
-      <div class="btns">
-        <a class="btn" href="/admin.html">
-          Admin Paneli
-        </a>
-
-        <a class="btn secondary" href="/dealer.html">
-          Bayi Portalı
-        </a>
-      </div>
+      <p class="muted">Müşteri mağazası, sipariş takibi, Trex Club, bayi ağı ve operasyon yönetimi için geliştirilen platform.</p>
+      <div class="btns"><a class="btn" href="/admin.html">Admin Paneli</a><a class="btn secondary" href="/dealer.html">Bayi Portalı</a></div>
     </div>
-
-    <div class="card">
-      <h3>Sistem Durumu</h3>
-
-      <div class="list">
-        <div class="row">
-          <span>Core API</span>
-          <span id="apiTag" class="tag warn">
-            Kontrol ediliyor
-          </span>
-        </div>
-
-        <div class="row">
-          <span>Veritabanı</span>
-          <span class="tag">
-            PostgreSQL
-          </span>
-        </div>
-
-        <div class="row">
-          <span>Ödeme</span>
-          <span class="tag warn">
-            Mock
-          </span>
-        </div>
-
-        <div class="row">
-          <span>Kargo</span>
-          <span class="tag warn">
-            Mock
-          </span>
-        </div>
-      </div>
-    </div>
-
+    <div class="card"><h3>Sistem Durumu</h3><div class="list">
+      <div class="row"><span>Core API</span><span id="apiTag" class="tag warn">Kontrol ediliyor</span></div>
+      <div class="row"><span>Veritabanı</span><span class="tag">PostgreSQL</span></div>
+      <div class="row"><span>Ödeme</span><span class="tag warn">Mock</span></div>
+      <div class="row"><span>Kargo</span><span class="tag warn">Mock</span></div>
+    </div></div>
   </section>
 
   <section class="card" style="margin-top:18px">
-
     <h2>Ürünler</h2>
-
-    <p id="apiStatus" class="muted-small">
-      Ürünler yükleniyor...
-    </p>
-
-    <div id="productGrid" class="product-grid">
-
-      <div class="product-card">
-        Veriler yükleniyor...
-      </div>
-
-    </div>
-
+    <p id="apiStatus" class="muted-small">Ürünler yükleniyor...</p>
+    <div id="productGrid" class="product-grid"><div class="product-card">Veriler yükleniyor...</div></div>
   </section>
 
   <section class="card" style="margin-top:18px">
-
     <h2>Trex Club</h2>
     <p><a class="btn" href="/club.html">Su takibini aç</a></p>
-
-    <p class="muted">
-      Günlük su takibi kullanıma hazır. Hedefini belirle,
-      içtiğin suyu kaydet ve haftalık geçmişini gör.
-      Adım takibi ve hatırlatıcılar henüz geliştirme planında.
-    </p>
-
-    <div class="notice">
-      Bu demo sağlık sonucu, tedavi veya
-      kilo kaybı iddiası içermez.
-    </div>
-
+    <p class="muted">Günlük su takibi kullanıma hazır. Hedefini belirle, içtiğin suyu kaydet ve haftalık geçmişini gör. Adım takibi ve hatırlatıcılar henüz geliştirme planında.</p>
+    <div class="notice">Bu demo sağlık sonucu, tedavi veya kilo kaybı iddiası içermez.</div>
   </section>
 
   <section class="card" style="margin-top:18px">
-
-    <h2>Platform Durumu</h2>
-
-    <div class="list">
-
-      <div class="row">
-        <span>Müşteri API</span>
-        <b>Bağlı</b>
-      </div>
-
-      <div class="row">
-        <span>Admin API</span>
-        <b>Bağlı</b>
-      </div>
-
-      <div class="row">
-        <span>Bayi API</span>
-        <b>Bağlı</b>
-      </div>
-
-      <div class="row">
-        <span>Gerçek ödeme</span>
-        <b>Henüz bağlı değil</b>
-      </div>
-
-      <div class="row">
-        <span>Aras Kargo</span>
-        <b>Henüz bağlı değil</b>
-      </div>
-
+    <h2>Platform Durumu</h2><div class="list">
+      <div class="row"><span>Müşteri API</span><b>Bağlı</b></div>
+      <div class="row"><span>Admin API</span><b>Bağlı</b></div>
+      <div class="row"><span>Bayi API</span><b>Bağlı</b></div>
+      <div class="row"><span>Gerçek ödeme</span><b>Henüz bağlı değil</b></div>
+      <div class="row"><span>Aras Kargo</span><b>Henüz bağlı değil</b></div>
     </div>
-
   </section>
-
 </main>
-
-<footer class="foot">
-  Trex Platform • PostgreSQL bağlantılı demo
-</footer>
-
+<footer class="foot">Trex Platform • PostgreSQL bağlantılı demo</footer>
 <script>
-
-const API_BASE =
-  'https://trex-platform-core-db.onrender.com';
-
-function money(value) {
-  const amount =
-    Number(value || 0);
-
-  if (amount <= 0) {
-    return 'Fiyat tanımlanmadı';
-  }
-
-  return amount.toLocaleString(
-    'tr-TR',
-    {
-      style: 'currency',
-      currency: 'TRY'
-    }
-  );
+const API_BASE='https://trex-platform-core-db.onrender.com';
+function money(value){const amount=Number(value||0);if(amount<=0)return'Fiyat tanımlanmadı';return amount.toLocaleString('tr-TR',{style:'currency',currency:'TRY'});}
+function appendText(parent,tag,className,value){const node=document.createElement(tag);node.className=className||'';node.textContent=value;parent.appendChild(node);return node;}
+function renderProduct(product){
+  const card=document.createElement('article');card.className='product-card';
+  const images=Array.isArray(product.image_urls)?product.image_urls.filter(Boolean):[];
+  if(images[0]){const img=document.createElement('img');img.className='product-image';img.src=images[0];img.alt=product.name||'Ürün';img.loading='lazy';card.appendChild(img);}else{appendText(card,'div','image-placeholder','Ürün görseli henüz eklenmedi');}
+  appendText(card,'h3','',product.name||'Ürün');
+  appendText(card,'div','product-meta','SKU: '+(product.sku||'-'));
+  appendText(card,'div','product-meta','Format: '+(product.unit||'-'));
+  if(product.short_description)appendText(card,'p','product-short',product.short_description);
+  appendText(card,'div','price',money(product.price));
+  appendText(card,'span','tag','Aktif');
+  if(product.slug){const actions=document.createElement('div');actions.className='card-actions';const link=document.createElement('a');link.className='btn';link.href='/product.html?slug='+encodeURIComponent(product.slug);link.textContent='Ürünü İncele';actions.appendChild(link);card.appendChild(actions);}
+  return card;
 }
-
-async function loadProducts() {
-
-  const grid =
-    document.getElementById(
-      'productGrid'
-    );
-
-  const status =
-    document.getElementById(
-      'apiStatus'
-    );
-
-  const tag =
-    document.getElementById(
-      'apiTag'
-    );
-
-  try {
-
-    const response =
-      await fetch(
-        API_BASE +
-        '/api/v1/products'
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        'HTTP ' +
-        response.status
-      );
-    }
-
-    const result =
-      await response.json();
-
-    if (!result.success) {
-      throw new Error(
-        result.error ||
-        'API_ERROR'
-      );
-    }
-
-    const products =
-      result.data || [];
-
-    grid.innerHTML = '';
-
-    if (!products.length) {
-
-      grid.innerHTML = `
-        <div class="product-card">
-          Henüz ürün kaydı yok
-        </div>
-      `;
-
-    } else {
-
-      for (
-        const product
-        of products
-      ) {
-
-        const card =
-          document.createElement(
-            'div'
-          );
-
-        card.className =
-          'product-card';
-
-        for (const [tagName, className, value] of [
-          ['h3','',product.name],
-          ['div','product-meta','SKU: '+product.sku],
-          ['div','product-meta','Format: '+(product.unit || '-')],
-          ['div','price',money(product.price)],
-          ['span','tag','Aktif']
-        ]) {
-          const element = document.createElement(tagName);
-          element.className = className;
-          element.textContent = value;
-          card.appendChild(element);
-        }
-
-        grid.appendChild(
-          card
-        );
-      }
-    }
-
-    status.textContent =
-      'Ürün verileri Core API üzerinden alındı';
-
-    status.className =
-      'status-ok';
-
-    tag.textContent =
-      'Çalışıyor';
-
-    tag.className =
-      'tag';
-
-  } catch (error) {
-
-    console.error(error);
-
-    status.textContent =
-      'API bağlantı hatası: ' +
-      error.message;
-
-    status.className =
-      'status-error';
-
-    tag.textContent =
-      'Bağlantı Hatası';
-
-    tag.className =
-      'tag bad';
-
-    grid.innerHTML = `
-      <div class="product-card">
-        Ürün verisi alınamadı
-      </div>
-    `;
-  }
+async function loadProducts(){
+  const grid=document.getElementById('productGrid'),status=document.getElementById('apiStatus'),tag=document.getElementById('apiTag');
+  try{
+    const response=await fetch(API_BASE+'/api/v1/products');if(!response.ok)throw new Error('HTTP '+response.status);
+    const result=await response.json();if(!result.success)throw new Error(result.error||'API_ERROR');
+    const products=result.data||[];grid.replaceChildren();
+    if(!products.length){appendText(grid,'div','product-card','Henüz ürün kaydı yok');}else{for(const product of products)grid.appendChild(renderProduct(product));}
+    status.textContent='Ürün verileri Core API üzerinden alındı';status.className='status-ok';tag.textContent='Çalışıyor';tag.className='tag';
+  }catch(error){console.error(error);status.textContent='API bağlantı hatası: '+error.message;status.className='status-error';tag.textContent='Bağlantı Hatası';tag.className='tag bad';grid.replaceChildren();appendText(grid,'div','product-card','Ürün verisi alınamadı');}
 }
-
-loadProducts();
-
-setInterval(
-  loadProducts,
-  30000
-);
-
+loadProducts();setInterval(loadProducts,30000);
 </script>
-
 </body>
 </html>
-
-
