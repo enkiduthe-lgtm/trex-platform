@@ -310,6 +310,35 @@ async function createDealer(data) {
   });
 }
 
+function validateProduct(data, creating) {
+  const fail = message => {throw Object.assign(new Error(message), {statusCode:400});};
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+  const unit = typeof data.unit === 'string' ? data.unit.trim() : '';
+  const sku = typeof data.sku === 'string' ? data.sku.trim() : '';
+  const price = String(data.price ?? '');
+  if (!name || name.length > 150 || unit.length > 100) fail('INVALID_PRODUCT_INPUT');
+  if (creating && (!sku || sku.length > 60 || !/^[A-Za-z0-9._-]+$/.test(sku))) fail('INVALID_PRODUCT_SKU');
+  if (!/^\d{1,10}(\.\d{1,2})?$/.test(price) || Number(price) > 9999999999.99) fail('INVALID_PRODUCT_PRICE');
+  if (typeof data.active !== 'boolean') fail('INVALID_PRODUCT_ACTIVE');
+  return {name,unit,sku,price,active:data.active};
+}
+
+async function saveProduct(id, data) {
+  const p = validateProduct(data, id === null);
+  return db(async c => {
+    try {
+      const result = id === null
+        ? await c.query('INSERT INTO products(sku,name,unit,price,active) VALUES($1,$2,$3,$4,$5) RETURNING *',[p.sku,p.name,p.unit,p.price,p.active])
+        : await c.query('UPDATE products SET name=$1,unit=$2,price=$3,active=$4 WHERE id=$5 RETURNING *',[p.name,p.unit,p.price,p.active,id]);
+      if (!result.rows.length) throw Object.assign(new Error('PRODUCT_NOT_FOUND'),{statusCode:404});
+      return result.rows[0];
+    } catch(error) {
+      if (error.code === '23505') throw Object.assign(new Error('PRODUCT_SKU_EXISTS'),{statusCode:409});
+      throw error;
+    }
+  });
+}
+
 async function createOrder(data) {
   return db(async c => {
     await c.query('BEGIN');
@@ -1078,8 +1107,21 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { success:true, data });
     }
 
+    if (req.method === 'GET' && u.pathname === '/api/v1/admin/products') {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await db(async c => (await c.query('SELECT * FROM products ORDER BY id')).rows)});
+    }
+    if (req.method === 'POST' && u.pathname === '/api/v1/products') {
+      await requireRole(req, ['ADMIN']);
+      return send(res,201,{success:true,data:await saveProduct(null,await body(req))});
+    }
+    const productUpdate = u.pathname.match(/^\/api\/v1\/products\/(\d+)$/);
+    if (req.method === 'POST' && productUpdate) {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await saveProduct(productUpdate[1],await body(req))});
+    }
     if (req.method === 'GET' && u.pathname === '/api/v1/products') {
-      return send(res, 200, { success:true, data:await db(async c => (await c.query(`SELECT * FROM products ORDER BY id`)).rows) });
+      return send(res,200,{success:true,data:await db(async c => (await c.query('SELECT * FROM products WHERE active=TRUE ORDER BY id')).rows)});
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/customers') {
@@ -1305,6 +1347,7 @@ server.listen(port, '0.0.0.0', async () => {
     console.error('Database initialization failed:', e.message);
   }
 });
+
 
 
 

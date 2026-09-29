@@ -303,30 +303,18 @@ async function loadProducts() {
         card.className =
           'product-card';
 
-        card.innerHTML = `
-          <h3>${product.name}</h3>
-
-          <div class="product-meta">
-            SKU: ${product.sku}
-          </div>
-
-          <div class="product-meta">
-            Format:
-            ${product.unit || '-'}
-          </div>
-
-          <div class="price">
-            ${money(product.price)}
-          </div>
-
-          <span class="tag">
-            ${
-              product.active
-                ? 'Aktif'
-                : 'Pasif'
-            }
-          </span>
-        `;
+        for (const [tagName, className, value] of [
+          ['h3','',product.name],
+          ['div','product-meta','SKU: '+product.sku],
+          ['div','product-meta','Format: '+(product.unit || '-')],
+          ['div','price',money(product.price)],
+          ['span','tag','Aktif']
+        ]) {
+          const element = document.createElement(tagName);
+          element.className = className;
+          element.textContent = value;
+          card.appendChild(element);
+        }
 
         grid.appendChild(
           card
@@ -382,3 +370,4 @@ setInterval(
 
 </body>
 </html>
+
