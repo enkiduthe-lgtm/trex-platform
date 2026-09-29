@@ -51,6 +51,13 @@
       cursor: pointer;
       font-weight: 700;
     }
+    .returns-toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin:14px 0}
+    .returns-toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+    .returns-toolbar input,.returns-toolbar select{font:inherit;padding:10px;border:1px solid #bdc9bf;border-radius:8px;min-height:44px}
+    #returnsAdmin{scroll-margin-top:20px;overflow-x:auto}
+    #returnsBody td{overflow-wrap:anywhere}
+    #returnsBody button{margin:4px;min-height:44px}
+    #returnsBody button:disabled,#refreshReturns:disabled{opacity:.5;cursor:default}
   </style>
 </head>
 
@@ -122,7 +129,7 @@
       Finans
     </a>
 
-    <a href="#">
+    <a href="#returnsAdmin">
       İadeler
     </a>
 
@@ -455,7 +462,15 @@
       İade Yönetimi
     </h2>
 
+    <div class="returns-toolbar">
+      <label>İade ara<input id="returnSearch" type="search" placeholder="İade no, sipariş ID veya neden"></label>
+      <label>Durum<select id="returnFilter"><option value="">Tüm iadeler</option><option value="REQUESTED">Bekleyen</option><option value="APPROVED">Onaylanan</option><option value="REJECTED">Reddedilen</option></select></label>
+      <button id="refreshReturns" type="button" class="logout-btn">Yenile</button>
+    </div>
+    <p class="muted">Onay işlemi mevcut stok ve prim iade kurallarını uygular. Para iadesi gerçekleştirmez.</p>
+    <p id="returnActionStatus" role="status" aria-live="polite"></p>
     <div
+      role="status" aria-live="polite"
       id="returnsStatus"
       class="muted"
       style="margin-bottom:12px"
@@ -1249,230 +1264,73 @@ async function returnAction(path, bodyData = null) {
   return result.data;
 }
 
-async function approveReturnAdmin(id) {
-  if (!confirm('Bu iadeyi onaylamak istiyor musunuz?')) {
-    return;
-  }
-
-  try {
-    await returnAction(
-      '/api/v1/returns/' +
-      id +
-      '/approve'
-    );
-
-    await loadReturns();
-    await loadDashboard();
-
-  } catch (error) {
-    alert(
-      error.message
-      ||
-      'İade onaylanamadı.'
-    );
-  }
+let returnItems=[],returnsLoading=false,returnsBusy=false,returnsLoaded=false;
+const returnEl=id=>document.getElementById(id);
+function returnText(tag,value){const node=document.createElement(tag);node.textContent=String(value??'—');return node;}
+function returnFeedback(value,error=false){returnEl('returnActionStatus').textContent=value;returnEl('returnActionStatus').className=error?'status-error':'status-ok';}
+function returnError(error){
+ const messages={RETURN_NOT_FOUND:'İade kaydı bulunamadı.',RETURN_ALREADY_PROCESSED:'Bu iade zaten işlenmiş. Listeyi yenileyin.',RETURN_NOT_PENDING:'Bu iade artık beklemiyor. Listeyi yenileyin.',REJECTION_REASON_REQUIRED:'Red nedeni boş olamaz.',UNAUTHORIZED:'Oturum veya yetki sorunu. Yeniden giriş yapın.'};
+ return messages[error.message]||'İşlem tamamlanamadı. Listeyi yenileyip iadenin durumunu kontrol edin.';
 }
-
-async function rejectReturnAdmin(id) {
-  const reason =
-    prompt(
-      'İade reddetme nedenini yazın:'
-    );
-
-  if (reason === null) {
-    return;
-  }
-
-  const clean =
-    String(reason).trim();
-
-  if (!clean) {
-    alert(
-      'Red nedeni boş bırakılamaz.'
-    );
-    return;
-  }
-
-  try {
-    await returnAction(
-      '/api/v1/returns/' +
-      id +
-      '/reject',
-      {
-        reason:clean
-      }
-    );
-
-    await loadReturns();
-    await loadDashboard();
-
-  } catch (error) {
-    alert(
-      error.message
-      ||
-      'İade reddedilemedi.'
-    );
-  }
+function filteredReturns(){
+ const term=returnEl('returnSearch').value.trim().toLocaleLowerCase('tr-TR'),status=returnEl('returnFilter').value;
+ return returnItems.filter(item=>(!status||item.status===status)&&(!term||[item.return_no,item.order_id,item.reason,item.rejection_reason].some(value=>String(value??'').toLocaleLowerCase('tr-TR').includes(term))));
 }
-
-async function loadReturns() {
-  const status =
-    document.getElementById(
-      'returnsStatus'
-    );
-
-  const body =
-    document.getElementById(
-      'returnsBody'
-    );
-
-  try {
-    const response =
-      await fetch(
-        API_BASE +
-        '/api/v1/returns',
-        {
-          headers: {
-            Authorization:
-              'Bearer ' +
-              TOKEN
-          }
-        }
-      );
-
-    if (
-      response.status === 401
-      ||
-      response.status === 403
-    ) {
-      redirectLogin();
-      return;
-    }
-
-    const result =
-      await response.json();
-
-    if (!response.ok || !result.success) {
-      throw new Error(
-        result.error
-        ||
-        'İadeler alınamadı.'
-      );
-    }
-
-    const items =
-      result.data || [];
-
-    body.innerHTML = '';
-
-    if (!items.length) {
-      body.innerHTML = `
-        <tr>
-          <td colspan="5">
-            Henüz iade kaydı yok
-          </td>
-        </tr>
-      `;
-
-      status.textContent =
-        'İade kaydı bulunmuyor.';
-
-      status.className =
-        'muted';
-
-      return;
-    }
-
-    for (const item of items) {
-      const row =
-        document.createElement(
-          'tr'
-        );
-
-      const reason =
-        item.status === 'REJECTED'
-          ?
-          (
-            item.rejection_reason
-            ||
-            item.reason
-            ||
-            '-'
-          )
-          :
-          (
-            item.reason
-            ||
-            '-'
-          );
-
-      const actions =
-        item.status === 'REQUESTED'
-          ?
-          `
-            <button
-              type="button"
-              class="logout-btn"
-              onclick="approveReturnAdmin(${Number(item.id)})"
-            >
-              Onayla
-            </button>
-
-            <button
-              type="button"
-              class="logout-btn"
-              onclick="rejectReturnAdmin(${Number(item.id)})"
-            >
-              Reddet
-            </button>
-          `
-          :
-          'İşlem tamamlandı';
-
-      row.innerHTML = `
-        <td>${item.return_no || '-'}</td>
-        <td>${item.order_id || '-'}</td>
-        <td>${returnStatusText(item.status)}</td>
-        <td>${reason}</td>
-        <td>${actions}</td>
-      `;
-
-      body.appendChild(row);
-    }
-
-    status.textContent =
-      items.filter(
-        x =>
-          x.status ===
-          'REQUESTED'
-      ).length +
-      ' bekleyen iade';
-
-    status.className =
-      'status-ok';
-
-  } catch (error) {
-    console.error(
-      'İade yükleme hatası:',
-      error
-    );
-
-    status.textContent =
-      'İadeler yüklenemedi: ' +
-      error.message;
-
-    status.className =
-      'status-error';
-
-    body.innerHTML = `
-      <tr>
-        <td colspan="5">
-          İade verisi alınamadı.
-        </td>
-      </tr>
-    `;
-  }
+function renderReturns(){
+ const body=returnEl('returnsBody');body.replaceChildren();const rows=filteredReturns();
+ if(!rows.length){const row=document.createElement('tr'),cell=returnText('td',returnItems.length?'Filtreye uygun iade yok.':'Henüz iade kaydı yok.');cell.colSpan=5;row.appendChild(cell);body.appendChild(row);}
+ for(const item of rows){
+ const row=document.createElement('tr');row.appendChild(returnText('td',item.return_no||'—'));
+ const orderCell=document.createElement('td');if(item.order_id){const link=returnText('a','#'+item.order_id);link.href='/orders.html?order='+encodeURIComponent(item.order_id);orderCell.appendChild(link);}else orderCell.textContent='—';row.appendChild(orderCell);
+ row.appendChild(returnText('td',returnStatusText(item.status)));
+ row.appendChild(returnText('td',item.status==='REJECTED'?(item.rejection_reason||item.reason||'—'):(item.reason||'—')));
+ const actions=document.createElement('td');
+ if(item.status==='REQUESTED'){
+ for(const [label,handler] of [['Onayla',approveReturnAdmin],['Reddet',rejectReturnAdmin]]){
+ const button=returnText('button',label);button.type='button';button.className='logout-btn';button.disabled=returnsBusy||returnsLoading;
+ button.setAttribute('aria-label',(item.return_no||item.id)+' iadesini '+label.toLocaleLowerCase('tr-TR'));button.addEventListener('click',()=>handler(item.id));actions.appendChild(button);}
+ }else actions.textContent='İşlem tamamlandı';row.appendChild(actions);body.appendChild(row);
+ }
+ returnEl('returnsStatus').textContent=rows.length+' iade gösteriliyor · Toplam '+returnItems.length+' · '+returnItems.filter(item=>item.status==='REQUESTED').length+' bekleyen';
+ returnEl('returnsStatus').className='muted';
 }
+async function processReturn(id,action,bodyData=null){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ const item=returnItems.find(item=>String(item.id)===String(id));if(!item||item.status!=='REQUESTED')return;
+ returnsBusy=true;returnEl('refreshReturns').disabled=true;renderReturns();returnFeedback('İşlem uygulanıyor…');
+ try{
+ await returnAction('/api/v1/returns/'+encodeURIComponent(id)+'/'+action,bodyData);
+ const updated=await loadReturns();
+ returnFeedback(updated?(action==='approve'?'İade onaylandı.':'İade reddedildi.'):'İşlem kaydedildi ancak liste yenilenemedi. Yenile düğmesini kullanın.',!updated);
+ await loadDashboard();
+ }catch(error){returnFeedback(returnError(error),true);}
+ finally{returnsBusy=false;returnEl('refreshReturns').disabled=false;if(returnsLoaded)renderReturns();}
+}
+async function approveReturnAdmin(id){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ if(!confirm('Bu iadeyi onaylamak istiyor musunuz? Mevcut stok ve prim iade kuralları uygulanır; para iadesi yapılmaz.'))return;
+ await processReturn(id,'approve');
+}
+async function rejectReturnAdmin(id){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ const reason=prompt('İade reddetme nedenini yazın:');if(reason===null)return;
+ const clean=String(reason).trim();if(!clean){returnFeedback('Red nedeni boş bırakılamaz.',true);return;}
+ await processReturn(id,'reject',{reason:clean});
+}
+async function loadReturns(){
+ if(returnsLoading)return false;returnsLoading=true;returnsLoaded=false;returnEl('refreshReturns').disabled=true;
+ returnEl('returnsStatus').textContent='İadeler yükleniyor…';returnEl('returnsStatus').className='muted';returnEl('returnsBody').replaceChildren();
+ try{
+ const response=await fetch(API_BASE+'/api/v1/returns',{headers:{Authorization:'Bearer '+TOKEN}});
+ if(response.status===401||response.status===403){redirectLogin();return false;}
+ const result=await response.json();if(!response.ok||!result.success||!Array.isArray(result.data))throw new Error('İadeler alınamadı.');
+ returnItems=result.data;returnsLoaded=true;renderReturns();return true;
+ }catch(error){returnEl('returnsStatus').textContent='İadeler yüklenemedi. Yenile düğmesiyle yeniden deneyin.';returnEl('returnsStatus').className='status-error';return false;}
+ finally{returnsLoading=false;returnEl('refreshReturns').disabled=returnsBusy;if(returnsLoaded)renderReturns();}
+}
+returnEl('returnSearch').addEventListener('input',()=>{if(returnsLoaded&&!returnsLoading)renderReturns();});
+returnEl('returnFilter').addEventListener('change',()=>{if(returnsLoaded&&!returnsLoading)renderReturns();});
+returnEl('refreshReturns').addEventListener('click',()=>{if(!returnsBusy)loadReturns();});
 
 async function startAdmin() {
   const valid =
@@ -1499,6 +1357,7 @@ startAdmin();
 </body>
 
 </html>
+
 
 
 
