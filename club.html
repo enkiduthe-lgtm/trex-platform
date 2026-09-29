@@ -1,5 +1,10 @@
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Su Takibi • Trex Club</title>
+<link rel="manifest" href="/club.webmanifest">
+<meta name="theme-color" content="#104c35">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trex Club">
+<link rel="apple-touch-icon" href="/club-icon-180.png">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f5f3ec;color:#193e32;font:16px system-ui,sans-serif}
 header{background:#104c35;color:white;padding:22px max(20px,calc((100vw - 1000px)/2))}header span{opacity:.75;margin-left:12px}
@@ -18,6 +23,11 @@ ul{list-style:none;padding:0;margin-bottom:0}li{display:flex;justify-content:spa
 <nav><a href="/">← Mağazaya dön</a></nav><h1>Bugün ne kadar su içtin?</h1>
 <p class="muted">İçtiğin miktarı kaydet, kendin belirlediğin hedefi ve son yedi gününü takip et.</p>
 <p class="notice">Kayıtlar yalnızca bu cihazın bu tarayıcısında saklanır; hesabına veya başka cihazlara aktarılmaz. Tarayıcı verilerini silersen kayıtlar kaybolur. Ortak cihaz kullananlar aynı kayıtları görür.</p>
+<section class="card" aria-labelledby="installTitle"><h2 id="installTitle">Telefonunda kullan</h2>
+<p class="muted"><strong>Android:</strong> Tarayıcı menüsünden “Uygulamayı yükle” veya “Ana ekrana ekle” seçeneğini kullan.<br><strong>iPhone:</strong> Safari’de Paylaş → Ana Ekrana Ekle yolunu izle; görünüyorsa “Web Uygulaması Olarak Aç” seçeneğini etkinleştir.</p>
+<button id="installApp" type="button" class="primary" hidden>Telefona ekle</button>
+<p id="offlineStatus" class="muted" role="status" aria-live="polite">Çevrimdışı kullanım hazırlanıyor…</p>
+<p class="muted">İlk açılış için internet gerekir. Hazır olduğunda su takibi internetsiz açılır; mağaza ve yönetim sayfaları internet gerektirir. Kurulum sonrası tarayıcıdaki eski kayıtların aktarılacağını varsayma; kayıtlarını aynı uygulama içinde tut.</p></section>
 <p id="notice" role="status" aria-live="polite"></p>
 <div class="layout"><div>
 <section class="card today" aria-labelledby="todayTitle"><h2 id="todayTitle">Bugün</h2><p id="todayDate" class="muted"></p><div class="amount"><span id="total">0</span> <small>ml</small></div>
@@ -73,7 +83,7 @@ function render(){
  el('history').replaceChildren();
  for(let i=0;i<7;i++){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-i);const key=todayKey(d),record=key===todayKey()?day:state.days[key],row=document.createElement('tr');
  for(const value of [d.toLocaleDateString('tr-TR',{day:'numeric',month:'short'}),record?number(total(record))+' ml':'—',record?.goal?number(record.goal)+' ml':'—']){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);}el('history').appendChild(row);}
- for(const button of document.querySelectorAll('button'))if(button.id!=='undo')button.disabled=!available;
+ for(const button of document.querySelectorAll('button'))if(button.id!=='undo'&&button.id!=='installApp')button.disabled=!available;
 }
 el('addForm').addEventListener('submit',event=>{event.preventDefault();if(el('addForm').reportValidity()){add(Number(el('amount').value));}});
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>add(Number(button.dataset.add)));
@@ -84,4 +94,23 @@ window.addEventListener('storage',event=>{if(event.key===KEY||event.key===null)r
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 setInterval(()=>{if(lastDay!==todayKey())refresh();},30000);
 read();el('goal').value=state.goal||'';render();
+</script>
+<script>
+let installPrompt=null;
+const installButton=document.getElementById('installApp'),offlineStatus=document.getElementById('offlineStatus');
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;installButton.hidden=false;});
+installButton.addEventListener('click',async()=>{
+ if(!installPrompt)return;
+ installButton.disabled=true;
+ try{await installPrompt.prompt();await installPrompt.userChoice;}
+ catch(error){offlineStatus.textContent='Kurulum açılamadı. Tarayıcının ana ekrana ekle menüsünü kullanabilirsin.';}
+ finally{installPrompt=null;installButton.hidden=true;installButton.disabled=false;}
+});
+window.addEventListener('appinstalled',()=>{installPrompt=null;installButton.hidden=true;});
+if('serviceWorker' in navigator){
+ navigator.serviceWorker.register('/club-sw.js').then(()=>navigator.serviceWorker.ready).then(()=>{
+   offlineStatus.textContent='Su takibi çevrimdışı kullanıma hazır.';
+ }).catch(()=>{offlineStatus.textContent='Çevrimdışı kullanım hazırlanamadı. İnternet bağlantısıyla yeniden açmayı dene.';});
+}else{offlineStatus.textContent='Bu tarayıcı çevrimdışı açılışı desteklemiyor. İnternet bağlantısıyla kullanabilirsin.';}
 </script></body></html>
+
