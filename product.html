@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ürün • Trex Platform</title>
+  <meta name="description" content="Trex Platform ürün detayı">
+  <meta property="og:type" content="product">
+  <meta property="og:title" content="Trex Platform">
+  <meta property="og:description" content="Trex Platform ürün detayı">
+  <meta property="og:url" content="">
+  <meta property="og:image" content="">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Trex Platform">
+  <meta name="twitter:description" content="Trex Platform ürün detayı">
+  <meta name="twitter:image" content="">
+  <link rel="canonical" href="">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .product-layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);gap:24px;align-items:start}
+    .gallery{background:#fff;border:1px solid #e4e7e3;border-radius:18px;padding:18px}
+    .main-image{width:100%;aspect-ratio:1/1;object-fit:contain;border-radius:14px;background:#f7f7f4}
+    .thumbs{display:flex;gap:10px;overflow:auto;margin-top:12px;padding-bottom:2px}
+    .thumb{width:72px;height:72px;flex:0 0 72px;border:1px solid #ccd5ce;border-radius:10px;background:white;padding:4px;cursor:pointer}
+    .thumb img{width:100%;height:100%;object-fit:contain}
+    .thumb.active{outline:3px solid #145c3d;outline-offset:1px}
+    .detail-card{background:#fff;border:1px solid #e4e7e3;border-radius:18px;padding:24px}
+    .detail-card h1{margin-top:0}.price{font-size:30px;font-weight:800;margin:16px 0}.meta{opacity:.7;font-size:14px}
+    .description{white-space:pre-wrap;line-height:1.7}.short{font-size:17px;line-height:1.6}
+    .empty-image{display:grid;place-items:center;aspect-ratio:1/1;background:#f3f2ec;border-radius:14px;color:#66756c}
+    .error{background:#fff0f0;color:#9d2424;padding:14px;border-radius:10px}
+    @media(max-width:760px){.product-layout{grid-template-columns:1fr}.detail-card{padding:20px}}
+  </style>
+</head>
+<body>
+<header class="top"><div class="bar"><div class="brand">TREX PLATFORM / Ürün</div><div class="pill">Demo</div></div></header>
+<main class="wrap">
+  <nav class="nav"><a href="/">← Mağazaya dön</a></nav>
+  <p id="status" class="muted">Ürün yükleniyor...</p>
+  <section id="product" class="product-layout" hidden>
+    <div class="gallery">
+      <div id="imageArea"></div>
+      <div id="thumbs" class="thumbs" aria-label="Ürün görselleri"></div>
+    </div>
+    <article class="detail-card">
+      <p id="sku" class="meta"></p>
+      <h1 id="name"></h1>
+      <p id="unit" class="meta"></p>
+      <div id="price" class="price"></div>
+      <p id="short" class="short"></p>
+      <hr>
+      <h2>Ürün Detayı</h2>
+      <div id="description" class="description"></div>
+    </article>
+  </section>
+</main>
+<footer class="foot">Trex Platform • Ürün detayı</footer>
+<script>
+const API='https://trex-platform-core-db.onrender.com';
+const el=id=>document.getElementById(id);
+const money=v=>Number(v||0)>0?Number(v).toLocaleString('tr-TR',{style:'currency',currency:'TRY'}):'Fiyat tanımlanmadı';
+function meta(selector,value){const node=document.querySelector(selector);if(node&&value)node.setAttribute('content',value);}
+function link(selector,value){const node=document.querySelector(selector);if(node&&value)node.setAttribute('href',value);}
+function showImage(url,alt){const area=el('imageArea');area.replaceChildren();if(!url){const empty=document.createElement('div');empty.className='empty-image';empty.textContent='Ürün görseli henüz eklenmedi';area.appendChild(empty);return;}const img=document.createElement('img');img.className='main-image';img.src=url;img.alt=alt;img.loading='eager';area.appendChild(img);}
+function renderGallery(images,name){const list=Array.isArray(images)?images.filter(Boolean):[];showImage(list[0],name);const thumbs=el('thumbs');thumbs.replaceChildren();list.forEach((url,index)=>{const button=document.createElement('button');button.type='button';button.className='thumb'+(index===0?' active':'');const img=document.createElement('img');img.src=url;img.alt=name+' görsel '+(index+1);button.appendChild(img);button.addEventListener('click',()=>{showImage(url,name);for(const x of thumbs.querySelectorAll('.thumb'))x.classList.remove('active');button.classList.add('active');});thumbs.appendChild(button);});thumbs.hidden=list.length<2;}
+function applySeo(p){const fallbackTitle=p.name+' • Trex Platform',title=p.seo_title||fallbackTitle,desc=p.meta_description||p.short_description||'';document.title=title;meta('meta[name="description"]',desc);meta('meta[property="og:title"]',p.og_title||title);meta('meta[property="og:description"]',p.og_description||desc);meta('meta[name="twitter:title"]',p.twitter_title||p.og_title||title);meta('meta[name="twitter:description"]',p.twitter_description||p.og_description||desc);const image=(Array.isArray(p.image_urls)&&p.image_urls[0])||'';meta('meta[property="og:image"]',image);meta('meta[name="twitter:image"]',image);const canonical=p.canonical_url||location.origin+location.pathname+'?slug='+encodeURIComponent(p.slug);link('link[rel="canonical"]',canonical);meta('meta[property="og:url"]',canonical);}
+async function load(){const slug=new URLSearchParams(location.search).get('slug')||'';if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)){el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';return;}try{const r=await fetch(API+'/api/v1/products');const j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||'API_ERROR');const p=(j.data||[]).find(x=>x.active!==false&&x.slug===slug);if(!p)throw new Error('PRODUCT_NOT_FOUND');el('sku').textContent='SKU: '+p.sku;el('name').textContent=p.name;el('unit').textContent=p.unit||'';el('price').textContent=money(p.price);el('short').textContent=p.short_description||'';el('description').textContent=p.description||'Detay açıklaması henüz eklenmedi.';renderGallery(p.image_urls,p.name);applySeo(p);el('product').hidden=false;el('status').textContent='';}catch(e){console.error(e);el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';}}
+load();
+</script>
+</body>
+</html>
