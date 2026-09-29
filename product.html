@@ -28,7 +28,7 @@
     .detail-card h1{margin-top:0}.price{font-size:30px;font-weight:800;margin:16px 0}.meta{opacity:.7;font-size:14px}
     .description{white-space:pre-wrap;line-height:1.7}.short{font-size:17px;line-height:1.6}
     .empty-image{display:grid;place-items:center;aspect-ratio:1/1;background:#f3f2ec;border-radius:14px;color:#66756c}
-    .error{background:#fff0f0;color:#9d2424;padding:14px;border-radius:10px}
+    .error{background:#fff0f0;color:#9d2424;padding:14px;border-radius:10px}.buy-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0}.buy-row input{width:90px;padding:11px;border:1px solid #bdc9bf;border-radius:9px;font:inherit}.buy-row button{border:0;border-radius:10px;padding:12px 18px;background:#145c3d;color:white;font:inherit;font-weight:700;cursor:pointer}.buy-row button:disabled{opacity:.5;cursor:default}.cart-link{display:inline-block;margin-top:8px}
     @media(max-width:760px){.product-layout{grid-template-columns:1fr}.detail-card{padding:20px}}
   </style>
 </head>
@@ -48,6 +48,7 @@
       <p id="unit" class="meta"></p>
       <div id="price" class="price"></div>
       <p id="short" class="short"></p>
+      <div class="buy-row"><label>Adet <input id="qty" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label><button id="addCart" type="button" disabled>Sepete Ekle</button></div><p id="cartStatus" class="meta" role="status" aria-live="polite"></p><a class="btn secondary cart-link" href="/cart.html">Sepeti Gör</a>
       <hr>
       <h2>Ürün Detayı</h2>
       <div id="description" class="description"></div>
@@ -57,6 +58,11 @@
 <footer class="foot">Trex Platform • Ürün detayı</footer>
 <script>
 const API='https://trex-platform-core-db.onrender.com';
+const CART_KEY='trex_cart';
+let CURRENT_PRODUCT=null;
+function readCart(){try{const v=JSON.parse(localStorage.getItem(CART_KEY)||'[]');return Array.isArray(v)?v.filter(x=>Number.isInteger(Number(x.product_id))&&Number(x.product_id)>0&&Number.isInteger(Number(x.quantity))&&Number(x.quantity)>0).map(x=>({product_id:Number(x.product_id),quantity:Number(x.quantity)})):[];}catch{return [];}}
+function writeCart(cart){localStorage.setItem(CART_KEY,JSON.stringify(cart));}
+function addCurrentToCart(){if(!CURRENT_PRODUCT)return;const qty=Number(el('qty').value);if(!Number.isInteger(qty)||qty<1||qty>100){el('cartStatus').textContent='1–100 arasında adet gir.';return;}const cart=readCart(),id=Number(CURRENT_PRODUCT.id),row=cart.find(x=>x.product_id===id);if(row)row.quantity=Math.min(100,row.quantity+qty);else cart.push({product_id:id,quantity:qty});writeCart(cart);el('cartStatus').textContent=CURRENT_PRODUCT.name+' sepete eklendi.';}
 const el=id=>document.getElementById(id);
 const money=v=>Number(v||0)>0?Number(v).toLocaleString('tr-TR',{style:'currency',currency:'TRY'}):'Fiyat tanımlanmadı';
 function meta(selector,value){const node=document.querySelector(selector);if(node&&value)node.setAttribute('content',value);}
@@ -64,7 +70,8 @@ function link(selector,value){const node=document.querySelector(selector);if(nod
 function showImage(url,alt){const area=el('imageArea');area.replaceChildren();if(!url){const empty=document.createElement('div');empty.className='empty-image';empty.textContent='Ürün görseli henüz eklenmedi';area.appendChild(empty);return;}const img=document.createElement('img');img.className='main-image';img.src=url;img.alt=alt;img.loading='eager';area.appendChild(img);}
 function renderGallery(images,name){const list=Array.isArray(images)?images.filter(Boolean):[];showImage(list[0],name);const thumbs=el('thumbs');thumbs.replaceChildren();list.forEach((url,index)=>{const button=document.createElement('button');button.type='button';button.className='thumb'+(index===0?' active':'');const img=document.createElement('img');img.src=url;img.alt=name+' görsel '+(index+1);button.appendChild(img);button.addEventListener('click',()=>{showImage(url,name);for(const x of thumbs.querySelectorAll('.thumb'))x.classList.remove('active');button.classList.add('active');});thumbs.appendChild(button);});thumbs.hidden=list.length<2;}
 function applySeo(p){const fallbackTitle=p.name+' • Trex Platform',title=p.seo_title||fallbackTitle,desc=p.meta_description||p.short_description||'';document.title=title;meta('meta[name="description"]',desc);meta('meta[property="og:title"]',p.og_title||title);meta('meta[property="og:description"]',p.og_description||desc);meta('meta[name="twitter:title"]',p.twitter_title||p.og_title||title);meta('meta[name="twitter:description"]',p.twitter_description||p.og_description||desc);const image=(Array.isArray(p.image_urls)&&p.image_urls[0])||'';meta('meta[property="og:image"]',image);meta('meta[name="twitter:image"]',image);const canonical=p.canonical_url||location.origin+location.pathname+'?slug='+encodeURIComponent(p.slug);link('link[rel="canonical"]',canonical);meta('meta[property="og:url"]',canonical);}
-async function load(){const slug=new URLSearchParams(location.search).get('slug')||'';if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)){el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';return;}try{const r=await fetch(API+'/api/v1/products');const j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||'API_ERROR');const p=(j.data||[]).find(x=>x.active!==false&&x.slug===slug);if(!p)throw new Error('PRODUCT_NOT_FOUND');el('sku').textContent='SKU: '+p.sku;el('name').textContent=p.name;el('unit').textContent=p.unit||'';el('price').textContent=money(p.price);el('short').textContent=p.short_description||'';el('description').textContent=p.description||'Detay açıklaması henüz eklenmedi.';renderGallery(p.image_urls,p.name);applySeo(p);el('product').hidden=false;el('status').textContent='';}catch(e){console.error(e);el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';}}
+async function load(){const slug=new URLSearchParams(location.search).get('slug')||'';if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)){el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';return;}try{const r=await fetch(API+'/api/v1/products');const j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||'API_ERROR');const p=(j.data||[]).find(x=>x.active!==false&&x.slug===slug);if(!p)throw new Error('PRODUCT_NOT_FOUND');CURRENT_PRODUCT=p;el('sku').textContent='SKU: '+p.sku;el('name').textContent=p.name;el('unit').textContent=p.unit||'';el('price').textContent=money(p.price);el('short').textContent=p.short_description||'';el('description').textContent=p.description||'Detay açıklaması henüz eklenmedi.';renderGallery(p.image_urls,p.name);applySeo(p);el('addCart').disabled=!(Number(p.price||0)>0);el('product').hidden=false;el('status').textContent='';}catch(e){console.error(e);el('status').textContent='Ürün bulunamadı veya yayından kaldırıldı.';el('status').className='error';}}
+el('addCart').addEventListener('click',addCurrentToCart);
 load();
 </script>
 </body>
