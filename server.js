@@ -261,7 +261,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.20' };
+    return { ok: true, version: '1.0.0-demo.21' };
   });
 }
 
@@ -335,6 +335,133 @@ async function saveProduct(id, data) {
     } catch(error) {
       if (error.code === '23505') throw Object.assign(new Error('PRODUCT_SKU_EXISTS'),{statusCode:409});
       throw error;
+    }
+  });
+}
+
+
+async function deleteProductSafely(id) {
+  const coreSkus = new Set([
+    'TREX-TEA-60',
+    'TREX-COFFEE-30',
+    'TREX-CAP-30',
+    'LIPOTEX-60',
+    'TREX-JEL'
+  ]);
+
+  return db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const productResult = await c.query(
+        `SELECT *
+         FROM products
+         WHERE id=$1
+         FOR UPDATE`,
+        [id]
+      );
+
+      if (!productResult.rowCount) {
+        throw Object.assign(
+          new Error('PRODUCT_NOT_FOUND'),
+          { statusCode:404 }
+        );
+      }
+
+      const product = productResult.rows[0];
+
+      const orderRefs = await c.query(
+        `SELECT COUNT(*)::int count
+         FROM order_items
+         WHERE product_id=$1`,
+        [id]
+      );
+
+      const stockRefs = await c.query(
+        `SELECT COUNT(*)::int count
+         FROM inventory_lots
+         WHERE product_id=$1`,
+        [id]
+      );
+
+      const commissionRefs = await c.query(
+        `SELECT COUNT(*)::int count
+         FROM dealer_commission_rules
+         WHERE product_id=$1`,
+        [id]
+      );
+
+      const coreProduct =
+        coreSkus.has(product.sku);
+
+      const hasHistory =
+        Number(orderRefs.rows[0].count) > 0
+        ||
+        Number(stockRefs.rows[0].count) > 0
+        ||
+        Number(commissionRefs.rows[0].count) > 0
+        ||
+        coreProduct;
+
+      if (hasHistory) {
+        const updated = (
+          await c.query(
+            `UPDATE products
+             SET active=FALSE
+             WHERE id=$1
+             RETURNING *`,
+            [id]
+          )
+        ).rows[0];
+
+        await audit(
+          c,
+          'PRODUCT_ARCHIVED',
+          'product',
+          id,
+          {
+            sku:product.sku,
+            order_references:Number(orderRefs.rows[0].count),
+            stock_references:Number(stockRefs.rows[0].count),
+            commission_references:Number(commissionRefs.rows[0].count),
+            core_product:coreProduct
+          }
+        );
+
+        await c.query('COMMIT');
+
+        return {
+          mode:'archived',
+          product:updated
+        };
+      }
+
+      await c.query(
+        `DELETE FROM products
+         WHERE id=$1`,
+        [id]
+      );
+
+      await audit(
+        c,
+        'PRODUCT_DELETED',
+        'product',
+        id,
+        {
+          sku:product.sku
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return {
+        mode:'deleted',
+        product
+      };
+
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
     }
   });
 }
@@ -767,13 +894,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.20', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.21', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'20' });
+      return send(res, 200, { ok:true, version:'21' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -1120,6 +1247,11 @@ const server = http.createServer(async (req, res) => {
       await requireRole(req, ['ADMIN']);
       return send(res,200,{success:true,data:await saveProduct(productUpdate[1],await body(req))});
     }
+    const productDeleteMatch = u.pathname.match(/^\/api\/v1\/products\/(\d+)\/delete$/);
+    if (req.method === 'POST' && productDeleteMatch) {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await deleteProductSafely(productDeleteMatch[1])});
+    }
     if (req.method === 'GET' && u.pathname === '/api/v1/products') {
       return send(res,200,{success:true,data:await db(async c => (await c.query('SELECT * FROM products WHERE active=TRUE ORDER BY id')).rows)});
     }
@@ -1339,10 +1471,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v20 running');
+  console.log('Trex Platform Core API v21 running');
   try {
     await initDb();
-    console.log('Database schema v20 ready');
+    console.log('Database schema v21 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
