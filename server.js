@@ -234,6 +234,18 @@ async function initDb() {
       ALTER TABLE dealer_ledger ADD COLUMN IF NOT EXISTS order_id BIGINT REFERENCES orders(id);
       ALTER TABLE dealer_ledger ADD COLUMN IF NOT EXISTS description TEXT;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS price NUMERIC(12,2) NOT NULL DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS short_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS slug TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS seo_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS meta_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS canonical_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS og_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS og_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS twitter_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS twitter_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb;
+      CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx ON products(slug) WHERE slug IS NOT NULL AND slug<>'';
       ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS reason TEXT;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS qc_result TEXT;
@@ -261,7 +273,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.21' };
+    return { ok: true, version: '1.0.0-demo.22' };
   });
 }
 
@@ -312,28 +324,88 @@ async function createDealer(data) {
 
 function validateProduct(data, creating) {
   const fail = message => {throw Object.assign(new Error(message), {statusCode:400});};
-  const name = typeof data.name === 'string' ? data.name.trim() : '';
-  const unit = typeof data.unit === 'string' ? data.unit.trim() : '';
+  const clean = (value, max) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text.length > max) fail('INVALID_PRODUCT_CONTENT');
+    return text;
+  };
+  const name = clean(data.name,150);
+  const unit = clean(data.unit,100);
   const sku = typeof data.sku === 'string' ? data.sku.trim() : '';
   const price = String(data.price ?? '');
-  if (!name || name.length > 150 || unit.length > 100) fail('INVALID_PRODUCT_INPUT');
+  const slug = clean(data.slug,180).toLowerCase();
+  const shortDescription = clean(data.short_description,500);
+  const description = clean(data.description,12000);
+  const seoTitle = clean(data.seo_title,180);
+  const metaDescription = clean(data.meta_description,320);
+  const canonicalUrl = clean(data.canonical_url,500);
+  const ogTitle = clean(data.og_title,180);
+  const ogDescription = clean(data.og_description,320);
+  const twitterTitle = clean(data.twitter_title,180);
+  const twitterDescription = clean(data.twitter_description,320);
+  const imageUrls = Array.isArray(data.image_urls)
+    ? data.image_urls.map(x => String(x || '').trim()).filter(Boolean)
+    : [];
+
+  if (!name || unit.length > 100) fail('INVALID_PRODUCT_INPUT');
   if (creating && (!sku || sku.length > 60 || !/^[A-Za-z0-9._-]+$/.test(sku))) fail('INVALID_PRODUCT_SKU');
   if (!/^\d{1,10}(\.\d{1,2})?$/.test(price) || Number(price) > 9999999999.99) fail('INVALID_PRODUCT_PRICE');
   if (typeof data.active !== 'boolean') fail('INVALID_PRODUCT_ACTIVE');
-  return {name,unit,sku,price,active:data.active};
+  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) fail('INVALID_PRODUCT_SLUG');
+  if (canonicalUrl && !/^https?:\/\//i.test(canonicalUrl)) fail('INVALID_PRODUCT_URL');
+  if (imageUrls.length > 20 || imageUrls.some(url => url.length > 1000 || !/^https?:\/\//i.test(url))) fail('INVALID_PRODUCT_IMAGES');
+
+  return {
+    name,unit,sku,price,active:data.active,slug:slug || null,
+    short_description:shortDescription || null,
+    description:description || null,
+    seo_title:seoTitle || null,
+    meta_description:metaDescription || null,
+    canonical_url:canonicalUrl || null,
+    og_title:ogTitle || null,
+    og_description:ogDescription || null,
+    twitter_title:twitterTitle || null,
+    twitter_description:twitterDescription || null,
+    image_urls:imageUrls
+  };
 }
 
 async function saveProduct(id, data) {
   const p = validateProduct(data, id === null);
   return db(async c => {
     try {
+      const params = [
+        p.name,p.unit,p.price,p.active,p.slug,p.short_description,p.description,
+        p.seo_title,p.meta_description,p.canonical_url,p.og_title,p.og_description,
+        p.twitter_title,p.twitter_description,JSON.stringify(p.image_urls)
+      ];
       const result = id === null
-        ? await c.query('INSERT INTO products(sku,name,unit,price,active) VALUES($1,$2,$3,$4,$5) RETURNING *',[p.sku,p.name,p.unit,p.price,p.active])
-        : await c.query('UPDATE products SET name=$1,unit=$2,price=$3,active=$4 WHERE id=$5 RETURNING *',[p.name,p.unit,p.price,p.active,id]);
+        ? await c.query(
+            `INSERT INTO products(
+              sku,name,unit,price,active,slug,short_description,description,
+              seo_title,meta_description,canonical_url,og_title,og_description,
+              twitter_title,twitter_description,image_urls
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+             RETURNING *`,
+            [p.sku,...params]
+          )
+        : await c.query(
+            `UPDATE products SET
+              name=$1,unit=$2,price=$3,active=$4,slug=$5,short_description=$6,
+              description=$7,seo_title=$8,meta_description=$9,canonical_url=$10,
+              og_title=$11,og_description=$12,twitter_title=$13,twitter_description=$14,
+              image_urls=$15::jsonb
+             WHERE id=$16 RETURNING *`,
+            [...params,id]
+          );
       if (!result.rows.length) throw Object.assign(new Error('PRODUCT_NOT_FOUND'),{statusCode:404});
+      await audit(c, id === null ? 'PRODUCT_CREATED' : 'PRODUCT_UPDATED', 'product', result.rows[0].id, { sku:result.rows[0].sku });
       return result.rows[0];
     } catch(error) {
-      if (error.code === '23505') throw Object.assign(new Error('PRODUCT_SKU_EXISTS'),{statusCode:409});
+      if (error.code === '23505') {
+        const field = String(error.constraint || '').includes('slug') ? 'PRODUCT_SLUG_EXISTS' : 'PRODUCT_SKU_EXISTS';
+        throw Object.assign(new Error(field),{statusCode:409});
+      }
       throw error;
     }
   });
@@ -480,7 +552,7 @@ async function createOrder(data) {
         if (!r.rowCount) throw new Error('PRODUCT_NOT_FOUND');
         const qty = Number(i.quantity);
         if (!Number.isInteger(qty) || qty < 1) throw new Error('INVALID_QUANTITY');
-        const price = i.unit_price !== undefined ? Number(i.unit_price) : Number(r.rows[0].price);
+        const price = Number(r.rows[0].price);
         total += price * qty;
         items.push({ product_id:i.product_id, quantity:qty, unit_price:price });
       }
@@ -894,13 +966,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.21', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.22', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'21' });
+      return send(res, 200, { ok:true, version:'22' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -1471,10 +1543,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v21 running');
+  console.log('Trex Platform Core API v22 running');
   try {
     await initDb();
-    console.log('Database schema v21 ready');
+    console.log('Database schema v22 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
