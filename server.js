@@ -161,6 +161,13 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY, full_name TEXT NOT NULL, email TEXT UNIQUE, phone TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS customer_addresses(
+        id BIGSERIAL PRIMARY KEY, customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        title TEXT NOT NULL DEFAULT 'Adres', full_name TEXT NOT NULL, phone TEXT NOT NULL,
+        city TEXT NOT NULL, district TEXT NOT NULL, neighborhood TEXT, address_line TEXT NOT NULL,
+        postal_code TEXT, is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS dealers(
         id BIGSERIAL PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
         dealer_level INT NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'ACTIVE'
@@ -246,6 +253,13 @@ async function initDb() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS twitter_description TEXT;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb;
       CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx ON products(slug) WHERE slug IS NOT NULL AND slug<>'';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_full_name TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_phone TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_city TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_district TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_neighborhood TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address_line TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_postal_code TEXT;
       ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS reason TEXT;
       ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS qc_result TEXT;
@@ -273,7 +287,7 @@ async function initDb() {
         );
       }
     }
-    return { ok: true, version: '1.0.0-demo.22' };
+    return { ok: true, version: '1.0.0-demo.23' };
   });
 }
 
@@ -346,27 +360,20 @@ function validateProduct(data, creating) {
   const imageUrls = Array.isArray(data.image_urls)
     ? data.image_urls.map(x => String(x || '').trim()).filter(Boolean)
     : [];
-
-  if (!name || unit.length > 100) fail('INVALID_PRODUCT_INPUT');
+  if (!name) fail('INVALID_PRODUCT_INPUT');
   if (creating && (!sku || sku.length > 60 || !/^[A-Za-z0-9._-]+$/.test(sku))) fail('INVALID_PRODUCT_SKU');
   if (!/^\d{1,10}(\.\d{1,2})?$/.test(price) || Number(price) > 9999999999.99) fail('INVALID_PRODUCT_PRICE');
   if (typeof data.active !== 'boolean') fail('INVALID_PRODUCT_ACTIVE');
   if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) fail('INVALID_PRODUCT_SLUG');
   if (canonicalUrl && !/^https?:\/\//i.test(canonicalUrl)) fail('INVALID_PRODUCT_URL');
   if (imageUrls.length > 20 || imageUrls.some(url => url.length > 1000 || !/^https?:\/\//i.test(url))) fail('INVALID_PRODUCT_IMAGES');
-
   return {
     name,unit,sku,price,active:data.active,slug:slug || null,
-    short_description:shortDescription || null,
-    description:description || null,
-    seo_title:seoTitle || null,
-    meta_description:metaDescription || null,
-    canonical_url:canonicalUrl || null,
-    og_title:ogTitle || null,
-    og_description:ogDescription || null,
-    twitter_title:twitterTitle || null,
-    twitter_description:twitterDescription || null,
-    image_urls:imageUrls
+    short_description:shortDescription || null,description:description || null,
+    seo_title:seoTitle || null,meta_description:metaDescription || null,
+    canonical_url:canonicalUrl || null,og_title:ogTitle || null,
+    og_description:ogDescription || null,twitter_title:twitterTitle || null,
+    twitter_description:twitterDescription || null,image_urls:imageUrls
   };
 }
 
@@ -411,172 +418,152 @@ async function saveProduct(id, data) {
   });
 }
 
-
 async function deleteProductSafely(id) {
-  const coreSkus = new Set([
-    'TREX-TEA-60',
-    'TREX-COFFEE-30',
-    'TREX-CAP-30',
-    'LIPOTEX-60',
-    'TREX-JEL'
-  ]);
-
+  const coreSkus = new Set(['TREX-TEA-60','TREX-COFFEE-30','TREX-CAP-30','LIPOTEX-60','TREX-JEL']);
   return db(async c => {
     await c.query('BEGIN');
-
     try {
-      const productResult = await c.query(
-        `SELECT *
-         FROM products
-         WHERE id=$1
-         FOR UPDATE`,
-        [id]
-      );
-
-      if (!productResult.rowCount) {
-        throw Object.assign(
-          new Error('PRODUCT_NOT_FOUND'),
-          { statusCode:404 }
-        );
-      }
-
-      const product = productResult.rows[0];
-
-      const orderRefs = await c.query(
-        `SELECT COUNT(*)::int count
-         FROM order_items
-         WHERE product_id=$1`,
-        [id]
-      );
-
-      const stockRefs = await c.query(
-        `SELECT COUNT(*)::int count
-         FROM inventory_lots
-         WHERE product_id=$1`,
-        [id]
-      );
-
-      const commissionRefs = await c.query(
-        `SELECT COUNT(*)::int count
-         FROM dealer_commission_rules
-         WHERE product_id=$1`,
-        [id]
-      );
-
-      const coreProduct =
-        coreSkus.has(product.sku);
-
-      const hasHistory =
-        Number(orderRefs.rows[0].count) > 0
-        ||
-        Number(stockRefs.rows[0].count) > 0
-        ||
-        Number(commissionRefs.rows[0].count) > 0
-        ||
-        coreProduct;
-
+      const pr = await c.query(`SELECT * FROM products WHERE id=$1 FOR UPDATE`, [id]);
+      if (!pr.rowCount) throw Object.assign(new Error('PRODUCT_NOT_FOUND'), {statusCode:404});
+      const product=pr.rows[0];
+      const orderRefs=await c.query(`SELECT COUNT(*)::int count FROM order_items WHERE product_id=$1`,[id]);
+      const stockRefs=await c.query(`SELECT COUNT(*)::int count FROM inventory_lots WHERE product_id=$1`,[id]);
+      const hasHistory=Number(orderRefs.rows[0].count)>0 || Number(stockRefs.rows[0].count)>0 || coreSkus.has(product.sku);
       if (hasHistory) {
-        const updated = (
-          await c.query(
-            `UPDATE products
-             SET active=FALSE
-             WHERE id=$1
-             RETURNING *`,
-            [id]
-          )
-        ).rows[0];
-
-        await audit(
-          c,
-          'PRODUCT_ARCHIVED',
-          'product',
-          id,
-          {
-            sku:product.sku,
-            order_references:Number(orderRefs.rows[0].count),
-            stock_references:Number(stockRefs.rows[0].count),
-            commission_references:Number(commissionRefs.rows[0].count),
-            core_product:coreProduct
-          }
-        );
-
+        const updated=(await c.query(`UPDATE products SET active=FALSE WHERE id=$1 RETURNING *`,[id])).rows[0];
+        await audit(c,'PRODUCT_ARCHIVED','product',id,{sku:product.sku});
         await c.query('COMMIT');
-
-        return {
-          mode:'archived',
-          product:updated
-        };
+        return {mode:'archived',product:updated};
       }
-
-      await c.query(
-        `DELETE FROM products
-         WHERE id=$1`,
-        [id]
-      );
-
-      await audit(
-        c,
-        'PRODUCT_DELETED',
-        'product',
-        id,
-        {
-          sku:product.sku
-        }
-      );
-
+      await c.query(`DELETE FROM dealer_commission_rules WHERE product_id=$1`,[id]);
+      await c.query(`DELETE FROM products WHERE id=$1`,[id]);
+      await audit(c,'PRODUCT_DELETED','product',id,{sku:product.sku});
       await c.query('COMMIT');
-
-      return {
-        mode:'deleted',
-        product
-      };
-
-    } catch (e) {
-      await c.query('ROLLBACK');
-      throw e;
-    }
+      return {mode:'deleted',product};
+    } catch(e){await c.query('ROLLBACK');throw e;}
   });
 }
 
+function normalizeCustomer(data) {
+  const fail=(m,code=400)=>{throw Object.assign(new Error(m),{statusCode:code});};
+  const full_name=String(data?.full_name||'').trim();
+  const email=String(data?.email||'').trim().toLowerCase();
+  const phone=String(data?.phone||'').trim().replace(/\s+/g,' ');
+  if (full_name.length<2 || full_name.length>150) fail('INVALID_CUSTOMER_NAME');
+  if (email && (email.length>320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) fail('INVALID_CUSTOMER_EMAIL');
+  if (phone && phone.length>25) fail('INVALID_CUSTOMER_PHONE');
+  return {full_name,email:email||null,phone:phone||null};
+}
+
+function normalizeAddress(data) {
+  const fail=m=>{throw Object.assign(new Error(m),{statusCode:400});};
+  const clean=(v,max,required=false)=>{const x=String(v||'').trim();if((required&&!x)||x.length>max)fail('INVALID_ADDRESS');return x||null;};
+  return {
+    title:clean(data?.title,80,false)||'Adres',
+    full_name:clean(data?.full_name,150,true),
+    phone:clean(data?.phone,25,true),
+    city:clean(data?.city,100,true),
+    district:clean(data?.district,100,true),
+    neighborhood:clean(data?.neighborhood,150,false),
+    address_line:clean(data?.address_line,500,true),
+    postal_code:clean(data?.postal_code,20,false)
+  };
+}
+
 async function createOrder(data) {
+  const MAX_ITEMS=50, MAX_QTY=100, MAX_TOTAL=10000000;
+  const allowedPayments=['CARD_MOCK','COD','BANK_TRANSFER'];
   return db(async c => {
     await c.query('BEGIN');
     try {
-      if (!data.customer_id) throw new Error('CUSTOMER_ID_REQUIRED');
-      if (!data.items?.length) throw new Error('ORDER_ITEMS_REQUIRED');
-      const orderNo = 'TRX-' + Date.now();
-      let total = 0;
-      const items = [];
+      const customerId=Number(data.customer_id);
+      if (!Number.isInteger(customerId) || customerId<1) throw new Error('CUSTOMER_ID_REQUIRED');
+      const customer=await c.query(`SELECT id FROM customers WHERE id=$1`,[customerId]);
+      if (!customer.rowCount) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+      if (!Array.isArray(data.items) || !data.items.length) throw new Error('ORDER_ITEMS_REQUIRED');
+      if (data.items.length>MAX_ITEMS) throw new Error('TOO_MANY_ORDER_ITEMS');
+      const payment=String(data.payment_method||'');
+      if (!allowedPayments.includes(payment)) throw new Error('INVALID_PAYMENT_METHOD');
+      let dealerId=null;
+      if (data.dealer_id!==undefined && data.dealer_id!==null && data.dealer_id!=='') {
+        dealerId=Number(data.dealer_id);
+        const dealer=await c.query(`SELECT id FROM dealers WHERE id=$1 AND status='ACTIVE'`,[dealerId]);
+        if (!dealer.rowCount) throw new Error('DEALER_NOT_FOUND_OR_INACTIVE');
+      }
+      const shipping=normalizeAddress(data.shipping_address||{});
+      const orderNo='TRX-'+Date.now()+'-'+crypto.randomBytes(2).toString('hex').toUpperCase();
+      let total=0; const items=[]; const seen=new Set();
       for (const i of data.items) {
-        const r = await c.query(`SELECT id,price FROM products WHERE id=$1 AND active=TRUE`, [i.product_id]);
+        const productId=Number(i.product_id), qty=Number(i.quantity);
+        if (!Number.isInteger(productId)||productId<1) throw new Error('PRODUCT_NOT_FOUND');
+        if (!Number.isInteger(qty)||qty<1||qty>MAX_QTY) throw new Error('INVALID_QUANTITY');
+        if (seen.has(productId)) throw new Error('DUPLICATE_ORDER_ITEM');
+        seen.add(productId);
+        const r=await c.query(`SELECT id,price FROM products WHERE id=$1 AND active=TRUE`,[productId]);
         if (!r.rowCount) throw new Error('PRODUCT_NOT_FOUND');
-        const qty = Number(i.quantity);
-        if (!Number.isInteger(qty) || qty < 1) throw new Error('INVALID_QUANTITY');
-        const price = Number(r.rows[0].price);
-        total += price * qty;
-        items.push({ product_id:i.product_id, quantity:qty, unit_price:price });
+        const price=Number(r.rows[0].price);
+        if (!(price>0)) throw new Error('PRODUCT_PRICE_NOT_SET');
+        total+=price*qty;
+        if (total>MAX_TOTAL) throw new Error('ORDER_TOTAL_LIMIT_EXCEEDED');
+        items.push({product_id:productId,quantity:qty,unit_price:price});
       }
-      const r = await c.query(
-        `INSERT INTO orders(order_no,customer_id,dealer_id,payment_method,total_amount)
-         VALUES($1,$2,$3,$4,$5) RETURNING *`,
-        [orderNo, data.customer_id, data.dealer_id || null, data.payment_method || 'MOCK', total]
+      const paymentStatus=payment==='COD'?'COD_PENDING':'PAYMENT_PENDING';
+      const r=await c.query(
+        `INSERT INTO orders(
+          order_no,customer_id,dealer_id,payment_method,payment_status,total_amount,
+          shipping_full_name,shipping_phone,shipping_city,shipping_district,
+          shipping_neighborhood,shipping_address_line,shipping_postal_code
+         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [orderNo,customerId,dealerId,payment,paymentStatus,total,
+         shipping.full_name,shipping.phone,shipping.city,shipping.district,
+         shipping.neighborhood,shipping.address_line,shipping.postal_code]
       );
-      const order = r.rows[0];
+      const order=r.rows[0];
       for (const i of items) {
-        await c.query(
-          `INSERT INTO order_items(order_id,product_id,quantity,unit_price) VALUES($1,$2,$3,$4)`,
-          [order.id, i.product_id, i.quantity, i.unit_price]
-        );
+        await c.query(`INSERT INTO order_items(order_id,product_id,quantity,unit_price) VALUES($1,$2,$3,$4)`,
+          [order.id,i.product_id,i.quantity,i.unit_price]);
       }
-      await c.query(`INSERT INTO order_status_history(order_id,new_status,actor) VALUES($1,'NEW','demo-api')`, [order.id]);
-      await audit(c, 'ORDER_CREATED', 'order', order.id);
+      await c.query(`INSERT INTO order_status_history(order_id,new_status,actor) VALUES($1,'NEW','demo-api')`,[order.id]);
+      await audit(c,'ORDER_CREATED','order',order.id,{payment_method:payment});
       await c.query('COMMIT');
       return order;
-    } catch (e) {
-      await c.query('ROLLBACK');
-      throw e;
-    }
+    } catch(e){await c.query('ROLLBACK');throw e;}
   });
+}
+
+async function checkoutOrder(data) {
+  const customerData=normalizeCustomer(data.customer||{});
+  const shipping=normalizeAddress({...data.shipping_address,full_name:data.shipping_address?.full_name||customerData.full_name,phone:data.shipping_address?.phone||customerData.phone});
+  let customerId;
+  await db(async c=>{
+    await c.query('BEGIN');
+    try{
+      let row=null;
+      if(customerData.email){
+        const existing=await c.query(`SELECT * FROM customers WHERE LOWER(email)=LOWER($1) LIMIT 1`,[customerData.email]);
+        if(existing.rowCount) row=existing.rows[0];
+      }
+      if(!row){
+        row=(await c.query(`INSERT INTO customers(full_name,email,phone) VALUES($1,$2,$3) RETURNING *`,
+          [customerData.full_name,customerData.email,customerData.phone])).rows[0];
+      }
+      customerId=row.id;
+      const exists=await c.query(
+        `SELECT id FROM customer_addresses WHERE customer_id=$1 AND city=$2 AND district=$3 AND address_line=$4 LIMIT 1`,
+        [customerId,shipping.city,shipping.district,shipping.address_line]
+      );
+      if(!exists.rowCount){
+        const count=await c.query(`SELECT COUNT(*)::int count FROM customer_addresses WHERE customer_id=$1`,[customerId]);
+        await c.query(
+          `INSERT INTO customer_addresses(customer_id,title,full_name,phone,city,district,neighborhood,address_line,postal_code,is_default)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [customerId,shipping.title,shipping.full_name,shipping.phone,shipping.city,shipping.district,shipping.neighborhood,shipping.address_line,shipping.postal_code,count.rows[0].count===0]
+        );
+      }
+      await c.query('COMMIT');
+    }catch(e){await c.query('ROLLBACK');throw e;}
+  });
+  return createOrder({customer_id:customerId,dealer_id:data.dealer_id,payment_method:data.payment_method,items:data.items,shipping_address:shipping});
 }
 
 async function reserve(orderId) {
@@ -966,13 +953,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && u.pathname === '/') {
       return send(res, 200, {
-        service:'Trex Platform Core API', version:'1.0.0-demo.22', database:'PostgreSQL',
+        service:'Trex Platform Core API', version:'1.0.0-demo.23', database:'PostgreSQL',
         payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
       });
     }
 
     if (req.method === 'GET' && u.pathname === '/health') {
-      return send(res, 200, { ok:true, version:'22' });
+      return send(res, 200, { ok:true, version:'23' });
     }
 
     if (req.method === 'GET' && u.pathname === '/init-db') {
@@ -1324,17 +1311,121 @@ const server = http.createServer(async (req, res) => {
       await requireRole(req, ['ADMIN']);
       return send(res,200,{success:true,data:await deleteProductSafely(productDeleteMatch[1])});
     }
+    const slugMatch = u.pathname.match(/^\/api\/v1\/products\/slug\/([a-z0-9-]+)$/);
+    if (req.method === 'GET' && slugMatch) {
+      const row=await db(async c=>(await c.query(
+        `SELECT id,sku,name,unit,price,slug,short_description,description,
+                seo_title,meta_description,canonical_url,og_title,og_description,
+                twitter_title,twitter_description,image_urls
+         FROM products WHERE active=TRUE AND slug=$1 LIMIT 1`,
+        [slugMatch[1]]
+      )).rows[0]);
+      if(!row) throw Object.assign(new Error('PRODUCT_NOT_FOUND'),{statusCode:404});
+      return send(res,200,{success:true,data:row});
+    }
     if (req.method === 'GET' && u.pathname === '/api/v1/products') {
-      return send(res,200,{success:true,data:await db(async c => (await c.query('SELECT * FROM products WHERE active=TRUE ORDER BY id')).rows)});
+      return send(res,200,{success:true,data:await db(async c => (await c.query(
+        `SELECT id,sku,name,unit,price,slug,short_description,description,
+                seo_title,meta_description,canonical_url,og_title,og_description,
+                twitter_title,twitter_description,image_urls,active
+         FROM products WHERE active=TRUE ORDER BY id`
+      )).rows)});
     }
 
     if (req.method === 'POST' && u.pathname === '/api/v1/customers') {
-      const b = await body(req);
-      const row = await db(async c => (await c.query(
-        `INSERT INTO customers(full_name,email,phone) VALUES($1,$2,$3) RETURNING *`,
-        [b.full_name, b.email || null, b.phone || null]
-      )).rows[0]);
-      return send(res, 201, { success:true, data:row });
+      const b=normalizeCustomer(await body(req));
+      const row=await db(async c=>{
+        try{
+          return (await c.query(
+            `INSERT INTO customers(full_name,email,phone) VALUES($1,$2,$3) RETURNING *`,
+            [b.full_name,b.email,b.phone]
+          )).rows[0];
+        }catch(e){
+          if(e.code==='23505') throw Object.assign(new Error('CUSTOMER_EMAIL_EXISTS'),{statusCode:409});
+          throw e;
+        }
+      });
+      return send(res,201,{success:true,data:row});
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/checkout') {
+      return send(res,201,{success:true,data:await checkoutOrder(await body(req))});
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/customer-addresses') {
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      let customerId=authUser.customer_id;
+      if(authUser.role!=='CUSTOMER'){
+        customerId=Number(u.searchParams.get('customer_id'));
+        if(!Number.isInteger(customerId)||customerId<1) throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'),{statusCode:400});
+      }
+      if(authUser.role==='CUSTOMER'&&!customerId) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+      const rows=await db(async c=>(await c.query(
+        `SELECT * FROM customer_addresses WHERE customer_id=$1 ORDER BY is_default DESC,id DESC`,[customerId]
+      )).rows);
+      return send(res,200,{success:true,data:rows});
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/customer-addresses') {
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const b=await body(req);
+      let customerId=authUser.customer_id;
+      if(authUser.role!=='CUSTOMER') customerId=Number(b.customer_id);
+      if(!Number.isInteger(Number(customerId))||Number(customerId)<1) throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'),{statusCode:400});
+      const a=normalizeAddress(b);
+      const row=await db(async c=>{
+        await c.query('BEGIN');
+        try{
+          const customer=await c.query(`SELECT id FROM customers WHERE id=$1`,[customerId]);
+          if(!customer.rowCount) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+          const count=await c.query(`SELECT COUNT(*)::int count FROM customer_addresses WHERE customer_id=$1`,[customerId]);
+          const makeDefault=b.is_default===true || count.rows[0].count===0;
+          if(makeDefault) await c.query(`UPDATE customer_addresses SET is_default=FALSE,updated_at=NOW() WHERE customer_id=$1`,[customerId]);
+          const created=(await c.query(
+            `INSERT INTO customer_addresses(customer_id,title,full_name,phone,city,district,neighborhood,address_line,postal_code,is_default)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+            [customerId,a.title,a.full_name,a.phone,a.city,a.district,a.neighborhood,a.address_line,a.postal_code,makeDefault]
+          )).rows[0];
+          await audit(c,'CUSTOMER_ADDRESS_CREATED','customer_address',created.id,{customer_id:Number(customerId)});
+          await c.query('COMMIT'); return created;
+        }catch(e){await c.query('ROLLBACK');throw e;}
+      });
+      return send(res,201,{success:true,data:row});
+    }
+
+    const addressUpdateMatch=u.pathname.match(/^\/api\/v1\/customer-addresses\/(\d+)$/);
+    if(req.method==='POST'&&addressUpdateMatch){
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const b=await body(req),a=normalizeAddress(b),addressId=Number(addressUpdateMatch[1]);
+      const row=await db(async c=>{
+        const current=await c.query(`SELECT * FROM customer_addresses WHERE id=$1`,[addressId]);
+        if(!current.rowCount) throw Object.assign(new Error('ADDRESS_NOT_FOUND'),{statusCode:404});
+        if(authUser.role==='CUSTOMER'&&Number(current.rows[0].customer_id)!==Number(authUser.customer_id)) throw Object.assign(new Error('FORBIDDEN'),{statusCode:403});
+        return (await c.query(
+          `UPDATE customer_addresses SET title=$1,full_name=$2,phone=$3,city=$4,district=$5,neighborhood=$6,address_line=$7,postal_code=$8,updated_at=NOW()
+           WHERE id=$9 RETURNING *`,
+          [a.title,a.full_name,a.phone,a.city,a.district,a.neighborhood,a.address_line,a.postal_code,addressId]
+        )).rows[0];
+      });
+      return send(res,200,{success:true,data:row});
+    }
+
+    const addressDefaultMatch=u.pathname.match(/^\/api\/v1\/customer-addresses\/(\d+)\/default$/);
+    if(req.method==='POST'&&addressDefaultMatch){
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const addressId=Number(addressDefaultMatch[1]);
+      const row=await db(async c=>{
+        await c.query('BEGIN');
+        try{
+          const current=await c.query(`SELECT * FROM customer_addresses WHERE id=$1 FOR UPDATE`,[addressId]);
+          if(!current.rowCount) throw Object.assign(new Error('ADDRESS_NOT_FOUND'),{statusCode:404});
+          if(authUser.role==='CUSTOMER'&&Number(current.rows[0].customer_id)!==Number(authUser.customer_id)) throw Object.assign(new Error('FORBIDDEN'),{statusCode:403});
+          await c.query(`UPDATE customer_addresses SET is_default=FALSE,updated_at=NOW() WHERE customer_id=$1`,[current.rows[0].customer_id]);
+          const updated=(await c.query(`UPDATE customer_addresses SET is_default=TRUE,updated_at=NOW() WHERE id=$1 RETURNING *`,[addressId])).rows[0];
+          await c.query('COMMIT'); return updated;
+        }catch(e){await c.query('ROLLBACK');throw e;}
+      });
+      return send(res,200,{success:true,data:row});
     }
 
     if (req.method === 'GET' && u.pathname === '/api/v1/customers') {
@@ -1534,7 +1625,7 @@ const server = http.createServer(async (req, res) => {
         'INVALID_JSON','EMAIL_AND_PASSWORD_REQUIRED','EMAIL_PASSWORD_NAME_REQUIRED',
               'CURRENT_AND_NEW_PASSWORD_REQUIRED',
               'PASSWORD_TOO_SHORT','INVALID_USER_INPUT','DEALER_ID_REQUIRED','DEALER_NOT_FOUND_OR_INACTIVE','CUSTOMER_NOT_FOUND','REJECTION_REASON_REQUIRED',
-        'INVALID_PAYMENT_STATUS','CUSTOMER_ID_REQUIRED','ORDER_ITEMS_REQUIRED','INVALID_QUANTITY',
+        'INVALID_PAYMENT_STATUS','INVALID_PAYMENT_METHOD','CUSTOMER_ID_REQUIRED','CUSTOMER_NOT_FOUND','ORDER_ITEMS_REQUIRED','TOO_MANY_ORDER_ITEMS','INVALID_QUANTITY','DUPLICATE_ORDER_ITEM','PRODUCT_PRICE_NOT_SET','ORDER_TOTAL_LIMIT_EXCEEDED','DEALER_NOT_FOUND_OR_INACTIVE','INVALID_CUSTOMER_NAME','INVALID_CUSTOMER_EMAIL','INVALID_CUSTOMER_PHONE','INVALID_ADDRESS',
         'ORDER_ID_REQUIRED','RETURN_ITEMS_REQUIRED','INVALID_RETURN_QUANTITY','RETURN_QUANTITY_EXCEEDS_ORDER'
       ].includes(e.message) ? 400 : 500
     );
@@ -1543,10 +1634,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', async () => {
-  console.log('Trex Platform Core API v22 running');
+  console.log('Trex Platform Core API v23 running');
   try {
     await initDb();
-    console.log('Database schema v22 ready');
+    console.log('Database schema v23 ready');
   } catch (e) {
     console.error('Database initialization failed:', e.message);
   }
