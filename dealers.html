@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bayi Yönetimi • Trex Admin</title><link rel="stylesheet" href="/styles.css"><style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}.stats strong{display:block;font-size:26px;margin-top:6px}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}.form-grid label{display:grid;gap:6px}
+.warning{color:#9a4c00;background:#fff3db}.expired{color:#a02222;background:#fff0f0}
+</style></head>
+<body><header><strong>TREX ADMIN</strong> · Bayiler</header><main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/finance.html?view=commissions">Prim raporu</a><a href="/inventory.html">Stok yönetimi</a></nav>
+<h1>Bayi yönetimi</h1><p class="muted">Bayi kayıtlarını ve prim hareketlerini inceleyin, yeni bayi ekleyin.</p>
+<section class="card" aria-label="Bayi listesi"><div class="toolbar">
+<label>Bayi ara<input id="search" type="search" placeholder="Bayi adı veya kodu"></label>
+<label>Durum<select id="filter"><option value="">Tüm bayiler</option><option value="ACTIVE">Aktif</option><option value="INACTIVE">Pasif</option></select></label>
+<button id="refresh" type="button" disabled>Yenile</button></div>
+<p id="listStatus" role="status" aria-live="polite">Oturum kontrol ediliyor…</p>
+<div class="table-wrap"><table><thead><tr><th>Kod</th><th>Bayi adı</th><th>Seviye</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="dealers"></tbody></table></div></section>
+<section id="detail" class="card" hidden aria-labelledby="detailTitle"><div class="detail-title"><h2 id="detailTitle" tabindex="-1">Bayi hareketleri</h2><button id="close" type="button">Kapat</button></div>
+<p class="muted">Prim tahakkukları ve iade kaynaklı geri alma kayıtlarıdır. Bu ekran para transferi yapmaz.</p>
+<p id="detailStatus" role="status" aria-live="polite"></p><div class="table-wrap"><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Sipariş ID</th><th>Referans</th><th>Açıklama</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
+<section class="card" id="createSection" hidden><h2>Yeni bayi</h2><p class="muted">Bayi kaydı oluşturur. Giriş hesabı oluşturmak için kontrol panelindeki bayi kullanıcısı bölümünü kullanın. Seviye, tanımlı prim kurallarıyla eşleşir; tek başına prim oranı belirlemez.</p>
+<form id="dealerForm"><fieldset id="fields" disabled style="border:0;padding:0;margin:0"><div class="form-grid">
+<label>Bayi kodu<input id="code" maxlength="50" required autocomplete="off"></label><label>Bayi adı<input id="name" maxlength="150" required autocomplete="off"></label>
+<label>Seviye<input id="level" type="number" min="1" max="2147483647" step="1" value="1" required></label><label>Durum<select id="status"><option value="ACTIVE">Aktif</option><option value="INACTIVE">Pasif</option></select></label>
+</div><p><button class="primary" type="submit">Bayiyi kaydet</button></p></fieldset><p id="saveStatus" role="status" aria-live="polite"></p></form></section>
+</main><script>
+const API='https://trex-platform-core-db.onrender.com',token=localStorage.getItem('trex_token');
+const el=id=>document.getElementById(id),text=(tag,value)=>{const n=document.createElement(tag);n.textContent=String(value??'—');return n;};
+const money=v=>Number(v||0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+const statuses={ACTIVE:'Aktif',INACTIVE:'Pasif'},entries={COMMISSION_ACCRUAL:'Prim tahakkuku',COMMISSION_CLAWBACK:'Prim geri alma'};
+let dealers=[],verified=false,loading=false,saving=false,loaded=false,detailRequest=0;
+function message(id,value,error=false){el(id).textContent=value;el(id).className=error?'notice error':'';}
+async function api(path,options={}){
+ const response=await fetch(API+path,{...options,headers:{Authorization:'Bearer '+token,...options.headers}});
+ if(response.status===401){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');throw new Error('Oturum sona erdi.');}
+ const result=await response.json();
+ if(!response.ok||result.success===false){const errors={INVALID_DEALER_INPUT:'Bayi kodu 1–50, bayi adı 1–150 karakter olmalı.',INVALID_DEALER_LEVEL:'Seviye pozitif bir tam sayı olmalı.',INVALID_DEALER_STATUS:'Geçerli bir durum seçin.',DEALER_CODE_EXISTS:'Bu bayi kodu zaten kayıtlı. Yeni kayıt oluşturulmadı.',FORBIDDEN:'Bu işlem için yetkiniz yok.'};throw new Error(errors[result.error]||'İşlem tamamlanamadı. Yeniden kayıt denemeden önce listeyi yenileyin.');}return result.data;
+}
+function empty(body,count,value){const row=document.createElement('tr'),cell=text('td',value);cell.colSpan=count;row.appendChild(cell);body.appendChild(row);}
+function filteredDealers(){const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),status=el('filter').value;return dealers.filter(d=>(!status||d.status===status)&&(!term||[d.name,d.code].some(v=>String(v||'').toLocaleLowerCase('tr-TR').includes(term))));}
+function render(){
+ const rows=filteredDealers(),body=el('dealers');body.replaceChildren();message('listStatus',rows.length+' bayi gösteriliyor · Toplam '+dealers.length);
+ if(!rows.length)empty(body,5,dealers.length?'Filtreye uygun bayi yok.':'Henüz bayi yok.');
+ for(const d of rows){const row=document.createElement('tr');for(const value of [d.code,d.name,d.dealer_level,statuses[d.status]||d.status])row.appendChild(text('td',value));const cell=document.createElement('td'),button=text('button','Hareketler');button.type='button';button.setAttribute('aria-label',d.name+' bayi hareketleri');button.addEventListener('click',()=>openDealer(d));cell.appendChild(button);row.appendChild(cell);body.appendChild(row);}
+}
+async function load(){
+ if(loading||!verified)return false;loading=true;el('refresh').disabled=true;el('fields').disabled=true;message('listStatus','Bayiler yükleniyor…');
+ try{const data=await api('/api/v1/dealers');if(!Array.isArray(data))throw new Error('Bayi bilgileri okunamadı.');dealers=data;loaded=true;render();return true;}
+ catch(error){loaded=false;el('dealers').replaceChildren();message('listStatus',error.message,true);return false;}
+ finally{loading=false;el('refresh').disabled=saving;el('fields').disabled=saving||!loaded;}
+}
+async function openDealer(dealer){
+ const request=++detailRequest;el('detail').hidden=false;el('detailTitle').textContent=dealer.name+' · '+dealer.code;el('detailTitle').focus();el('ledger').replaceChildren();message('detailStatus','Hareketler yükleniyor…');
+ try{const all=await api('/api/v1/dealer-ledger');if(request!==detailRequest)return;if(!Array.isArray(all))throw new Error('Bayi hareketleri okunamadı.');const rows=all.filter(r=>String(r.dealer_id)===String(dealer.id));message('detailStatus',rows.length+' hareket');
+ if(!rows.length)empty(el('ledger'),6,'Bu bayi için kayıtlı hareket yok.');
+ for(const item of rows){const row=document.createElement('tr');for(const value of [item.created_at?new Date(item.created_at).toLocaleString('tr-TR'):'—',entries[item.entry_type]||item.entry_type,money(item.amount),item.order_id,item.reference_no,item.description])row.appendChild(text('td',value));el('ledger').appendChild(row);}
+ }catch(error){if(request===detailRequest)message('detailStatus',error.message,true);}
+}
+async function save(event){
+ event.preventDefault();if(!verified||saving||loading||!loaded||!el('dealerForm').reportValidity())return;
+ const code=el('code').value.trim(),name=el('name').value.trim(),level=Number(el('level').value),status=el('status').value;
+ if(!code||!name||!Number.isInteger(level)||level<1||level>2147483647||!statuses[status]){message('saveStatus','Bayi kodunu, adını, seviyeyi ve durumu kontrol edin.',true);return;}
+ if(!confirm(name+' ('+code+') · Seviye '+level+' · '+statuses[status]+'\n\nYeni bayi kaydedilsin mi?'))return;
+ saving=true;el('fields').disabled=true;el('refresh').disabled=true;message('saveStatus','Kaydediliyor…');
+ try{await api('/api/v1/dealers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name,dealer_level:level,status})});el('dealerForm').reset();const updated=await load();message('saveStatus',updated?'Bayi kaydedildi.':'Bayi kaydedildi; liste yenilenemedi. Yenile düğmesini kullanın.',!updated);}
+ catch(error){message('saveStatus',error.message,true);}
+ finally{saving=false;el('fields').disabled=!loaded;el('refresh').disabled=false;}
+}
+el('dealerForm').addEventListener('submit',save);el('refresh').addEventListener('click',load);el('close').addEventListener('click',()=>{++detailRequest;el('detail').hidden=true;});
+for(const [id,event] of [['search','input'],['filter','change']])el(id).addEventListener(event,()=>{if(loaded&&!loading)render();});
+async function start(){if(!token){location.replace('/login.html');return;}try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Bayi yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;el('createSection').hidden=false;await load();}catch(error){message('listStatus',error.message,true);}}
+start();
+</script></body></html>
+

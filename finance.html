@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Finans ve Primler • Trex Admin</title><link rel="stylesheet" href="/styles.css"><style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}.stats strong{display:block;font-size:26px;margin-top:6px}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}.form-grid label{display:grid;gap:6px}
+.warning{color:#9a4c00;background:#fff3db}.expired{color:#a02222;background:#fff0f0}
+
+.tabs{display:flex;gap:12px;margin:20px 0}.tabs a{padding:12px 18px;border:1px solid #b9c8be;border-radius:10px;color:#145a3a;text-decoration:none}.tabs a[aria-current="page"]{background:#145a3a;color:white}
+.stats .card{margin:0}.stats{margin:18px 0}.stats strong{font-size:23px}
+</style></head><body><header><strong>TREX ADMIN</strong> · Finans ve Primler</header><main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/dealers.html">Bayiler</a></nav>
+<h1 id="title">Finans raporu</h1>
+<nav class="tabs" aria-label="Rapor seçimi"><a id="financeTab" href="/finance.html">Sipariş tutarları</a><a id="commissionTab" href="/finance.html?view=commissions">Bayi primleri</a></nav>
+<p class="notice">Bu rapor uygulamada kayıtlı tutarları gösterir. Gerçek ödeme ve banka entegrasyonu henüz bağlı değildir; burada para transferi veya ödeme yapılmaz.</p>
+<section class="card" aria-label="Rapor filtreleri"><div class="toolbar">
+<label>Ara<input id="search" type="search" placeholder="Sipariş numarası veya ID"></label>
+<label>Bayi<select id="dealer"><option value="">Tüm bayiler</option></select></label>
+<label id="statusLabel">Ödeme durumu<select id="filter"><option value="">Tüm durumlar</option></select></label>
+<button id="refresh" type="button" disabled>Yenile</button></div><p id="status" role="status" aria-live="polite">Oturum kontrol ediliyor…</p></section>
+<div class="stats" aria-label="Filtrelenmiş rapor özeti">
+<div class="card"><span id="metricLabel1"></span><strong id="metric1">—</strong></div>
+<div class="card"><span id="metricLabel2"></span><strong id="metric2">—</strong></div>
+<div class="card"><span id="metricLabel3"></span><strong id="metric3">—</strong></div></div>
+<p id="metricNote" class="muted"></p>
+<section class="card"><h2 id="tableTitle">Sipariş kayıtları</h2><div class="table-wrap"><table><thead id="head"></thead><tbody id="rows"></tbody></table></div></section>
+</main><script>
+const API='https://trex-platform-core-db.onrender.com',token=localStorage.getItem('trex_token');
+const commissions=new URLSearchParams(location.search).get('view')==='commissions';
+const el=id=>document.getElementById(id),text=(tag,value)=>{const n=document.createElement(tag);n.textContent=String(value??'—');return n;};
+const paymentLabels={PAYMENT_PENDING:'Ödeme bekliyor',PAID:'Ödendi',FAILED:'Başarısız',REFUNDED:'İade edildi',COD_PENDING:'Kapıda ödeme bekliyor'};
+const entryLabels={COMMISSION_ACCRUAL:'Prim tahakkuku',COMMISSION_CLAWBACK:'Prim geri alma'};
+const orderLabels={NEW:'Yeni',PAYMENT_PENDING:'Ödeme bekliyor',APPROVED:'Onaylandı',STOCK_RESERVED:'Stok ayrıldı',PICKING:'Toplanıyor',PACKING:'Paketleniyor',READY_TO_SHIP:'Kargoya hazır',SHIPPED:'Kargolandı',DELIVERED:'Teslim edildi',COMPLETED:'Tamamlandı',CANCELLED:'İptal',PROBLEM:'Sorun'};
+const cents=value=>{const s=String(value??'0');if(!/^-?\d+(\.\d{1,2})?$/.test(s))throw new Error('Geçersiz tutar kaydı.');const negative=s.startsWith('-'),parts=s.replace('-','').split('.');return (negative?-1n:1n)*(BigInt(parts[0])*100n+BigInt((parts[1]||'').padEnd(2,'0')));};
+const money=value=>{const negative=value<0n,absolute=negative?-value:value;return (negative?'-':'')+'₺'+(absolute/100n).toLocaleString('tr-TR')+','+String(absolute%100n).padStart(2,'0');};
+const date=value=>value?new Date(value).toLocaleString('tr-TR'):'—';
+let records=[],dealers=[],dealerNames=new Map(),verified=false,loading=false,loaded=false;
+function message(value,error=false){el('status').textContent=value;el('status').className=error?'notice error':'';}
+async function api(path){
+ const response=await fetch(API+path,{headers:{Authorization:'Bearer '+token}});
+ if(response.status===401){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');throw new Error('Oturum sona erdi.');}
+ const result=await response.json();if(!response.ok||result.success===false)throw new Error(response.status===403?'Bu işlem için yetkiniz yok.':'Rapor alınamadı. Yeniden deneyin.');return result.data;
+}
+function dealerName(record){return record.dealer_name||dealerNames.get(String(record.dealer_id))||(record.dealer_id?'Bayi #'+record.dealer_id:'Bayisiz');}
+function filtered(){
+ const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),dealer=el('dealer').value,filter=el('filter').value;
+ return records.filter(r=>(!dealer||(dealer==='none'?!r.dealer_id:String(r.dealer_id)===dealer))&&(!filter||(commissions?r.entry_type:r.payment_status)===filter)&&(!term||[r.order_no,r.id,r.order_id,r.reference_no,dealerName(r)].some(v=>String(v??'').toLocaleLowerCase('tr-TR').includes(term))));
+}
+function sum(rows,field){return rows.reduce((total,row)=>total+cents(row[field]),0n);}
+function render(){
+ const rows=filtered(),body=el('rows');body.replaceChildren();
+ const values=commissions
+ ?[sum(rows.filter(r=>r.entry_type==='COMMISSION_ACCRUAL'),'amount'),sum(rows.filter(r=>r.entry_type==='COMMISSION_CLAWBACK'),'amount'),sum(rows,'amount')]
+ :[sum(rows,'total_amount'),sum(rows.filter(r=>r.payment_status==='PAID'),'total_amount'),sum(rows.filter(r=>r.payment_status==='PAYMENT_PENDING'||r.payment_status==='COD_PENDING'),'total_amount')];
+ values.forEach((v,i)=>el('metric'+(i+1)).textContent=money(v));
+ message(rows.length+' kayıt gösteriliyor · Toplam '+records.length);
+ if(!rows.length){const row=document.createElement('tr'),cell=text('td',records.length?'Filtreye uygun kayıt yok.':'Henüz kayıt yok.');cell.colSpan=6;row.appendChild(cell);body.appendChild(row);}
+ for(const record of rows){
+ const row=document.createElement('tr');
+ if(commissions){
+ for(const value of [date(record.created_at),dealerName(record),entryLabels[record.entry_type]||record.entry_type,money(cents(record.amount))])row.appendChild(text('td',value));
+ const cell=document.createElement('td');if(record.order_id){const link=text('a','#'+record.order_id);link.href='/orders.html?order='+encodeURIComponent(record.order_id);cell.appendChild(link);}else cell.textContent='—';row.appendChild(cell);row.appendChild(text('td',record.reference_no||'—'));
+ }else{
+ const cell=document.createElement('td'),link=text('a',record.order_no||record.id);link.href='/orders.html?order='+encodeURIComponent(record.id);cell.appendChild(link);row.appendChild(cell);
+ for(const value of [date(record.created_at),dealerName(record),money(cents(record.total_amount)),paymentLabels[record.payment_status]||record.payment_status,orderLabels[record.status]||record.status])row.appendChild(text('td',value));
+ }body.appendChild(row);
+ }
+}
+async function load(){
+ if(!verified||loading)return;loading=true;loaded=false;el('refresh').disabled=true;el('rows').replaceChildren();for(let i=1;i<=3;i++)el('metric'+i).textContent='—';message('Rapor yükleniyor…');
+ try{
+ const [data,nextDealers]=await Promise.all([api(commissions?'/api/v1/dealer-ledger':'/api/v1/orders'),api('/api/v1/dealers')]);
+ if(!Array.isArray(data)||!Array.isArray(nextDealers))throw new Error('Rapor yanıtı okunamadı.');
+ for(const row of data)cents(commissions?row.amount:row.total_amount);
+ records=data;dealers=nextDealers;dealerNames=new Map(dealers.map(d=>[String(d.id),d.name]));
+ const previous=el('dealer').value;el('dealer').replaceChildren();const all=text('option','Tüm bayiler');all.value='';el('dealer').appendChild(all);
+ if(!commissions){const none=text('option','Bayisiz siparişler');none.value='none';el('dealer').appendChild(none);}
+ for(const d of dealers){const option=text('option',d.name+' / '+d.code);option.value=String(d.id);el('dealer').appendChild(option);}
+ el('dealer').value=previous==='none'&&!commissions||dealers.some(d=>String(d.id)===previous)?previous:'';
+ loaded=true;render();
+ }catch(error){message(error.message,true);}finally{loading=false;el('refresh').disabled=false;}
+}
+el(commissions?'commissionTab':'financeTab').setAttribute('aria-current','page');
+el('title').textContent=commissions?'Bayi prim raporu':'Finans raporu';
+el('tableTitle').textContent=commissions?'Prim hareketleri':'Sipariş kayıtları';
+el('search').placeholder=commissions?'Sipariş ID, referans veya bayi':'Sipariş numarası, ID veya bayi';
+el('statusLabel').firstChild.textContent=commissions?'İşlem türü':'Ödeme durumu';
+for(const [value,label] of Object.entries(commissions?entryLabels:paymentLabels)){const option=text('option',label);option.value=value;el('filter').appendChild(option);}
+const metricLabels=commissions?['Prim tahakkuku','Prim geri alma (eksi)','Net kayıtlı hareket']:['Kayıtlı sipariş tutarı','Ödendi işaretli tutar','Ödeme bekleyen tutar'];
+metricLabels.forEach((label,i)=>el('metricLabel'+(i+1)).textContent=label);
+el('metricNote').textContent=commissions?'Özetler seçili filtrelere aittir. Net hareket, kayıtlı tutarların işaretli toplamıdır; ödenecek bakiye veya yapılmış banka ödemesi değildir.':'Özetler seçili filtrelere aittir. İptal edilen siparişler toplamdan otomatik çıkarılmaz; ödeme durumları uygulamadaki işaretleri gösterir. İade miktarı bu rapordan hesaplanmaz.';
+const headers=commissions?['Tarih','Bayi','İşlem','Tutar','Sipariş','Referans']:['Sipariş','Tarih','Bayi','Tutar','Ödeme','Sipariş durumu'];
+const header=document.createElement('tr');for(const label of headers)header.appendChild(text('th',label));el('head').appendChild(header);
+el('refresh').addEventListener('click',load);
+for(const [id,event] of [['search','input'],['dealer','change'],['filter','change']])el(id).addEventListener(event,()=>{if(loaded&&!loading)render();});
+async function start(){if(!token){location.replace('/login.html');return;}try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('Finans raporları için yönetici hesabıyla giriş yapın.',true);return;}verified=true;await load();}catch(error){message(error.message,true);}}
+start();
+</script></body></html>

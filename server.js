@@ -1,0 +1,1648 @@
+const http = require('http');
+const crypto = require('crypto');
+const { Client } = require('pg');
+
+const port = process.env.PORT || 10000;
+const SESSION_HOURS = 12;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
+const loginAttempts = new Map();
+
+function loginKey(req, email) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = (
+    Array.isArray(forwarded)
+      ? forwarded[0]
+      : String(forwarded || req.socket.remoteAddress || '')
+  ).split(',')[0].trim();
+
+  return `${ip}|${String(email || '').trim().toLowerCase()}`;
+}
+
+function checkLoginThrottle(key) {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+
+  if (!entry) return;
+
+  if (now - entry.first > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return;
+  }
+
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    throw Object.assign(
+      new Error('TOO_MANY_LOGIN_ATTEMPTS'),
+      { statusCode:429 }
+    );
+  }
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+
+  if (!entry || now - entry.first > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count:1, first:now });
+    return;
+  }
+
+  entry.count += 1;
+  loginAttempts.set(key, entry);
+}
+
+function clearLoginFailures(key) {
+  loginAttempts.delete(key);
+}
+
+function send(res, status, data) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+  });
+  res.end(JSON.stringify(data));
+}
+
+function body(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', c => raw += c);
+    req.on('end', () => {
+      try { resolve(raw ? JSON.parse(raw) : {}); }
+      catch { reject(new Error('INVALID_JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function db(fn) {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_NOT_SET');
+  const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await c.connect();
+  try { return await fn(c); }
+  finally { await c.end(); }
+}
+
+async function audit(c, action, type, id, details = {}) {
+  await c.query(
+    `INSERT INTO audit_logs(actor,action,entity_type,entity_id,details)
+     VALUES('demo-api',$1,$2,$3,$4)`,
+    [action, type, String(id), JSON.stringify(details)]
+  );
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [salt, expectedHex] = stored.split(':');
+  const actual = crypto.scryptSync(password, salt, 64);
+  const expected = Buffer.from(expectedHex, 'hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function newToken() { return crypto.randomBytes(32).toString('hex'); }
+function tokenHash(token) { return crypto.createHash('sha256').update(token).digest('hex'); }
+function bearer(req) {
+  const h = req.headers.authorization || '';
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+}
+
+async function getAuth(req) {
+  const token = bearer(req);
+  if (!token) return null;
+  return db(async c => {
+    const r = await c.query(
+      `SELECT u.id,u.email,u.full_name,u.role,u.dealer_id,u.customer_id
+       FROM auth_sessions s
+       JOIN app_users u ON u.id=s.user_id
+       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>NOW() AND u.active=TRUE`,
+      [tokenHash(token)]
+    );
+    return r.rows[0] || null;
+  });
+}
+
+
+async function requireRole(req, roles) {
+  const user = await getAuth(req);
+
+  if (!user) {
+    throw Object.assign(
+      new Error('UNAUTHORIZED'),
+      { statusCode:401 }
+    );
+  }
+
+  if (!roles.includes(user.role)) {
+    throw Object.assign(
+      new Error('FORBIDDEN'),
+      { statusCode:403 }
+    );
+  }
+
+  return user;
+}
+
+async function initDb() {
+  return db(async c => {
+    await c.query(`
+      CREATE TABLE IF NOT EXISTS products(
+        id BIGSERIAL PRIMARY KEY, sku TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+        unit TEXT, price NUMERIC(12,2) NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT TRUE
+      );
+      CREATE TABLE IF NOT EXISTS customers(
+        id BIGSERIAL PRIMARY KEY, full_name TEXT NOT NULL, email TEXT UNIQUE, phone TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS customer_addresses(
+        id BIGSERIAL PRIMARY KEY, customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        title TEXT NOT NULL DEFAULT 'Adres', full_name TEXT NOT NULL, phone TEXT NOT NULL,
+        city TEXT NOT NULL, district TEXT NOT NULL, neighborhood TEXT, address_line TEXT NOT NULL,
+        postal_code TEXT, is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS dealers(
+        id BIGSERIAL PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+        dealer_level INT NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'ACTIVE'
+      );
+      CREATE TABLE IF NOT EXISTS orders(
+        id BIGSERIAL PRIMARY KEY, order_no TEXT UNIQUE NOT NULL,
+        customer_id BIGINT REFERENCES customers(id), dealer_id BIGINT REFERENCES dealers(id),
+        status TEXT NOT NULL DEFAULT 'NEW', payment_status TEXT NOT NULL DEFAULT 'PAYMENT_PENDING',
+        payment_method TEXT, total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS order_items(
+        id BIGSERIAL PRIMARY KEY, order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+        product_id BIGINT REFERENCES products(id), quantity INT NOT NULL CHECK(quantity>0),
+        unit_price NUMERIC(12,2) NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS inventory_lots(
+        id BIGSERIAL PRIMARY KEY, product_id BIGINT REFERENCES products(id), lot_no TEXT NOT NULL,
+        expiry_date DATE, quantity_on_hand INT NOT NULL DEFAULT 0,
+        quantity_reserved INT NOT NULL DEFAULT 0, UNIQUE(product_id,lot_no)
+      );
+      CREATE TABLE IF NOT EXISTS order_inventory_allocations(
+        id BIGSERIAL PRIMARY KEY, order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+        order_item_id BIGINT REFERENCES order_items(id) ON DELETE CASCADE,
+        inventory_lot_id BIGINT REFERENCES inventory_lots(id), quantity INT NOT NULL CHECK(quantity>0),
+        consumed BOOLEAN NOT NULL DEFAULT FALSE
+      );
+      CREATE TABLE IF NOT EXISTS order_status_history(
+        id BIGSERIAL PRIMARY KEY, order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+        old_status TEXT, new_status TEXT NOT NULL, actor TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS dealer_commission_rules(
+        id BIGSERIAL PRIMARY KEY, product_id BIGINT REFERENCES products(id), dealer_level INT NOT NULL,
+        amount_per_unit NUMERIC(12,2) NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT TRUE,
+        UNIQUE(product_id,dealer_level)
+      );
+      CREATE TABLE IF NOT EXISTS dealer_ledger(
+        id BIGSERIAL PRIMARY KEY, dealer_id BIGINT REFERENCES dealers(id), order_id BIGINT REFERENCES orders(id),
+        entry_type TEXT NOT NULL, amount NUMERIC(12,2) NOT NULL, reference_no TEXT, description TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS return_requests(
+        id BIGSERIAL PRIMARY KEY, return_no TEXT UNIQUE NOT NULL, order_id BIGINT REFERENCES orders(id),
+        status TEXT NOT NULL DEFAULT 'REQUESTED', reason TEXT, qc_result TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS return_items(
+        id BIGSERIAL PRIMARY KEY, return_request_id BIGINT REFERENCES return_requests(id) ON DELETE CASCADE,
+        order_item_id BIGINT REFERENCES order_items(id), quantity INT NOT NULL CHECK(quantity>0),
+        created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(return_request_id,order_item_id)
+      );
+      CREATE TABLE IF NOT EXISTS audit_logs(
+        id BIGSERIAL PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT,
+        entity_id TEXT, details JSONB, created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS app_users(
+        id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, full_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('ADMIN','DEALER','STAFF','CUSTOMER')),
+        dealer_id BIGINT REFERENCES dealers(id), customer_id BIGINT REFERENCES customers(id),
+        active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS auth_sessions(
+        id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        token_hash TEXT UNIQUE NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(), revoked_at TIMESTAMPTZ
+      );
+    `);
+
+    await c.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS dealer_id BIGINT REFERENCES dealers(id);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+      ALTER TABLE dealer_ledger ADD COLUMN IF NOT EXISTS order_id BIGINT REFERENCES orders(id);
+      ALTER TABLE dealer_ledger ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS price NUMERIC(12,2) NOT NULL DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS short_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS slug TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS seo_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS meta_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS canonical_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS og_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS og_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS twitter_title TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS twitter_description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb;
+      CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx ON products(slug) WHERE slug IS NOT NULL AND slug<>'';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_full_name TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_phone TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_city TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_district TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_neighborhood TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address_line TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_postal_code TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS reason TEXT;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS qc_result TEXT;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+      ALTER TABLE return_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+    `);
+
+    const products = [
+      ['TREX-TEA-60','Trex Tea','60 saşe'],
+      ['TREX-COFFEE-30','Trex Coffee','30 saşe'],
+      ['TREX-CAP-30','Trex Cap','30 kapsül'],
+      ['LIPOTEX-60','Lipotex Tea','60 adet'],
+      ['TREX-JEL','Trex Jel','1 adet']
+    ];
+    for (const p of products) {
+      await c.query(`INSERT INTO products(sku,name,unit) VALUES($1,$2,$3) ON CONFLICT(sku) DO NOTHING`, p);
+    }
+    const ids = await c.query(`SELECT id FROM products`);
+    for (const p of ids.rows) {
+      for (let level=1; level<=4; level++) {
+        await c.query(
+          `INSERT INTO dealer_commission_rules(product_id,dealer_level,amount_per_unit)
+           VALUES($1,$2,$3) ON CONFLICT(product_id,dealer_level) DO NOTHING`,
+          [p.id, level, level * 10]
+        );
+      }
+    }
+    return { ok: true, version: '1.0.0-demo.23' };
+  });
+}
+
+async function createInventoryLot(data) {
+  const invalid = (message, code=400) => Object.assign(new Error(message), {statusCode:code});
+  const productId = String(data.product_id ?? '');
+  const lotNo = typeof data.lot_no === 'string' ? data.lot_no.trim() : '';
+  const quantity = data.quantity_on_hand;
+  const expiry = data.expiry_date || null;
+  if (!/^[1-9]\d*$/.test(productId) || productId.length > 18) throw invalid('INVALID_PRODUCT');
+  if (!lotNo || lotNo.length > 100) throw invalid('INVALID_LOT_NUMBER');
+  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 2147483647) throw invalid('INVALID_STOCK_QUANTITY');
+  if (expiry !== null && (typeof expiry !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(expiry) || !Number.isFinite(Date.parse(expiry)) || new Date(expiry).toISOString().slice(0,10) !== expiry || expiry < '1900-01-01')) throw invalid('INVALID_EXPIRY_DATE');
+  return db(async c => {
+    const product = await c.query('SELECT id FROM products WHERE id=$1 AND active=TRUE', [productId]);
+    if (!product.rowCount) throw invalid('PRODUCT_NOT_FOUND_OR_INACTIVE');
+    try {
+      return (await c.query(
+        'INSERT INTO inventory_lots(product_id,lot_no,expiry_date,quantity_on_hand) VALUES($1,$2,$3,$4) RETURNING *',
+        [productId,lotNo,expiry,quantity]
+      )).rows[0];
+    } catch(error) {
+      if (error.code === '23505') throw invalid('LOT_ALREADY_EXISTS',409);
+      if (error.code === '23503') throw invalid('PRODUCT_NOT_FOUND_OR_INACTIVE');
+      throw error;
+    }
+  });
+}
+
+async function createDealer(data) {
+  const invalid = (message, code=400) => Object.assign(new Error(message), {statusCode:code});
+  const code = typeof data.code === 'string' ? data.code.trim() : '';
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+  const level = data.dealer_level === undefined ? 1 : data.dealer_level;
+  const status = data.status === undefined ? 'ACTIVE' : data.status;
+  if (!code || code.length > 50 || !name || name.length > 150) throw invalid('INVALID_DEALER_INPUT');
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 2147483647) throw invalid('INVALID_DEALER_LEVEL');
+  if (!['ACTIVE','INACTIVE'].includes(status)) throw invalid('INVALID_DEALER_STATUS');
+  return db(async c => {
+    try {
+      return (await c.query('INSERT INTO dealers(code,name,dealer_level,status) VALUES($1,$2,$3,$4) RETURNING *', [code,name,level,status])).rows[0];
+    } catch(error) {
+      if (error.code === '23505') throw invalid('DEALER_CODE_EXISTS',409);
+      throw error;
+    }
+  });
+}
+
+function validateProduct(data, creating) {
+  const fail = message => {throw Object.assign(new Error(message), {statusCode:400});};
+  const clean = (value, max) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text.length > max) fail('INVALID_PRODUCT_CONTENT');
+    return text;
+  };
+  const name = clean(data.name,150);
+  const unit = clean(data.unit,100);
+  const sku = typeof data.sku === 'string' ? data.sku.trim() : '';
+  const price = String(data.price ?? '');
+  const slug = clean(data.slug,180).toLowerCase();
+  const shortDescription = clean(data.short_description,500);
+  const description = clean(data.description,12000);
+  const seoTitle = clean(data.seo_title,180);
+  const metaDescription = clean(data.meta_description,320);
+  const canonicalUrl = clean(data.canonical_url,500);
+  const ogTitle = clean(data.og_title,180);
+  const ogDescription = clean(data.og_description,320);
+  const twitterTitle = clean(data.twitter_title,180);
+  const twitterDescription = clean(data.twitter_description,320);
+  const imageUrls = Array.isArray(data.image_urls)
+    ? data.image_urls.map(x => String(x || '').trim()).filter(Boolean)
+    : [];
+  if (!name) fail('INVALID_PRODUCT_INPUT');
+  if (creating && (!sku || sku.length > 60 || !/^[A-Za-z0-9._-]+$/.test(sku))) fail('INVALID_PRODUCT_SKU');
+  if (!/^\d{1,10}(\.\d{1,2})?$/.test(price) || Number(price) > 9999999999.99) fail('INVALID_PRODUCT_PRICE');
+  if (typeof data.active !== 'boolean') fail('INVALID_PRODUCT_ACTIVE');
+  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) fail('INVALID_PRODUCT_SLUG');
+  if (canonicalUrl && !/^https?:\/\//i.test(canonicalUrl)) fail('INVALID_PRODUCT_URL');
+  if (imageUrls.length > 20 || imageUrls.some(url => url.length > 1000 || !/^https?:\/\//i.test(url))) fail('INVALID_PRODUCT_IMAGES');
+  return {
+    name,unit,sku,price,active:data.active,slug:slug || null,
+    short_description:shortDescription || null,description:description || null,
+    seo_title:seoTitle || null,meta_description:metaDescription || null,
+    canonical_url:canonicalUrl || null,og_title:ogTitle || null,
+    og_description:ogDescription || null,twitter_title:twitterTitle || null,
+    twitter_description:twitterDescription || null,image_urls:imageUrls
+  };
+}
+
+async function saveProduct(id, data) {
+  const p = validateProduct(data, id === null);
+  return db(async c => {
+    try {
+      const params = [
+        p.name,p.unit,p.price,p.active,p.slug,p.short_description,p.description,
+        p.seo_title,p.meta_description,p.canonical_url,p.og_title,p.og_description,
+        p.twitter_title,p.twitter_description,JSON.stringify(p.image_urls)
+      ];
+      const result = id === null
+        ? await c.query(
+            `INSERT INTO products(
+              sku,name,unit,price,active,slug,short_description,description,
+              seo_title,meta_description,canonical_url,og_title,og_description,
+              twitter_title,twitter_description,image_urls
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+             RETURNING *`,
+            [p.sku,...params]
+          )
+        : await c.query(
+            `UPDATE products SET
+              name=$1,unit=$2,price=$3,active=$4,slug=$5,short_description=$6,
+              description=$7,seo_title=$8,meta_description=$9,canonical_url=$10,
+              og_title=$11,og_description=$12,twitter_title=$13,twitter_description=$14,
+              image_urls=$15::jsonb
+             WHERE id=$16 RETURNING *`,
+            [...params,id]
+          );
+      if (!result.rows.length) throw Object.assign(new Error('PRODUCT_NOT_FOUND'),{statusCode:404});
+      await audit(c, id === null ? 'PRODUCT_CREATED' : 'PRODUCT_UPDATED', 'product', result.rows[0].id, { sku:result.rows[0].sku });
+      return result.rows[0];
+    } catch(error) {
+      if (error.code === '23505') {
+        const field = String(error.constraint || '').includes('slug') ? 'PRODUCT_SLUG_EXISTS' : 'PRODUCT_SKU_EXISTS';
+        throw Object.assign(new Error(field),{statusCode:409});
+      }
+      throw error;
+    }
+  });
+}
+
+async function deleteProductSafely(id) {
+  const coreSkus = new Set(['TREX-TEA-60','TREX-COFFEE-30','TREX-CAP-30','LIPOTEX-60','TREX-JEL']);
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      const pr = await c.query(`SELECT * FROM products WHERE id=$1 FOR UPDATE`, [id]);
+      if (!pr.rowCount) throw Object.assign(new Error('PRODUCT_NOT_FOUND'), {statusCode:404});
+      const product=pr.rows[0];
+      const orderRefs=await c.query(`SELECT COUNT(*)::int count FROM order_items WHERE product_id=$1`,[id]);
+      const stockRefs=await c.query(`SELECT COUNT(*)::int count FROM inventory_lots WHERE product_id=$1`,[id]);
+      const hasHistory=Number(orderRefs.rows[0].count)>0 || Number(stockRefs.rows[0].count)>0 || coreSkus.has(product.sku);
+      if (hasHistory) {
+        const updated=(await c.query(`UPDATE products SET active=FALSE WHERE id=$1 RETURNING *`,[id])).rows[0];
+        await audit(c,'PRODUCT_ARCHIVED','product',id,{sku:product.sku});
+        await c.query('COMMIT');
+        return {mode:'archived',product:updated};
+      }
+      await c.query(`DELETE FROM dealer_commission_rules WHERE product_id=$1`,[id]);
+      await c.query(`DELETE FROM products WHERE id=$1`,[id]);
+      await audit(c,'PRODUCT_DELETED','product',id,{sku:product.sku});
+      await c.query('COMMIT');
+      return {mode:'deleted',product};
+    } catch(e){await c.query('ROLLBACK');throw e;}
+  });
+}
+
+function normalizeCustomer(data) {
+  const fail=(m,code=400)=>{throw Object.assign(new Error(m),{statusCode:code});};
+  const full_name=String(data?.full_name||'').trim();
+  const email=String(data?.email||'').trim().toLowerCase();
+  const phone=String(data?.phone||'').trim().replace(/\s+/g,' ');
+  if (full_name.length<2 || full_name.length>150) fail('INVALID_CUSTOMER_NAME');
+  if (email && (email.length>320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) fail('INVALID_CUSTOMER_EMAIL');
+  if (phone && phone.length>25) fail('INVALID_CUSTOMER_PHONE');
+  return {full_name,email:email||null,phone:phone||null};
+}
+
+function normalizeAddress(data) {
+  const fail=m=>{throw Object.assign(new Error(m),{statusCode:400});};
+  const clean=(v,max,required=false)=>{const x=String(v||'').trim();if((required&&!x)||x.length>max)fail('INVALID_ADDRESS');return x||null;};
+  return {
+    title:clean(data?.title,80,false)||'Adres',
+    full_name:clean(data?.full_name,150,true),
+    phone:clean(data?.phone,25,true),
+    city:clean(data?.city,100,true),
+    district:clean(data?.district,100,true),
+    neighborhood:clean(data?.neighborhood,150,false),
+    address_line:clean(data?.address_line,500,true),
+    postal_code:clean(data?.postal_code,20,false)
+  };
+}
+
+async function createOrder(data) {
+  const MAX_ITEMS=50, MAX_QTY=100, MAX_TOTAL=10000000;
+  const allowedPayments=['CARD_MOCK','COD','BANK_TRANSFER'];
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      const customerId=Number(data.customer_id);
+      if (!Number.isInteger(customerId) || customerId<1) throw new Error('CUSTOMER_ID_REQUIRED');
+      const customer=await c.query(`SELECT id FROM customers WHERE id=$1`,[customerId]);
+      if (!customer.rowCount) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+      if (!Array.isArray(data.items) || !data.items.length) throw new Error('ORDER_ITEMS_REQUIRED');
+      if (data.items.length>MAX_ITEMS) throw new Error('TOO_MANY_ORDER_ITEMS');
+      const payment=String(data.payment_method||'');
+      if (!allowedPayments.includes(payment)) throw new Error('INVALID_PAYMENT_METHOD');
+      let dealerId=null;
+      if (data.dealer_id!==undefined && data.dealer_id!==null && data.dealer_id!=='') {
+        dealerId=Number(data.dealer_id);
+        const dealer=await c.query(`SELECT id FROM dealers WHERE id=$1 AND status='ACTIVE'`,[dealerId]);
+        if (!dealer.rowCount) throw new Error('DEALER_NOT_FOUND_OR_INACTIVE');
+      }
+      const shipping=normalizeAddress(data.shipping_address||{});
+      const orderNo='TRX-'+Date.now()+'-'+crypto.randomBytes(2).toString('hex').toUpperCase();
+      let total=0; const items=[]; const seen=new Set();
+      for (const i of data.items) {
+        const productId=Number(i.product_id), qty=Number(i.quantity);
+        if (!Number.isInteger(productId)||productId<1) throw new Error('PRODUCT_NOT_FOUND');
+        if (!Number.isInteger(qty)||qty<1||qty>MAX_QTY) throw new Error('INVALID_QUANTITY');
+        if (seen.has(productId)) throw new Error('DUPLICATE_ORDER_ITEM');
+        seen.add(productId);
+        const r=await c.query(`SELECT id,price FROM products WHERE id=$1 AND active=TRUE`,[productId]);
+        if (!r.rowCount) throw new Error('PRODUCT_NOT_FOUND');
+        const price=Number(r.rows[0].price);
+        if (!(price>0)) throw new Error('PRODUCT_PRICE_NOT_SET');
+        total+=price*qty;
+        if (total>MAX_TOTAL) throw new Error('ORDER_TOTAL_LIMIT_EXCEEDED');
+        items.push({product_id:productId,quantity:qty,unit_price:price});
+      }
+      const paymentStatus=payment==='COD'?'COD_PENDING':'PAYMENT_PENDING';
+      const r=await c.query(
+        `INSERT INTO orders(
+          order_no,customer_id,dealer_id,payment_method,payment_status,total_amount,
+          shipping_full_name,shipping_phone,shipping_city,shipping_district,
+          shipping_neighborhood,shipping_address_line,shipping_postal_code
+         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [orderNo,customerId,dealerId,payment,paymentStatus,total,
+         shipping.full_name,shipping.phone,shipping.city,shipping.district,
+         shipping.neighborhood,shipping.address_line,shipping.postal_code]
+      );
+      const order=r.rows[0];
+      for (const i of items) {
+        await c.query(`INSERT INTO order_items(order_id,product_id,quantity,unit_price) VALUES($1,$2,$3,$4)`,
+          [order.id,i.product_id,i.quantity,i.unit_price]);
+      }
+      await c.query(`INSERT INTO order_status_history(order_id,new_status,actor) VALUES($1,'NEW','demo-api')`,[order.id]);
+      await audit(c,'ORDER_CREATED','order',order.id,{payment_method:payment});
+      await c.query('COMMIT');
+      return order;
+    } catch(e){await c.query('ROLLBACK');throw e;}
+  });
+}
+
+async function checkoutOrder(data) {
+  const customerData=normalizeCustomer(data.customer||{});
+  const shipping=normalizeAddress({...data.shipping_address,full_name:data.shipping_address?.full_name||customerData.full_name,phone:data.shipping_address?.phone||customerData.phone});
+  let customerId;
+  await db(async c=>{
+    await c.query('BEGIN');
+    try{
+      let row=null;
+      if(customerData.email){
+        const existing=await c.query(`SELECT * FROM customers WHERE LOWER(email)=LOWER($1) LIMIT 1`,[customerData.email]);
+        if(existing.rowCount) row=existing.rows[0];
+      }
+      if(!row){
+        row=(await c.query(`INSERT INTO customers(full_name,email,phone) VALUES($1,$2,$3) RETURNING *`,
+          [customerData.full_name,customerData.email,customerData.phone])).rows[0];
+      }
+      customerId=row.id;
+      const exists=await c.query(
+        `SELECT id FROM customer_addresses WHERE customer_id=$1 AND city=$2 AND district=$3 AND address_line=$4 LIMIT 1`,
+        [customerId,shipping.city,shipping.district,shipping.address_line]
+      );
+      if(!exists.rowCount){
+        const count=await c.query(`SELECT COUNT(*)::int count FROM customer_addresses WHERE customer_id=$1`,[customerId]);
+        await c.query(
+          `INSERT INTO customer_addresses(customer_id,title,full_name,phone,city,district,neighborhood,address_line,postal_code,is_default)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [customerId,shipping.title,shipping.full_name,shipping.phone,shipping.city,shipping.district,shipping.neighborhood,shipping.address_line,shipping.postal_code,count.rows[0].count===0]
+        );
+      }
+      await c.query('COMMIT');
+    }catch(e){await c.query('ROLLBACK');throw e;}
+  });
+  return createOrder({customer_id:customerId,dealer_id:data.dealer_id,payment_method:data.payment_method,items:data.items,shipping_address:shipping});
+}
+
+async function reserve(orderId) {
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      const o = await c.query(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [orderId]);
+      if (!o.rowCount) throw new Error('ORDER_NOT_FOUND');
+      if (o.rows[0].status !== 'APPROVED') throw new Error('ORDER_NOT_RESERVABLE');
+      const exists = await c.query(`SELECT id FROM order_inventory_allocations WHERE order_id=$1 LIMIT 1`, [orderId]);
+      if (exists.rowCount) throw new Error('ORDER_ALREADY_RESERVED');
+      const items = await c.query(`SELECT * FROM order_items WHERE order_id=$1`, [orderId]);
+      for (const item of items.rows) {
+        let remaining = Number(item.quantity);
+        const lots = await c.query(
+          `SELECT * FROM inventory_lots
+           WHERE product_id=$1 AND quantity_on_hand-quantity_reserved>0
+           ORDER BY expiry_date ASC NULLS LAST,id ASC FOR UPDATE`,
+          [item.product_id]
+        );
+        for (const lot of lots.rows) {
+          if (remaining <= 0) break;
+          const available = Number(lot.quantity_on_hand) - Number(lot.quantity_reserved);
+          const take = Math.min(available, remaining);
+          if (take <= 0) continue;
+          await c.query(`UPDATE inventory_lots SET quantity_reserved=quantity_reserved+$1 WHERE id=$2`, [take, lot.id]);
+          await c.query(
+            `INSERT INTO order_inventory_allocations(order_id,order_item_id,inventory_lot_id,quantity)
+             VALUES($1,$2,$3,$4)`,
+            [orderId, item.id, lot.id, take]
+          );
+          remaining -= take;
+        }
+        if (remaining > 0) throw new Error('INSUFFICIENT_STOCK');
+      }
+      await c.query(`UPDATE orders SET status='STOCK_RESERVED',updated_at=NOW() WHERE id=$1`, [orderId]);
+      await audit(c, 'STOCK_RESERVED', 'order', orderId);
+      await c.query('COMMIT');
+      return { success:true, order_id:orderId, status:'STOCK_RESERVED' };
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+async function consume(c, orderId) {
+  const a = await c.query(
+    `SELECT * FROM order_inventory_allocations WHERE order_id=$1 AND consumed=FALSE FOR UPDATE`,
+    [orderId]
+  );
+  if (!a.rowCount) throw new Error('NO_STOCK_RESERVATION');
+  for (const x of a.rows) {
+    const changed = await c.query(
+      `UPDATE inventory_lots
+       SET quantity_on_hand=quantity_on_hand-$1, quantity_reserved=quantity_reserved-$1
+       WHERE id=$2 AND quantity_on_hand >= $1 AND quantity_reserved >= $1 RETURNING id`,
+      [x.quantity, x.inventory_lot_id]
+    );
+    if (!changed.rowCount) throw new Error('STOCK_INVARIANT_VIOLATION');
+    await c.query(`UPDATE order_inventory_allocations SET consumed=TRUE WHERE id=$1`, [x.id]);
+  }
+}
+
+async function release(c, orderId) {
+  const a = await c.query(
+    `SELECT * FROM order_inventory_allocations WHERE order_id=$1 AND consumed=FALSE FOR UPDATE`,
+    [orderId]
+  );
+  for (const x of a.rows) {
+    await c.query(
+      `UPDATE inventory_lots SET quantity_reserved=GREATEST(quantity_reserved-$1,0) WHERE id=$2`,
+      [x.quantity, x.inventory_lot_id]
+    );
+  }
+  await c.query(`DELETE FROM order_inventory_allocations WHERE order_id=$1 AND consumed=FALSE`, [orderId]);
+}
+
+const transitions = {
+  NEW:['PAYMENT_PENDING','APPROVED','CANCELLED'],
+  PAYMENT_PENDING:['APPROVED','CANCELLED'],
+  APPROVED:['STOCK_RESERVED','CANCELLED'],
+  STOCK_RESERVED:['PICKING','CANCELLED'],
+  PICKING:['PACKING','PROBLEM','CANCELLED'],
+  PACKING:['READY_TO_SHIP','PROBLEM'],
+  READY_TO_SHIP:['SHIPPED','PROBLEM'],
+  SHIPPED:['DELIVERED','PROBLEM'],
+  DELIVERED:['COMPLETED'],
+  COMPLETED:[],
+  CANCELLED:[],
+  PROBLEM:['PICKING','PACKING','READY_TO_SHIP','CANCELLED']
+};
+
+
+async function getOrderDetails(orderId) {
+  return db(async c => {
+    const result = await c.query(
+      `SELECT o.*,cu.full_name customer_name,cu.email customer_email,
+              d.name dealer_name,d.code dealer_code
+       FROM orders o
+       LEFT JOIN customers cu ON cu.id=o.customer_id
+       LEFT JOIN dealers d ON d.id=o.dealer_id
+       WHERE o.id=$1`, [orderId]
+    );
+    if (!result.rowCount) {
+      throw Object.assign(new Error('ORDER_NOT_FOUND'), { statusCode:404 });
+    }
+    const items = await c.query(
+      `SELECT oi.*,p.name product_name,p.sku
+       FROM order_items oi LEFT JOIN products p ON p.id=oi.product_id
+       WHERE oi.order_id=$1 ORDER BY oi.id`, [orderId]
+    );
+    const history = await c.query(
+      `SELECT id,old_status,new_status,actor,created_at
+       FROM order_status_history WHERE order_id=$1 ORDER BY created_at,id`, [orderId]
+    );
+    const order = result.rows[0];
+    return {
+      ...order, items:items.rows, history:history.rows,
+      next_statuses:transitions[order.status] || []
+    };
+  });
+}
+
+async function status(orderId, next) {
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      const r = await c.query(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [orderId]);
+      if (!r.rowCount) throw new Error('ORDER_NOT_FOUND');
+      const order = r.rows[0];
+      if (order.status === next) { await c.query('COMMIT'); return order; }
+      if (!(transitions[order.status] || []).includes(next)) throw new Error('INVALID_STATUS_TRANSITION');
+      if (next === 'SHIPPED') await consume(c, orderId);
+      if (next === 'CANCELLED') await release(c, orderId);
+      await c.query(`UPDATE orders SET status=$1,updated_at=NOW() WHERE id=$2`, [next, orderId]);
+      await c.query(
+        `INSERT INTO order_status_history(order_id,old_status,new_status,actor)
+         VALUES($1,$2,$3,'demo-api')`,
+        [orderId, order.status, next]
+      );
+      if (next === 'COMPLETED' && order.dealer_id) {
+        const exists = await c.query(
+          `SELECT id FROM dealer_ledger WHERE order_id=$1 AND entry_type='COMMISSION_ACCRUAL'`,
+          [orderId]
+        );
+        if (!exists.rowCount) {
+          const dealer = await c.query(`SELECT dealer_level FROM dealers WHERE id=$1`, [order.dealer_id]);
+          const items = await c.query(`SELECT * FROM order_items WHERE order_id=$1`, [orderId]);
+          let commission = 0;
+          for (const i of items.rows) {
+            const rule = await c.query(
+              `SELECT amount_per_unit FROM dealer_commission_rules
+               WHERE product_id=$1 AND dealer_level=$2 AND active=TRUE`,
+              [i.product_id, dealer.rows[0].dealer_level]
+            );
+            if (rule.rowCount) commission += Number(rule.rows[0].amount_per_unit) * Number(i.quantity);
+          }
+          if (commission > 0) {
+            await c.query(
+              `INSERT INTO dealer_ledger(dealer_id,order_id,entry_type,amount,reference_no,description)
+               VALUES($1,$2,'COMMISSION_ACCRUAL',$3,$4,'Sipariş prim tahakkuku')`,
+              [order.dealer_id, orderId, commission, order.order_no]
+            );
+          }
+        }
+      }
+      await audit(c, 'ORDER_STATUS_CHANGED', 'order', orderId, { old_status:order.status, new_status:next });
+      await c.query('COMMIT');
+      return { ...order, status:next };
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+async function createReturn(data) {
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      if (!data.order_id) throw new Error('ORDER_ID_REQUIRED');
+      if (!Array.isArray(data.items) || !data.items.length) throw new Error('RETURN_ITEMS_REQUIRED');
+      const order = await c.query(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [data.order_id]);
+      if (!order.rowCount) throw new Error('ORDER_NOT_FOUND');
+      const returnNo = 'RET-' + Date.now();
+      const created = await c.query(
+        `INSERT INTO return_requests(return_no,order_id,reason) VALUES($1,$2,$3) RETURNING *`,
+        [returnNo, data.order_id, data.reason || null]
+      );
+      const ret = created.rows[0];
+      for (const item of data.items) {
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(quantity) || quantity < 1) throw new Error('INVALID_RETURN_QUANTITY');
+        const orderItem = await c.query(
+          `SELECT * FROM order_items WHERE id=$1 AND order_id=$2`,
+          [item.order_item_id, data.order_id]
+        );
+        if (!orderItem.rowCount) throw new Error('ORDER_ITEM_NOT_FOUND');
+        const previous = await c.query(
+          `SELECT COALESCE(SUM(ri.quantity),0)::int quantity
+           FROM return_items ri JOIN return_requests rr ON rr.id=ri.return_request_id
+           WHERE ri.order_item_id=$1 AND rr.status<>'REJECTED'`,
+          [item.order_item_id]
+        );
+        const alreadyReturned = Number(previous.rows[0].quantity || 0);
+        const orderedQuantity = Number(orderItem.rows[0].quantity);
+        if (alreadyReturned + quantity > orderedQuantity) throw new Error('RETURN_QUANTITY_EXCEEDS_ORDER');
+        await c.query(
+          `INSERT INTO return_items(return_request_id,order_item_id,quantity) VALUES($1,$2,$3)`,
+          [ret.id, item.order_item_id, quantity]
+        );
+      }
+      await audit(c, 'RETURN_REQUESTED', 'return_request', ret.id, { order_id:data.order_id, items:data.items });
+      await c.query('COMMIT');
+      return ret;
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+async function approveReturn(returnId) {
+  return db(async c => {
+    await c.query('BEGIN');
+    try {
+      const rr = await c.query(
+        `SELECT rr.*,o.dealer_id,o.order_no
+         FROM return_requests rr JOIN orders o ON o.id=rr.order_id
+         WHERE rr.id=$1 FOR UPDATE`,
+        [returnId]
+      );
+      if (!rr.rowCount) throw new Error('RETURN_NOT_FOUND');
+      const ret = rr.rows[0];
+      if (ret.status !== 'REQUESTED') {
+        throw new Error(
+          ret.status === 'APPROVED'
+            ? 'RETURN_ALREADY_APPROVED'
+            : 'RETURN_NOT_PENDING'
+        );
+      }
+      const items = await c.query(
+        `SELECT ri.quantity return_quantity,oi.product_id
+         FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id
+         WHERE ri.return_request_id=$1`,
+        [returnId]
+      );
+      if (!items.rowCount) throw new Error('RETURN_ITEMS_REQUIRED');
+      let clawback = 0;
+      if (ret.dealer_id) {
+        const dealer = await c.query(`SELECT dealer_level FROM dealers WHERE id=$1`, [ret.dealer_id]);
+        if (!dealer.rowCount) throw new Error('DEALER_NOT_FOUND');
+        for (const item of items.rows) {
+          const rule = await c.query(
+            `SELECT amount_per_unit FROM dealer_commission_rules
+             WHERE product_id=$1 AND dealer_level=$2 AND active=TRUE`,
+            [item.product_id, dealer.rows[0].dealer_level]
+          );
+          if (rule.rowCount) clawback += Number(rule.rows[0].amount_per_unit) * Number(item.return_quantity);
+        }
+        const accrued = await c.query(
+          `SELECT COALESCE(SUM(amount),0) amount FROM dealer_ledger
+           WHERE order_id=$1 AND entry_type='COMMISSION_ACCRUAL'`,
+          [ret.order_id]
+        );
+        const previous = await c.query(
+          `SELECT COALESCE(SUM(amount),0) amount FROM dealer_ledger
+           WHERE order_id=$1 AND entry_type='COMMISSION_CLAWBACK'`,
+          [ret.order_id]
+        );
+        const remaining = Math.max(
+          Number(accrued.rows[0].amount || 0) - Math.abs(Number(previous.rows[0].amount || 0)),
+          0
+        );
+        clawback = Math.min(clawback, remaining);
+        if (clawback > 0) {
+          await c.query(
+            `INSERT INTO dealer_ledger(dealer_id,order_id,entry_type,amount,reference_no,description)
+             VALUES($1,$2,'COMMISSION_CLAWBACK',$3,$4,'İade edilen adetlere göre prim geri alma')`,
+            [ret.dealer_id, ret.order_id, -clawback, ret.return_no]
+          );
+        }
+      }
+      await c.query(
+        `UPDATE return_requests
+         SET status='APPROVED',qc_result='APPROVED',processed_at=NOW(),rejection_reason=NULL
+         WHERE id=$1`,
+        [returnId]
+      );
+      await audit(c, 'RETURN_APPROVED', 'return_request', returnId, { order_id:ret.order_id, commission_clawback:clawback });
+      await c.query('COMMIT');
+      return { return_id:returnId, status:'APPROVED', commission_clawback:clawback };
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+
+async function rejectReturn(returnId, reason) {
+  return db(async c => {
+    await c.query('BEGIN');
+
+    try {
+      const rr = await c.query(
+        `SELECT *
+         FROM return_requests
+         WHERE id=$1
+         FOR UPDATE`,
+        [returnId]
+      );
+
+      if (!rr.rowCount) {
+        throw new Error('RETURN_NOT_FOUND');
+      }
+
+      const ret = rr.rows[0];
+
+      if (ret.status !== 'REQUESTED') {
+        throw new Error('RETURN_NOT_PENDING');
+      }
+
+      const rejectionReason =
+        String(reason || '').trim();
+
+      if (!rejectionReason) {
+        throw Object.assign(
+          new Error('REJECTION_REASON_REQUIRED'),
+          { statusCode:400 }
+        );
+      }
+
+      await c.query(
+        `UPDATE return_requests
+         SET
+           status='REJECTED',
+           qc_result='REJECTED',
+           rejection_reason=$1,
+           processed_at=NOW()
+         WHERE id=$2`,
+        [
+          rejectionReason,
+          returnId
+        ]
+      );
+
+      await audit(
+        c,
+        'RETURN_REJECTED',
+        'return_request',
+        returnId,
+        {
+          order_id:ret.order_id,
+          rejection_reason:rejectionReason
+        }
+      );
+
+      await c.query('COMMIT');
+
+      return {
+        return_id:returnId,
+        status:'REJECTED',
+        rejection_reason:rejectionReason
+      };
+
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const u = new URL(req.url, 'http://localhost');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin':'*',
+        'Access-Control-Allow-Methods':'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers':'Content-Type,Authorization'
+      });
+      return res.end();
+    }
+
+    if (req.method === 'GET' && u.pathname === '/') {
+      return send(res, 200, {
+        service:'Trex Platform Core API', version:'1.0.0-demo.23', database:'PostgreSQL',
+        payment_provider:'mock', shipping_provider:'mock', auth:'session-token'
+      });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/health') {
+      return send(res, 200, { ok:true, version:'23' });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/init-db') {
+      await requireRole(req, ['ADMIN']);
+      return send(res, 200, await initDb());
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/auth/bootstrap-status') {
+      const data = await db(async c => {
+        const r = await c.query(`SELECT COUNT(*)::int count FROM app_users`);
+        return { has_users:r.rows[0].count > 0, user_count:r.rows[0].count };
+      });
+      return send(res, 200, { success:true, data });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/login') {
+      const b = await body(req);
+      if (!b.email || !b.password) throw Object.assign(new Error('EMAIL_AND_PASSWORD_REQUIRED'), { statusCode:400 });
+
+      const throttleKey = loginKey(req, b.email);
+      checkLoginThrottle(throttleKey);
+
+      let result;
+
+      try {
+        result = await db(async c => {
+        const r = await c.query(
+          `SELECT * FROM app_users WHERE LOWER(email)=LOWER($1) AND active=TRUE`,
+          [b.email]
+        );
+        if (!r.rowCount || !verifyPassword(b.password, r.rows[0].password_hash)) {
+          throw Object.assign(new Error('INVALID_CREDENTIALS'), { statusCode:401 });
+        }
+        const user = r.rows[0];
+        const token = newToken();
+        await c.query(
+          `INSERT INTO auth_sessions(user_id,token_hash,expires_at)
+           VALUES($1,$2,NOW()+($3 || ' hours')::interval)`,
+          [user.id, tokenHash(token), String(SESSION_HOURS)]
+        );
+        await audit(c, 'LOGIN', 'app_user', user.id, { role:user.role });
+        return {
+          token,
+          expires_in_hours:SESSION_HOURS,
+          user:{ id:user.id, email:user.email, full_name:user.full_name, role:user.role, dealer_id:user.dealer_id, customer_id:user.customer_id }
+        };
+        });
+
+        clearLoginFailures(throttleKey);
+
+      } catch (e) {
+        if (e.message === 'INVALID_CREDENTIALS') {
+          recordLoginFailure(throttleKey);
+        }
+        throw e;
+      }
+
+      return send(res, 200, { success:true, data:result });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/auth/me') {
+      const user = await getAuth(req);
+      if (!user) throw Object.assign(new Error('UNAUTHORIZED'), { statusCode:401 });
+      return send(res, 200, { success:true, data:user });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/logout') {
+      const token = bearer(req);
+      if (!token) throw Object.assign(new Error('UNAUTHORIZED'), { statusCode:401 });
+      await db(async c => {
+        await c.query(`UPDATE auth_sessions SET revoked_at=NOW() WHERE token_hash=$1`, [tokenHash(token)]);
+      });
+      return send(res, 200, { success:true });
+    }
+
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/change-password') {
+      const authUser = await getAuth(req);
+      if (!authUser) {
+        throw Object.assign(new Error('UNAUTHORIZED'), { statusCode: 401 });
+      }
+
+      const b = await body(req);
+
+      if (!b.current_password || !b.new_password) {
+        throw Object.assign(
+          new Error('CURRENT_AND_NEW_PASSWORD_REQUIRED'),
+          { statusCode: 400 }
+        );
+      }
+
+      if (String(b.new_password).length < 10) {
+        throw Object.assign(
+          new Error('PASSWORD_TOO_SHORT'),
+          { statusCode: 400 }
+        );
+      }
+
+      const token = bearer(req);
+
+      await db(async c => {
+        await c.query('BEGIN');
+
+        try {
+          const r = await c.query(
+            `SELECT *
+             FROM app_users
+             WHERE id=$1
+             FOR UPDATE`,
+            [authUser.id]
+          );
+
+          if (
+            !r.rowCount ||
+            !verifyPassword(
+              b.current_password,
+              r.rows[0].password_hash
+            )
+          ) {
+            throw Object.assign(
+              new Error('CURRENT_PASSWORD_INVALID'),
+              { statusCode: 401 }
+            );
+          }
+
+          await c.query(
+            `UPDATE app_users
+             SET
+               password_hash=$1,
+               updated_at=NOW()
+             WHERE id=$2`,
+            [
+              hashPassword(b.new_password),
+              authUser.id
+            ]
+          );
+
+          await c.query(
+            `UPDATE auth_sessions
+             SET revoked_at=NOW()
+             WHERE
+               user_id=$1
+               AND token_hash<>$2
+               AND revoked_at IS NULL`,
+            [
+              authUser.id,
+              tokenHash(token)
+            ]
+          );
+
+          await audit(
+            c,
+            'PASSWORD_CHANGED',
+            'app_user',
+            authUser.id
+          );
+
+          await c.query('COMMIT');
+        } catch (e) {
+          await c.query('ROLLBACK');
+          throw e;
+        }
+      });
+
+      return send(
+        res,
+        200,
+        {
+          success: true
+        }
+      );
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/users') {
+      await requireRole(req, ['ADMIN']);
+      const b = await body(req);
+      const allowedRoles = ['ADMIN','STAFF','DEALER','CUSTOMER'];
+
+      if (!b.email || !b.password || !b.full_name || !allowedRoles.includes(b.role)) {
+        throw Object.assign(new Error('INVALID_USER_INPUT'), { statusCode:400 });
+      }
+
+      if (String(b.password).length < 10) {
+        throw Object.assign(new Error('PASSWORD_TOO_SHORT'), { statusCode:400 });
+      }
+
+      if (b.role === 'DEALER' && !b.dealer_id) {
+        throw Object.assign(new Error('DEALER_ID_REQUIRED'), { statusCode:400 });
+      }
+
+      if (b.role === 'CUSTOMER' && !b.customer_id) {
+        throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'), { statusCode:400 });
+      }
+
+      const row = await db(async c => {
+        await c.query('BEGIN');
+
+        try {
+          const normalizedEmail =
+            String(b.email).trim().toLowerCase();
+
+          const existing =
+            await c.query(
+              `SELECT id
+               FROM app_users
+               WHERE LOWER(email)=LOWER($1)
+               LIMIT 1`,
+              [normalizedEmail]
+            );
+
+          if (existing.rowCount) {
+            throw Object.assign(
+              new Error('EMAIL_ALREADY_EXISTS'),
+              { statusCode:409 }
+            );
+          }
+
+          if (b.role === 'DEALER') {
+            const dealer = await c.query(
+              `SELECT id
+               FROM dealers
+               WHERE id=$1
+                 AND status='ACTIVE'`,
+              [Number(b.dealer_id)]
+            );
+
+            if (!dealer.rowCount) {
+              throw Object.assign(
+                new Error('DEALER_NOT_FOUND_OR_INACTIVE'),
+                { statusCode:400 }
+              );
+            }
+          }
+
+          if (b.role === 'CUSTOMER') {
+            const customer = await c.query(
+              `SELECT id
+               FROM customers
+               WHERE id=$1`,
+              [Number(b.customer_id)]
+            );
+
+            if (!customer.rowCount) {
+              throw Object.assign(
+                new Error('CUSTOMER_NOT_FOUND'),
+                { statusCode:400 }
+              );
+            }
+          }
+
+          const created = (await c.query(
+            `INSERT INTO app_users(email,full_name,password_hash,role,dealer_id,customer_id)
+             VALUES($1,$2,$3,$4,$5,$6)
+             RETURNING id,email,full_name,role,dealer_id,customer_id,active,created_at`,
+            [
+              normalizedEmail,
+              b.full_name,
+              hashPassword(b.password),
+              b.role,
+              b.role === 'DEALER' ? Number(b.dealer_id) : null,
+              b.role === 'CUSTOMER' ? Number(b.customer_id) : null
+            ]
+          )).rows[0];
+
+          await audit(
+            c,
+            'USER_CREATED',
+            'app_user',
+            created.id,
+            { role:created.role }
+          );
+
+          await c.query('COMMIT');
+
+          return created;
+
+        } catch (e) {
+          await c.query('ROLLBACK');
+          throw e;
+        }
+      });
+
+      return send(res, 201, { success:true, data:row });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/auth/bootstrap-admin') {
+      const b = await body(req);
+      if (!process.env.DEMO_BOOTSTRAP_SECRET || b.secret !== process.env.DEMO_BOOTSTRAP_SECRET) {
+        throw Object.assign(new Error('FORBIDDEN'), { statusCode:403 });
+      }
+      if (!b.email || !b.password || !b.full_name) {
+        throw Object.assign(new Error('EMAIL_PASSWORD_NAME_REQUIRED'), { statusCode:400 });
+      }
+      const row = await db(async c => {
+        const count = await c.query(`SELECT COUNT(*)::int count FROM app_users`);
+        if (count.rows[0].count > 0) {
+          throw Object.assign(new Error('BOOTSTRAP_ALREADY_COMPLETED'), { statusCode:409 });
+        }
+        return (await c.query(
+          `INSERT INTO app_users(email,full_name,password_hash,role)
+           VALUES($1,$2,$3,'ADMIN')
+           RETURNING id,email,full_name,role,created_at`,
+          [b.email, b.full_name, hashPassword(b.password)]
+        )).rows[0];
+      });
+      return send(res, 201, { success:true, data:row });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/dashboard') {
+      await requireRole(req, ['ADMIN']);
+
+      const data = await db(async c => {
+        const orders = await c.query(`SELECT COUNT(*)::int count,COALESCE(SUM(total_amount),0) total FROM orders`);
+        const customers = await c.query(`SELECT COUNT(*)::int count FROM customers`);
+        const dealers = await c.query(`SELECT COUNT(*)::int count FROM dealers WHERE status='ACTIVE'`);
+        const stock = await c.query(`SELECT COALESCE(SUM(quantity_on_hand),0)::int total FROM inventory_lots`);
+        const returns = await c.query(`SELECT COUNT(*)::int count FROM return_requests WHERE status='REQUESTED'`);
+        const latestOrders = await c.query(
+          `SELECT id,order_no,status,total_amount,created_at FROM orders ORDER BY id DESC LIMIT 10`
+        );
+        return {
+          orders:orders.rows[0].count,
+          revenue:Number(orders.rows[0].total),
+          customers:customers.rows[0].count,
+          active_dealers:dealers.rows[0].count,
+          stock_units:stock.rows[0].total,
+          pending_returns:returns.rows[0].count,
+          latest_orders:latestOrders.rows
+        };
+      });
+      return send(res, 200, { success:true, data });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/admin/products') {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await db(async c => (await c.query('SELECT * FROM products ORDER BY id')).rows)});
+    }
+    if (req.method === 'POST' && u.pathname === '/api/v1/products') {
+      await requireRole(req, ['ADMIN']);
+      return send(res,201,{success:true,data:await saveProduct(null,await body(req))});
+    }
+    const productUpdate = u.pathname.match(/^\/api\/v1\/products\/(\d+)$/);
+    if (req.method === 'POST' && productUpdate) {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await saveProduct(productUpdate[1],await body(req))});
+    }
+    const productDeleteMatch = u.pathname.match(/^\/api\/v1\/products\/(\d+)\/delete$/);
+    if (req.method === 'POST' && productDeleteMatch) {
+      await requireRole(req, ['ADMIN']);
+      return send(res,200,{success:true,data:await deleteProductSafely(productDeleteMatch[1])});
+    }
+    const slugMatch = u.pathname.match(/^\/api\/v1\/products\/slug\/([a-z0-9-]+)$/);
+    if (req.method === 'GET' && slugMatch) {
+      const row=await db(async c=>(await c.query(
+        `SELECT id,sku,name,unit,price,slug,short_description,description,
+                seo_title,meta_description,canonical_url,og_title,og_description,
+                twitter_title,twitter_description,image_urls
+         FROM products WHERE active=TRUE AND slug=$1 LIMIT 1`,
+        [slugMatch[1]]
+      )).rows[0]);
+      if(!row) throw Object.assign(new Error('PRODUCT_NOT_FOUND'),{statusCode:404});
+      return send(res,200,{success:true,data:row});
+    }
+    if (req.method === 'GET' && u.pathname === '/api/v1/products') {
+      return send(res,200,{success:true,data:await db(async c => (await c.query(
+        `SELECT id,sku,name,unit,price,slug,short_description,description,
+                seo_title,meta_description,canonical_url,og_title,og_description,
+                twitter_title,twitter_description,image_urls,active
+         FROM products WHERE active=TRUE ORDER BY id`
+      )).rows)});
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/customers') {
+      const b=normalizeCustomer(await body(req));
+      const row=await db(async c=>{
+        try{
+          return (await c.query(
+            `INSERT INTO customers(full_name,email,phone) VALUES($1,$2,$3) RETURNING *`,
+            [b.full_name,b.email,b.phone]
+          )).rows[0];
+        }catch(e){
+          if(e.code==='23505') throw Object.assign(new Error('CUSTOMER_EMAIL_EXISTS'),{statusCode:409});
+          throw e;
+        }
+      });
+      return send(res,201,{success:true,data:row});
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/checkout') {
+      return send(res,201,{success:true,data:await checkoutOrder(await body(req))});
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/customer-addresses') {
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      let customerId=authUser.customer_id;
+      if(authUser.role!=='CUSTOMER'){
+        customerId=Number(u.searchParams.get('customer_id'));
+        if(!Number.isInteger(customerId)||customerId<1) throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'),{statusCode:400});
+      }
+      if(authUser.role==='CUSTOMER'&&!customerId) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+      const rows=await db(async c=>(await c.query(
+        `SELECT * FROM customer_addresses WHERE customer_id=$1 ORDER BY is_default DESC,id DESC`,[customerId]
+      )).rows);
+      return send(res,200,{success:true,data:rows});
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/customer-addresses') {
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const b=await body(req);
+      let customerId=authUser.customer_id;
+      if(authUser.role!=='CUSTOMER') customerId=Number(b.customer_id);
+      if(!Number.isInteger(Number(customerId))||Number(customerId)<1) throw Object.assign(new Error('CUSTOMER_ID_REQUIRED'),{statusCode:400});
+      const a=normalizeAddress(b);
+      const row=await db(async c=>{
+        await c.query('BEGIN');
+        try{
+          const customer=await c.query(`SELECT id FROM customers WHERE id=$1`,[customerId]);
+          if(!customer.rowCount) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'),{statusCode:400});
+          const count=await c.query(`SELECT COUNT(*)::int count FROM customer_addresses WHERE customer_id=$1`,[customerId]);
+          const makeDefault=b.is_default===true || count.rows[0].count===0;
+          if(makeDefault) await c.query(`UPDATE customer_addresses SET is_default=FALSE,updated_at=NOW() WHERE customer_id=$1`,[customerId]);
+          const created=(await c.query(
+            `INSERT INTO customer_addresses(customer_id,title,full_name,phone,city,district,neighborhood,address_line,postal_code,is_default)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+            [customerId,a.title,a.full_name,a.phone,a.city,a.district,a.neighborhood,a.address_line,a.postal_code,makeDefault]
+          )).rows[0];
+          await audit(c,'CUSTOMER_ADDRESS_CREATED','customer_address',created.id,{customer_id:Number(customerId)});
+          await c.query('COMMIT'); return created;
+        }catch(e){await c.query('ROLLBACK');throw e;}
+      });
+      return send(res,201,{success:true,data:row});
+    }
+
+    const addressUpdateMatch=u.pathname.match(/^\/api\/v1\/customer-addresses\/(\d+)$/);
+    if(req.method==='POST'&&addressUpdateMatch){
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const b=await body(req),a=normalizeAddress(b),addressId=Number(addressUpdateMatch[1]);
+      const row=await db(async c=>{
+        const current=await c.query(`SELECT * FROM customer_addresses WHERE id=$1`,[addressId]);
+        if(!current.rowCount) throw Object.assign(new Error('ADDRESS_NOT_FOUND'),{statusCode:404});
+        if(authUser.role==='CUSTOMER'&&Number(current.rows[0].customer_id)!==Number(authUser.customer_id)) throw Object.assign(new Error('FORBIDDEN'),{statusCode:403});
+        return (await c.query(
+          `UPDATE customer_addresses SET title=$1,full_name=$2,phone=$3,city=$4,district=$5,neighborhood=$6,address_line=$7,postal_code=$8,updated_at=NOW()
+           WHERE id=$9 RETURNING *`,
+          [a.title,a.full_name,a.phone,a.city,a.district,a.neighborhood,a.address_line,a.postal_code,addressId]
+        )).rows[0];
+      });
+      return send(res,200,{success:true,data:row});
+    }
+
+    const addressDefaultMatch=u.pathname.match(/^\/api\/v1\/customer-addresses\/(\d+)\/default$/);
+    if(req.method==='POST'&&addressDefaultMatch){
+      const authUser=await requireRole(req,['ADMIN','STAFF','CUSTOMER']);
+      const addressId=Number(addressDefaultMatch[1]);
+      const row=await db(async c=>{
+        await c.query('BEGIN');
+        try{
+          const current=await c.query(`SELECT * FROM customer_addresses WHERE id=$1 FOR UPDATE`,[addressId]);
+          if(!current.rowCount) throw Object.assign(new Error('ADDRESS_NOT_FOUND'),{statusCode:404});
+          if(authUser.role==='CUSTOMER'&&Number(current.rows[0].customer_id)!==Number(authUser.customer_id)) throw Object.assign(new Error('FORBIDDEN'),{statusCode:403});
+          await c.query(`UPDATE customer_addresses SET is_default=FALSE,updated_at=NOW() WHERE customer_id=$1`,[current.rows[0].customer_id]);
+          const updated=(await c.query(`UPDATE customer_addresses SET is_default=TRUE,updated_at=NOW() WHERE id=$1 RETURNING *`,[addressId])).rows[0];
+          await c.query('COMMIT'); return updated;
+        }catch(e){await c.query('ROLLBACK');throw e;}
+      });
+      return send(res,200,{success:true,data:row});
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/customers') {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, { success:true, data:await db(async c => (await c.query(`SELECT * FROM customers ORDER BY id DESC`)).rows) });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/orders') {
+      return send(res, 201, { success:true, data:await createOrder(await body(req)) });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/orders') {
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT * FROM orders WHERE dealer_id=$1 ORDER BY id DESC`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(`SELECT * FROM orders ORDER BY id DESC`)).rows;
+      });
+      return send(res, 200, { success:true, data });
+    }
+
+
+    const orderDetailMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)$/);
+    if (req.method === 'GET' && orderDetailMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, {
+        success:true, data:await getOrderDetails(orderDetailMatch[1])
+      });
+    }
+
+    const reserveMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/reserve-stock$/);
+    if (req.method === 'POST' && reserveMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, await reserve(Number(reserveMatch[1])));
+    }
+
+    const statusMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/status$/);
+    if (req.method === 'POST' && statusMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      const b = await body(req);
+      return send(res, 200, { success:true, data:await status(Number(statusMatch[1]), b.status) });
+    }
+
+    const paymentMatch = u.pathname.match(/^\/api\/v1\/orders\/(\d+)\/payment-status$/);
+    if (req.method === 'POST' && paymentMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      const b = await body(req);
+      const allowed = ['PAYMENT_PENDING','PAID','FAILED','REFUNDED','COD_PENDING'];
+      if (!allowed.includes(b.payment_status)) throw new Error('INVALID_PAYMENT_STATUS');
+      const result = await db(async c => {
+        await c.query('BEGIN');
+        try {
+          const current = await c.query(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [Number(paymentMatch[1])]);
+          if (!current.rowCount) throw new Error('ORDER_NOT_FOUND');
+          const order = current.rows[0];
+          const updated = await c.query(
+            `UPDATE orders SET payment_status=$1,updated_at=NOW() WHERE id=$2 RETURNING *`,
+            [b.payment_status, Number(paymentMatch[1])]
+          );
+          await audit(c, 'PAYMENT_STATUS_CHANGED', 'order', order.id, {
+            old_payment_status:order.payment_status,
+            new_payment_status:b.payment_status
+          });
+          await c.query('COMMIT');
+          return updated.rows[0];
+        } catch (e) {
+          await c.query('ROLLBACK');
+          throw e;
+        }
+      });
+      return send(res, 200, { success:true, data:result });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/inventory/lots') {
+      await requireRole(req, ['ADMIN','STAFF']);
+      const b = await body(req);
+      const row = await createInventoryLot(b);
+      return send(res, 201, { success:true, data:row });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/inventory/lots') {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, { success:true, data:await db(async c => (await c.query(
+        `SELECT l.*,p.name product_name,p.sku
+         FROM inventory_lots l JOIN products p ON p.id=l.product_id
+         ORDER BY l.expiry_date ASC NULLS LAST,l.id`
+      )).rows) });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/dealers') {
+      await requireRole(req, ['ADMIN']);
+      const b = await body(req);
+      const row = await createDealer(b);
+      return send(res, 201, { success:true, data:row });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/dealers') {
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT * FROM dealers WHERE id=$1`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(`SELECT * FROM dealers ORDER BY id DESC`)).rows;
+      });
+      return send(res, 200, { success:true, data });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/dealer-ledger') {
+      const authUser = await requireRole(req, ['ADMIN','STAFF','DEALER']);
+      const data = await db(async c => {
+        if (authUser.role === 'DEALER') {
+          if (!authUser.dealer_id) return [];
+          return (await c.query(
+            `SELECT dl.*,d.name dealer_name
+             FROM dealer_ledger dl
+             JOIN dealers d ON d.id=dl.dealer_id
+             WHERE dl.dealer_id=$1
+             ORDER BY dl.id DESC`,
+            [authUser.dealer_id]
+          )).rows;
+        }
+        return (await c.query(
+          `SELECT dl.*,d.name dealer_name
+           FROM dealer_ledger dl
+           JOIN dealers d ON d.id=dl.dealer_id
+           ORDER BY dl.id DESC`
+        )).rows;
+      });
+      return send(res, 200, { success:true, data });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/api/v1/returns') {
+      return send(res, 201, { success:true, data:await createReturn(await body(req)) });
+    }
+
+    const returnApproveMatch = u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/approve$/);
+    if (req.method === 'POST' && returnApproveMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, { success:true, data:await approveReturn(Number(returnApproveMatch[1])) });
+    }
+
+    const returnRejectMatch = u.pathname.match(/^\/api\/v1\/returns\/(\d+)\/reject$/);
+    if (req.method === 'POST' && returnRejectMatch) {
+      await requireRole(req, ['ADMIN','STAFF']);
+      const b = await body(req);
+      return send(
+        res,
+        200,
+        {
+          success:true,
+          data:await rejectReturn(
+            Number(returnRejectMatch[1]),
+            b.reason
+          )
+        }
+      );
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/returns') {
+      await requireRole(req, ['ADMIN','STAFF']);
+      return send(res, 200, { success:true, data:await db(async c => (await c.query(
+        `SELECT rr.*,
+          COALESCE(
+            json_agg(json_build_object('id',ri.id,'order_item_id',ri.order_item_id,'quantity',ri.quantity))
+            FILTER(WHERE ri.id IS NOT NULL),
+            '[]'
+          ) items
+         FROM return_requests rr
+         LEFT JOIN return_items ri ON ri.return_request_id=rr.id
+         GROUP BY rr.id
+         ORDER BY rr.id DESC`
+      )).rows) });
+    }
+
+    if (req.method === 'GET' && u.pathname === '/api/v1/audit-logs') {
+      await requireRole(req, ['ADMIN']);
+      return send(res, 200, { success:true, data:await db(async c => (await c.query(
+        `SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100`
+      )).rows) });
+    }
+
+    return send(res, 404, { success:false, error:'NOT_FOUND' });
+
+  } catch (e) {
+    console.error(e);
+    const statusCode = e.statusCode || (
+      [
+        'INVALID_JSON','EMAIL_AND_PASSWORD_REQUIRED','EMAIL_PASSWORD_NAME_REQUIRED',
+              'CURRENT_AND_NEW_PASSWORD_REQUIRED',
+              'PASSWORD_TOO_SHORT','INVALID_USER_INPUT','DEALER_ID_REQUIRED','DEALER_NOT_FOUND_OR_INACTIVE','CUSTOMER_NOT_FOUND','REJECTION_REASON_REQUIRED',
+        'INVALID_PAYMENT_STATUS','INVALID_PAYMENT_METHOD','CUSTOMER_ID_REQUIRED','CUSTOMER_NOT_FOUND','ORDER_ITEMS_REQUIRED','TOO_MANY_ORDER_ITEMS','INVALID_QUANTITY','DUPLICATE_ORDER_ITEM','PRODUCT_PRICE_NOT_SET','ORDER_TOTAL_LIMIT_EXCEEDED','DEALER_NOT_FOUND_OR_INACTIVE','INVALID_CUSTOMER_NAME','INVALID_CUSTOMER_EMAIL','INVALID_CUSTOMER_PHONE','INVALID_ADDRESS',
+        'ORDER_ID_REQUIRED','RETURN_ITEMS_REQUIRED','INVALID_RETURN_QUANTITY','RETURN_QUANTITY_EXCEEDS_ORDER'
+      ].includes(e.message) ? 400 : 500
+    );
+    return send(res, statusCode, { success:false, error:e.message });
+  }
+});
+
+server.listen(port, '0.0.0.0', async () => {
+  console.log('Trex Platform Core API v23 running');
+  try {
+    await initDb();
+    console.log('Database schema v23 ready');
+  } catch (e) {
+    console.error('Database initialization failed:', e.message);
+  }
+});
+
+
+
+

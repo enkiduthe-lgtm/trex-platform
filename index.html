@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trex Platform</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:16px}
+    .product-card{background:#fff;border:1px solid #e4e7e3;border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:8px}
+    .product-card h3{margin:0}.product-meta{opacity:.72;font-size:14px;margin:2px 0}.price{font-size:18px;font-weight:800;margin:8px 0}
+    .status-ok{color:#157347;font-weight:700}.status-error{color:#b42318;font-weight:700}.muted-small{opacity:.7;font-size:13px}
+    .product-image{width:100%;aspect-ratio:4/3;object-fit:contain;background:#f7f7f4;border-radius:12px;margin-bottom:6px}
+    .image-placeholder{display:grid;place-items:center;aspect-ratio:4/3;background:#f3f2ec;border-radius:12px;color:#66756c;margin-bottom:6px;text-align:center;padding:12px}
+    .product-short{line-height:1.5;margin:4px 0;color:#46574e}.card-actions{margin-top:auto;padding-top:8px;display:flex;gap:8px;flex-wrap:wrap}.cart-badge{display:inline-flex;align-items:center;gap:6px}
+    @media(max-width:650px){.product-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header class="top"><div class="bar"><div class="brand">TREX PLATFORM / Müşteri</div><div class="pill">Demo • Gerçek ödeme yapılmaz</div></div></header>
+<main class="wrap">
+  <section class="hero">
+    <div class="card">
+      <h1>Trex Tea Dijital Ekosistemi</h1>
+      <p class="muted">Müşteri mağazası, sipariş takibi, Trex Club, bayi ağı ve operasyon yönetimi için geliştirilen platform.</p>
+      <div class="btns"><a class="btn" href="/admin.html">Admin Paneli</a><a class="btn secondary" href="/dealer.html">Bayi Portalı</a><a class="btn secondary cart-badge" href="/cart.html">Sepet <span id="cartCount">0</span></a></div>
+    </div>
+    <div class="card"><h3>Sistem Durumu</h3><div class="list">
+      <div class="row"><span>Core API</span><span id="apiTag" class="tag warn">Kontrol ediliyor</span></div>
+      <div class="row"><span>Veritabanı</span><span class="tag">PostgreSQL</span></div>
+      <div class="row"><span>Ödeme</span><span class="tag warn">Mock</span></div>
+      <div class="row"><span>Kargo</span><span class="tag warn">Mock</span></div>
+    </div></div>
+  </section>
+
+  <section class="card" style="margin-top:18px">
+    <h2>Ürünler</h2>
+    <p id="apiStatus" class="muted-small">Ürünler yükleniyor...</p>
+    <div id="productGrid" class="product-grid"><div class="product-card">Veriler yükleniyor...</div></div>
+  </section>
+
+  <section class="card" style="margin-top:18px">
+    <h2>Trex Club</h2>
+    <p><a class="btn" href="/club.html">Su takibini aç</a></p>
+    <p class="muted">Günlük su takibi kullanıma hazır. Hedefini belirle, içtiğin suyu kaydet ve haftalık geçmişini gör. Adım takibi ve hatırlatıcılar henüz geliştirme planında.</p>
+    <div class="notice">Bu demo sağlık sonucu, tedavi veya kilo kaybı iddiası içermez.</div>
+  </section>
+
+  <section class="card" style="margin-top:18px">
+    <h2>Platform Durumu</h2><div class="list">
+      <div class="row"><span>Müşteri API</span><b>Bağlı</b></div>
+      <div class="row"><span>Admin API</span><b>Bağlı</b></div>
+      <div class="row"><span>Bayi API</span><b>Bağlı</b></div>
+      <div class="row"><span>Gerçek ödeme</span><b>Henüz bağlı değil</b></div>
+      <div class="row"><span>Aras Kargo</span><b>Henüz bağlı değil</b></div>
+    </div>
+  </section>
+</main>
+<footer class="foot">Trex Platform • PostgreSQL bağlantılı demo</footer>
+<script>
+const API_BASE='https://trex-platform-core-db.onrender.com';
+const CART_KEY='trex_cart';
+function readCart(){try{const v=JSON.parse(localStorage.getItem(CART_KEY)||'[]');return Array.isArray(v)?v.filter(x=>Number.isInteger(Number(x.product_id))&&Number(x.product_id)>0&&Number.isInteger(Number(x.quantity))&&Number(x.quantity)>0).map(x=>({product_id:Number(x.product_id),quantity:Number(x.quantity)})):[];}catch{return [];}}
+function writeCart(cart){localStorage.setItem(CART_KEY,JSON.stringify(cart));updateCartCount();}
+function updateCartCount(){const n=readCart().reduce((s,x)=>s+x.quantity,0),node=document.getElementById('cartCount');if(node)node.textContent=String(n);}
+function addToCart(productId){const id=Number(productId);if(!Number.isInteger(id)||id<1)return;const cart=readCart(),row=cart.find(x=>x.product_id===id);if(row)row.quantity=Math.min(100,row.quantity+1);else cart.push({product_id:id,quantity:1});writeCart(cart);}
+function money(value){const amount=Number(value||0);if(amount<=0)return'Fiyat tanımlanmadı';return amount.toLocaleString('tr-TR',{style:'currency',currency:'TRY'});}
+function appendText(parent,tag,className,value){const node=document.createElement(tag);node.className=className||'';node.textContent=value;parent.appendChild(node);return node;}
+function renderProduct(product){
+  const card=document.createElement('article');card.className='product-card';
+  const images=Array.isArray(product.image_urls)?product.image_urls.filter(Boolean):[];
+  if(images[0]){const img=document.createElement('img');img.className='product-image';img.src=images[0];img.alt=product.name||'Ürün';img.loading='lazy';card.appendChild(img);}else{appendText(card,'div','image-placeholder','Ürün görseli henüz eklenmedi');}
+  appendText(card,'h3','',product.name||'Ürün');
+  appendText(card,'div','product-meta','SKU: '+(product.sku||'-'));
+  appendText(card,'div','product-meta','Format: '+(product.unit||'-'));
+  if(product.short_description)appendText(card,'p','product-short',product.short_description);
+  appendText(card,'div','price',money(product.price));
+  appendText(card,'span','tag','Aktif');
+  const actions=document.createElement('div');actions.className='card-actions';
+  if(product.slug){const link=document.createElement('a');link.className='btn secondary';link.href='/product.html?slug='+encodeURIComponent(product.slug);link.textContent='Ürünü İncele';actions.appendChild(link);}
+  if(Number(product.price||0)>0){const add=document.createElement('button');add.type='button';add.className='btn';add.textContent='Sepete Ekle';add.addEventListener('click',()=>addToCart(product.id));actions.appendChild(add);}
+  card.appendChild(actions);
+  return card;
+}
+async function loadProducts(){
+  const grid=document.getElementById('productGrid'),status=document.getElementById('apiStatus'),tag=document.getElementById('apiTag');
+  try{
+    const response=await fetch(API_BASE+'/api/v1/products');if(!response.ok)throw new Error('HTTP '+response.status);
+    const result=await response.json();if(!result.success)throw new Error(result.error||'API_ERROR');
+    const products=result.data||[];grid.replaceChildren();
+    if(!products.length){appendText(grid,'div','product-card','Henüz ürün kaydı yok');}else{for(const product of products)grid.appendChild(renderProduct(product));}
+    status.textContent='Ürün verileri Core API üzerinden alındı';status.className='status-ok';tag.textContent='Çalışıyor';tag.className='tag';
+  }catch(error){console.error(error);status.textContent='API bağlantı hatası: '+error.message;status.className='status-error';tag.textContent='Bağlantı Hatası';tag.className='tag bad';grid.replaceChildren();appendText(grid,'div','product-card','Ürün verisi alınamadı');}
+}
+updateCartCount();
+loadProducts();setInterval(loadProducts,30000);
+</script>
+</body>
+</html>

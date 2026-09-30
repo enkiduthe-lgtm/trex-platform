@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ürün Yönetimi • Trex Admin</title><link rel="stylesheet" href="/styles.css"><style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button,textarea{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}.stats strong{display:block;font-size:26px;margin-top:6px}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}.form-grid label{display:grid;gap:6px}
+.warning{color:#9a4c00;background:#fff3db}.expired{color:#a02222;background:#fff0f0}
+</style></head>
+<body><header><strong>TREX ADMIN</strong> · Ürünler</header><main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/inventory.html">Stok yönetimi</a><a href="/dealers.html">Bayiler</a><a href="/">Müşteri mağazası</a></nav>
+<h1>Ürün yönetimi</h1><p class="muted">Ürün bilgilerini, mağaza içeriğini, SEO alanlarını ve görsel galerisini tek ekrandan yönetin.</p>
+<section class="card" aria-label="Ürün listesi"><div class="toolbar">
+<label>Ürün ara<input id="search" type="search" placeholder="Ürün adı veya SKU"></label>
+<label>Durum<select id="filter"><option value="">Tüm ürünler</option><option value="active">Aktif</option><option value="inactive">Pasif</option></select></label>
+<button id="refresh" type="button" disabled>Yenile</button><button id="newProduct" class="primary" type="button" disabled>Yeni ürün</button></div>
+<p id="listStatus" role="status" aria-live="polite">Oturum kontrol ediliyor…</p>
+<div class="table-wrap"><table><thead><tr><th>SKU</th><th>Ürün adı</th><th>Birim / format</th><th>Fiyat</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="products"></tbody></table></div></section>
+<section class="card" id="editor" hidden aria-labelledby="editorTitle"><div class="detail-title"><h2 id="editorTitle" tabindex="-1">Yeni ürün</h2><button id="close" type="button">Kapat</button></div>
+<p class="muted">Pasif ürünler mağazada görünmez ve yeni siparişe eklenemez. Mevcut siparişlerin kayıtlı fiyatları değişmez. SKU oluşturulduktan sonra sabit kalır. Görsel galerisi şimdilik URL tabanlıdır; her satıra bir görsel adresi yazın.</p>
+<form id="productForm"><fieldset id="fields" style="border:0;padding:0;margin:0"><div class="form-grid">
+<label>Ürün kodu (SKU)<input id="sku" required maxlength="60" pattern="[A-Za-z0-9._-]+" placeholder="Ör. TREX-TEA-60" autocomplete="off"></label>
+<label>Ürün adı<input id="name" required maxlength="150" autocomplete="off"></label>
+<label>Birim / format<input id="unit" maxlength="100" placeholder="Ör. 60 saşe"></label>
+<label>Fiyat (TL)<input id="price" type="number" min="0" max="9999999999.99" step="0.01" required inputmode="decimal"></label>
+<label>Durum<select id="active"><option value="true">Aktif — mağazada göster</option><option value="false">Pasif — mağazada gizle</option></select></label>
+<label>Slug<input id="slug" maxlength="180" placeholder="trex-tea-60" autocomplete="off"></label>
+<label style="grid-column:1/-1">Kısa açıklama<textarea id="shortDescription" maxlength="500" rows="3" placeholder="Ürün kartları ve özet alanları için kısa açıklama"></textarea></label>
+<label style="grid-column:1/-1">Ürün açıklaması<textarea id="description" maxlength="12000" rows="8" placeholder="Detaylı ürün açıklaması"></textarea></label>
+<label>SEO başlığı<input id="seoTitle" maxlength="180"></label>
+<label>Meta açıklama<textarea id="metaDescription" maxlength="320" rows="3"></textarea></label>
+<label style="grid-column:1/-1">Canonical URL<input id="canonicalUrl" maxlength="500" placeholder="https://..."></label>
+<label>Open Graph başlığı<input id="ogTitle" maxlength="180"></label>
+<label>Open Graph açıklama<textarea id="ogDescription" maxlength="320" rows="3"></textarea></label>
+<label>Twitter başlığı<input id="twitterTitle" maxlength="180"></label>
+<label>Twitter açıklama<textarea id="twitterDescription" maxlength="320" rows="3"></textarea></label>
+<label style="grid-column:1/-1">Görsel galerisi URL'leri<textarea id="imageUrls" rows="7" placeholder="Her satıra bir https:// görsel adresi"></textarea></label>
+</div><p><button id="save" class="primary" type="submit">Kaydet</button></p></fieldset><p id="saveStatus" role="status" aria-live="polite"></p></form></section>
+<p id="pageStatus" role="status" aria-live="polite"></p>
+</main><script>
+const API='https://trex-platform-core-db.onrender.com',token=localStorage.getItem('trex_token');
+const el=id=>document.getElementById(id),text=(tag,value)=>{const n=document.createElement(tag);n.textContent=String(value??'—');return n;};
+const money=value=>Number(value||0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+let products=[],verified=false,loading=false,saving=false,loaded=false,selected=null;
+function message(id,value,error=false){el(id).textContent=value;el(id).className=error?'notice error':'';}
+async function api(path,options={}){
+ const response=await fetch(API+path,{...options,headers:{Authorization:'Bearer '+token,...options.headers}});
+ if(response.status===401){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');throw new Error('Oturum sona erdi.');}
+ const result=await response.json();
+ if(!response.ok||result.success===false){const errors={INVALID_PRODUCT_INPUT:'Ürün adı gerekli (en fazla 150 karakter). Format en fazla 100 karakter olabilir.',INVALID_PRODUCT_SKU:'SKU için en fazla 60 karakter; harf, rakam, nokta, tire veya alt çizgi kullanın.',INVALID_PRODUCT_PRICE:'Fiyat sıfır veya pozitif olmalı ve en fazla iki ondalık basamak içermeli.',INVALID_PRODUCT_ACTIVE:'Geçerli bir durum seçin.',PRODUCT_SKU_EXISTS:'Bu SKU zaten kayıtlı. Farklı bir ürün kodu kullanın.',PRODUCT_NOT_FOUND:'Ürün bulunamadı. Listeyi yenileyin.',INVALID_PRODUCT_CONTENT:'Ürün içerik alanlarından biri izin verilen uzunluğu aşıyor.',INVALID_PRODUCT_SLUG:'Slug yalnız küçük harf, rakam ve tek tire grupları içerebilir.',INVALID_PRODUCT_URL:'Canonical URL http:// veya https:// ile başlamalı.',INVALID_PRODUCT_IMAGES:'En fazla 20 görsel URL adresi eklenebilir ve tümü http:// veya https:// ile başlamalı.',PRODUCT_SLUG_EXISTS:'Bu slug başka bir üründe kullanılıyor.',FORBIDDEN:'Bu işlem için yönetici yetkisi gerekiyor.'};throw new Error(errors[result.error]||'İşlem tamamlanamadı. Yeniden denemeden önce listeyi yenileyin.');}return result.data;
+}
+function filteredProducts(){const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),filter=el('filter').value;return products.filter(p=>(!filter||(filter==='active'?p.active:!p.active))&&(!term||[p.name,p.sku].some(v=>String(v||'').toLocaleLowerCase('tr-TR').includes(term))));}
+function render(){
+ const rows=filteredProducts(),body=el('products');body.replaceChildren();message('listStatus',rows.length+' ürün gösteriliyor · Toplam '+products.length);
+ if(!rows.length){const row=document.createElement('tr'),cell=text('td',products.length?'Filtreye uygun ürün yok.':'Henüz ürün yok.');cell.colSpan=6;row.appendChild(cell);body.appendChild(row);}
+ for(const p of rows){const row=document.createElement('tr');for(const value of [p.sku,p.name,p.unit||'—',money(p.price),p.active?'Aktif':'Pasif'])row.appendChild(text('td',value));const cell=document.createElement('td'),button=text('button','Düzenle'),remove=text('button',p.active?'Sil / Arşivle':'Arşivli');button.type='button';button.disabled=saving;button.setAttribute('aria-label',p.name+' ürününü düzenle');button.addEventListener('click',()=>edit(p));remove.type='button';remove.disabled=saving||!p.active;remove.style.marginLeft='8px';remove.setAttribute('aria-label',p.name+' ürününü güvenli şekilde kaldır');remove.addEventListener('click',()=>removeProduct(p));cell.appendChild(button);cell.appendChild(remove);row.appendChild(cell);body.appendChild(row);}
+}
+function edit(product=null){
+ if(saving||!verified)return;selected=product;el('editor').hidden=false;el('editorTitle').textContent=product?'Ürünü düzenle':'Yeni ürün';
+ el('sku').value=product?.sku||'';el('sku').readOnly=!!product;el('name').value=product?.name||'';el('unit').value=product?.unit||'';el('price').value=product?.price??'';el('active').value=String(product?.active??true);el('slug').value=product?.slug||'';el('shortDescription').value=product?.short_description||'';el('description').value=product?.description||'';el('seoTitle').value=product?.seo_title||'';el('metaDescription').value=product?.meta_description||'';el('canonicalUrl').value=product?.canonical_url||'';el('ogTitle').value=product?.og_title||'';el('ogDescription').value=product?.og_description||'';el('twitterTitle').value=product?.twitter_title||'';el('twitterDescription').value=product?.twitter_description||'';el('imageUrls').value=Array.isArray(product?.image_urls)?product.image_urls.join('\n'):'';
+ el('fields').disabled=false;message('saveStatus','');message('pageStatus','');el('editorTitle').focus();
+}
+async function load(){
+ if(loading||!verified)return false;loading=true;el('refresh').disabled=true;message('listStatus','Ürünler yükleniyor…');
+ try{const data=await api('/api/v1/admin/products');if(!Array.isArray(data))throw new Error('Ürün bilgileri okunamadı.');products=data;loaded=true;render();return true;}
+ catch(error){loaded=false;el('products').replaceChildren();message('listStatus',error.message,true);return false;}
+ finally{loading=false;el('refresh').disabled=saving;el('newProduct').disabled=saving||!loaded;}
+}
+async function removeProduct(product){
+ if(saving||loading||!verified||!product?.id||!product.active)return;
+ const confirmed=confirm(
+   product.name+
+   ' ürününü kaldırmak istiyor musunuz?\n\n'+
+   'Sipariş, stok veya prim geçmişi varsa ürün tamamen silinmez; pasif/arşiv durumuna alınır.'
+ );
+ if(!confirmed)return;
+
+ saving=true;
+ el('refresh').disabled=true;
+ el('newProduct').disabled=true;
+ render();
+ message('pageStatus','Ürün kaldırılıyor…');
+
+ try{
+   const result=await api(
+     '/api/v1/products/'+encodeURIComponent(product.id)+'/delete',
+     {method:'POST'}
+   );
+
+   if(selected&&String(selected.id)===String(product.id)){
+     el('editor').hidden=true;
+     selected=null;
+   }
+
+   const updated=await load();
+
+   const note=
+     result?.mode==='deleted'
+       ? 'Ürün tamamen silindi.'
+       : 'Ürün geçmiş kayıtları korumak için pasif/arşiv durumuna alındı.';
+
+   message(
+     'pageStatus',
+     updated
+       ? note
+       : note+' Liste yenilenemedi; Yenile düğmesini kullanın.',
+     !updated
+   );
+
+ }catch(error){
+   message('pageStatus',error.message,true);
+
+ }finally{
+   saving=false;
+   el('refresh').disabled=false;
+   el('newProduct').disabled=!loaded;
+   if(loaded)render();
+ }
+}
+
+async function save(event){
+ event.preventDefault();if(saving||loading||!verified||!el('productForm').reportValidity())return;
+ const data={sku:el('sku').value.trim(),name:el('name').value.trim(),unit:el('unit').value.trim(),price:el('price').value,active:el('active').value==='true',slug:el('slug').value.trim(),short_description:el('shortDescription').value.trim(),description:el('description').value.trim(),seo_title:el('seoTitle').value.trim(),meta_description:el('metaDescription').value.trim(),canonical_url:el('canonicalUrl').value.trim(),og_title:el('ogTitle').value.trim(),og_description:el('ogDescription').value.trim(),twitter_title:el('twitterTitle').value.trim(),twitter_description:el('twitterDescription').value.trim(),image_urls:el('imageUrls').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)};
+ if(!data.name){message('saveStatus','Ürün adı boş olamaz.',true);return;}
+ if(!confirm(data.name+' · '+money(data.price)+' · '+(data.active?'Aktif':'Pasif')+'\n\n'+(selected?'Ürün değişiklikleri kaydedilsin mi?':'Yeni ürün oluşturulsun mu?')))return;
+ saving=true;el('fields').disabled=true;el('close').disabled=true;el('refresh').disabled=true;el('newProduct').disabled=true;render();message('saveStatus','Kaydediliyor…');
+ try{
+ const saved=await api('/api/v1/products'+(selected?'/'+encodeURIComponent(selected.id):''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ selected=saved;el('sku').readOnly=true;el('editorTitle').textContent='Ürünü düzenle';
+ const updated=await load();message('saveStatus',updated?'Ürün kaydedildi. Mağaza görünümü en geç 30 saniyede veya sayfa yenilendiğinde güncellenir.':'Ürün kaydedildi; liste yenilenemedi. Yenile düğmesini kullanın.',!updated);
+ }catch(error){message('saveStatus',error.message,true);}
+ finally{saving=false;el('fields').disabled=false;el('close').disabled=false;el('refresh').disabled=false;el('newProduct').disabled=!loaded;if(loaded)render();}
+}
+el('productForm').addEventListener('submit',save);el('refresh').addEventListener('click',load);el('newProduct').addEventListener('click',()=>edit());
+el('close').addEventListener('click',()=>{if(!saving){el('editor').hidden=true;selected=null;}});
+for(const [id,event] of [['search','input'],['filter','change']])el(id).addEventListener(event,()=>{if(loaded&&!loading)render();});
+async function start(){if(!token){location.replace('/login.html');return;}try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Ürün yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;await load();}catch(error){message('listStatus',error.message,true);}}
+start();
+</script></body></html>

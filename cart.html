@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sepet • Trex Platform</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .cart-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.7fr);gap:20px;align-items:start}
+    .cart-item{display:grid;grid-template-columns:84px 1fr auto;gap:14px;align-items:center;padding:16px 0;border-bottom:1px solid #e2e8e3}
+    .cart-item img,.placeholder{width:84px;height:84px;object-fit:contain;border-radius:10px;background:#f4f3ee}.placeholder{display:grid;place-items:center;font-size:12px;text-align:center;color:#68776e}
+    .cart-item h3{margin:0 0 5px}.muted-small{font-size:13px;opacity:.7}.qty{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.qty input{width:74px;padding:9px;border:1px solid #bdc9bf;border-radius:8px;font:inherit}
+    button{font:inherit;cursor:pointer;border:1px solid #bdc9bf;border-radius:9px;padding:9px 12px;background:#fff;color:#20372c}.remove{color:#9b2626}
+    .summary-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0}.total{font-size:22px;font-weight:800;border-top:1px solid #dce5de;margin-top:8px;padding-top:15px}
+    .notice-error{background:#fff0f0;color:#9d2424;padding:12px;border-radius:9px}.checkout{display:block;text-align:center;margin-top:16px}.empty{text-align:center;padding:28px 10px}
+    @media(max-width:760px){.cart-layout{grid-template-columns:1fr}.cart-item{grid-template-columns:70px 1fr}.cart-item img,.placeholder{width:70px;height:70px}.cart-item>div:last-child{grid-column:2}}
+  </style>
+</head>
+<body>
+<header class="top"><div class="bar"><div class="brand">TREX PLATFORM / Sepet</div><div class="pill">Demo</div></div></header>
+<main class="wrap">
+  <nav class="nav"><a href="/">← Mağazaya dön</a></nav>
+  <h1>Sepetin</h1>
+  <p class="muted">Fiyatlar katalogdan yeniden okunur. Sepette saklanan veri yalnız ürün ID ve adettir.</p>
+  <p id="status" role="status" aria-live="polite">Sepet yükleniyor...</p>
+  <div class="cart-layout">
+    <section class="card"><div id="items"></div></section>
+    <aside class="card">
+      <h2>Sepet Özeti</h2>
+      <div class="summary-row"><span>Ara toplam</span><strong id="subtotal">—</strong></div>
+      <div class="summary-row"><span>İndirim</span><strong>0,00 TL</strong></div>
+      <div class="summary-row"><span>Kargo</span><strong>Checkout'ta</strong></div>
+      <div class="summary-row total"><span>Toplam</span><strong id="total">—</strong></div>
+      <a id="checkout" class="btn checkout" href="/checkout.html">Ödemeye Geç</a>
+      <p class="muted-small">Checkout ekranı hazırdır. Bu sürüm gerçek ödeme yapmaz.</p>
+    </aside>
+  </div>
+</main>
+<footer class="foot">Trex Platform • Sepet</footer>
+<script>
+const API='https://trex-platform-core-db.onrender.com',CART_KEY='trex_cart';
+const el=id=>document.getElementById(id);
+const money=v=>Number(v||0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+let products=[];
+function readCart(){try{const v=JSON.parse(localStorage.getItem(CART_KEY)||'[]');return Array.isArray(v)?v.filter(x=>Number.isInteger(Number(x.product_id))&&Number(x.product_id)>0&&Number.isInteger(Number(x.quantity))&&Number(x.quantity)>0).map(x=>({product_id:Number(x.product_id),quantity:Math.min(100,Number(x.quantity))})):[];}catch{return [];}}
+function writeCart(cart){localStorage.setItem(CART_KEY,JSON.stringify(cart));render();}
+function row(product,item){
+ const wrap=document.createElement('article');wrap.className='cart-item';
+ const images=Array.isArray(product.image_urls)?product.image_urls.filter(Boolean):[];
+ if(images[0]){const img=document.createElement('img');img.src=images[0];img.alt=product.name;img.loading='lazy';wrap.appendChild(img);}else{const p=document.createElement('div');p.className='placeholder';p.textContent='Görsel yok';wrap.appendChild(p);}
+ const info=document.createElement('div'),h=document.createElement('h3');h.textContent=product.name;info.appendChild(h);
+ const meta=document.createElement('div');meta.className='muted-small';meta.textContent=(product.unit||'')+' • '+money(product.price);info.appendChild(meta);wrap.appendChild(info);
+ const controls=document.createElement('div');controls.className='qty';const input=document.createElement('input');input.type='number';input.min='1';input.max='100';input.step='1';input.value=String(item.quantity);input.setAttribute('aria-label',product.name+' adet');
+ input.addEventListener('change',()=>{const q=Number(input.value);if(!Number.isInteger(q)||q<1||q>100){input.value=String(item.quantity);return;}const c=readCart(),r=c.find(x=>x.product_id===item.product_id);if(r)r.quantity=q;writeCart(c);});
+ const remove=document.createElement('button');remove.type='button';remove.className='remove';remove.textContent='Kaldır';remove.addEventListener('click',()=>writeCart(readCart().filter(x=>x.product_id!==item.product_id)));
+ controls.append(input,remove);wrap.appendChild(controls);return wrap;
+}
+function render(){
+ const cart=readCart(),target=el('items');target.replaceChildren();let subtotal=0,valid=0;
+ for(const item of cart){const product=products.find(p=>Number(p.id)===item.product_id&&p.active!==false);if(!product||Number(product.price||0)<=0)continue;subtotal+=Number(product.price)*item.quantity;valid++;target.appendChild(row(product,item));}
+ if(!valid){const empty=document.createElement('div');empty.className='empty';empty.textContent=cart.length?'Sepetteki ürünler şu anda satışa uygun değil.':'Sepetin boş.';target.appendChild(empty);}
+ el('subtotal').textContent=money(subtotal);el('total').textContent=money(subtotal);el('status').textContent=valid?valid+' farklı ürün sepette.':'';
+}
+async function load(){try{const r=await fetch(API+'/api/v1/products');const j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||'API_ERROR');products=j.data||[];render();}catch(e){console.error(e);el('status').textContent='Ürün fiyatları alınamadı. Sepeti güncellemek için tekrar deneyin.';el('status').className='notice-error';}}
+load();
+window.addEventListener('storage',e=>{if(e.key===CART_KEY)render();});
+</script>
+</body>
+</html>

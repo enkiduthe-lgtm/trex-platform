@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Su Takibi • Trex Club</title>
+<link rel="manifest" href="/club.webmanifest">
+<meta name="theme-color" content="#104c35">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trex Club">
+<link rel="apple-touch-icon" href="/club-icon-180.png">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f3ec;color:#193e32;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:22px max(20px,calc((100vw - 1000px)/2))}header span{opacity:.75;margin-left:12px}
+main{max-width:1000px;margin:auto;padding:24px}nav a{color:#145a3a}h1{font-size:36px;margin-bottom:6px}h2{font-size:21px;margin-top:0}.muted{color:#64756c;font-size:14px;line-height:1.6}
+.layout{display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-top:24px}.card{background:white;border:1px solid #dce5dc;border-radius:20px;padding:24px;margin-bottom:18px}
+.today{text-align:center}.amount{font-size:52px;font-weight:750;letter-spacing:-2px;margin:20px 0 4px}.amount small{font-size:20px;letter-spacing:0;font-weight:400}
+progress{width:100%;height:18px;accent-color:#16794c;margin:15px 0}.buttons{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.buttons button{flex:1}
+input,button{font:inherit;border:1px solid #b5c8bb;border-radius:10px;padding:12px;color:#193e32;background:white}input{width:100%}button{cursor:pointer;min-height:44px}.primary{background:#145c3d;color:white;border-color:#145c3d}button:disabled{opacity:.5;cursor:default}
+label{display:grid;gap:7px;font-size:14px}.form-row{display:flex;align-items:end;gap:10px}.form-row label{flex:1}.form-row button{white-space:nowrap}
+:focus-visible{outline:3px solid #d6a32b;outline-offset:3px}.notice{padding:12px;background:#edf5ef;border-radius:10px;font-size:14px}.error{background:#fff0f0;color:#9d2424}
+ul{list-style:none;padding:0;margin-bottom:0}li{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #e4ebe5;padding:12px 0;font-size:14px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}td,th{padding:12px 8px;border-bottom:1px solid #e5eae5;white-space:nowrap}th{font-size:13px;color:#627368}
+[hidden]{display:none!important}@media(max-width:650px){main{padding:16px}.layout{grid-template-columns:1fr;gap:0}.card{padding:20px}h1{font-size:30px}.amount{font-size:46px}.form-row{flex-wrap:wrap}.form-row label{min-width:150px}}
+</style></head><body>
+<header><strong>TREX CLUB</strong><span>Günlük su takibi</span></header><main>
+<nav><a href="/">← Mağazaya dön</a></nav><h1>Bugün ne kadar su içtin?</h1>
+<p class="muted">İçtiğin miktarı kaydet, kendin belirlediğin hedefi ve son yedi gününü takip et.</p>
+<p class="notice">Kayıtlar yalnızca bu cihazın bu tarayıcısında saklanır; hesabına veya başka cihazlara aktarılmaz. Tarayıcı verilerini silersen kayıtlar kaybolur. Ortak cihaz kullananlar aynı kayıtları görür.</p>
+<section class="card" aria-labelledby="installTitle"><h2 id="installTitle">Telefonunda kullan</h2>
+<p class="muted"><strong>Android:</strong> Tarayıcı menüsünden “Uygulamayı yükle” veya “Ana ekrana ekle” seçeneğini kullan.<br><strong>iPhone:</strong> Safari’de Paylaş → Ana Ekrana Ekle yolunu izle; görünüyorsa “Web Uygulaması Olarak Aç” seçeneğini etkinleştir.</p>
+<button id="installApp" type="button" class="primary" hidden>Telefona ekle</button>
+<p id="offlineStatus" class="muted" role="status" aria-live="polite">Çevrimdışı kullanım hazırlanıyor…</p>
+<p class="muted">İlk açılış için internet gerekir. Hazır olduğunda su takibi internetsiz açılır; mağaza ve yönetim sayfaları internet gerektirir. Kurulum sonrası tarayıcıdaki eski kayıtların aktarılacağını varsayma; kayıtlarını aynı uygulama içinde tut.</p></section>
+<p id="notice" role="status" aria-live="polite"></p>
+<div class="layout"><div>
+<section class="card today" aria-labelledby="todayTitle"><h2 id="todayTitle">Bugün</h2><p id="todayDate" class="muted"></p><div class="amount"><span id="total">0</span> <small>ml</small></div>
+<p id="goalText" class="muted">Henüz hedef belirlemedin.</p><progress id="progress" value="0" max="100" aria-label="Günlük hedef ilerlemesi" hidden></progress><p id="progressText" class="muted"></p>
+<div class="buttons"><button type="button" data-add="200">+200 ml</button><button type="button" data-add="250">+250 ml</button><button type="button" data-add="500">+500 ml</button></div>
+<form id="addForm" class="form-row"><label>Farklı miktar (ml)<input id="amount" type="number" min="1" max="10000" step="1" inputmode="numeric" required placeholder="Ör. 300"></label><button class="primary" type="submit">Ekle</button></form>
+<p><button id="undo" type="button" disabled>Son kaydı geri al</button></p>
+</section><section class="card"><h2>Bugünkü kayıtlar</h2><ul id="entries"></ul></section></div>
+<div><section class="card"><h2>Günlük hedefin</h2><p class="muted">Hedefini kendin seç. Buradaki miktarlar kişisel sağlık önerisi değildir.</p>
+<form id="goalForm" class="form-row"><label>Hedef (ml)<input id="goal" type="number" min="1" max="10000" step="1" required inputmode="numeric" placeholder="Hedefini yaz"></label><button class="primary" type="submit">Kaydet</button></form>
+<p class="muted">Yeni hedef bugünden itibaren geçerlidir. Önceki günlerin hedefleri korunur.</p></section>
+<section class="card"><h2>Son 7 gün</h2><div class="table-wrap"><table><thead><tr><th>Gün</th><th>İçilen</th><th>Hedef</th></tr></thead><tbody id="history"></tbody></table></div></section>
+<section class="card"><h2>Adım takibi</h2><p class="muted">Henüz aktif değil. Otomatik adım verisi için telefon bağlantısı eklendiğinde burada kullanılabilecek.</p></section></div></div>
+</main><script>
+const KEY='trex_club_water_v1',el=id=>document.getElementById(id);
+const todayKey=(date=new Date())=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
+const number=v=>Number(v).toLocaleString('tr-TR');
+let state={version:1,goal:null,days:{}},available=true,lastDay=todayKey();
+function isAmount(v){return Number.isInteger(v)&&v>0&&v<=10000;}
+function validState(v){
+ if(!v||v.version!==1||!(v.goal===null||isAmount(v.goal))||!v.days||typeof v.days!=='object'||Array.isArray(v.days))return false;
+ return Object.entries(v.days).every(([key,day])=>/^\d{4}-\d{2}-\d{2}$/.test(key)&&day&&Array.isArray(day.entries)&&(day.goal===null||isAmount(day.goal))&&day.entries.every(e=>e&&isAmount(e.amount)&&typeof e.at==='string'&&Number.isFinite(Date.parse(e.at))));
+}
+function message(value,error=false){el('notice').textContent=value;el('notice').className=value?(error?'notice error':'notice'):'';}
+function read(){
+ try{const raw=localStorage.getItem(KEY);const parsed=raw?JSON.parse(raw):{version:1,goal:null,days:{}};if(!validState(parsed))throw Error('invalid');state=parsed;available=true;}
+ catch(error){available=false;message('Kayıtlar okunamadı. Veri kaybını önlemek için kayıt işlemleri durduruldu. Tarayıcı depolama iznini kontrol et.',true);}
+}
+function currentDay(){return state.days[todayKey()]||{goal:state.goal,entries:[]};}
+function total(day){return day.entries.reduce((sum,e)=>sum+e.amount,0);}
+function change(mutator,success){
+ if(!available)return;
+ read();if(!available){render();return;}
+ const next=JSON.parse(JSON.stringify(state)),key=todayKey();
+ if(!next.days[key])next.days[key]={goal:next.goal,entries:[]};
+ mutator(next,next.days[key]);
+ try{localStorage.setItem(KEY,JSON.stringify(next));state=next;message(success);render();}
+ catch(error){message('Kayıt saklanamadı. Tarayıcı depolama iznini veya boş alanını kontrol et; değişiklik uygulanmadı.',true);}
+}
+function add(amount){
+ if(!isAmount(amount)){message('1–10000 ml arasında tam sayı gir.',true);return;}
+ change((next,day)=>day.entries.push({amount,at:new Date().toISOString()}),number(amount)+' ml eklendi.');
+}
+function render(){
+ const day=currentDay(),sum=total(day);el('total').textContent=number(sum);el('todayDate').textContent=new Date().toLocaleDateString('tr-TR',{weekday:'long',day:'numeric',month:'long'});
+ el('goalText').textContent=day.goal?'Günlük hedef: '+number(day.goal)+' ml':'Henüz hedef belirlemedin.';
+ el('progress').hidden=!day.goal;el('progress').value=day.goal?Math.min(100,sum/day.goal*100):0;
+ el('progressText').textContent=day.goal?(sum>=day.goal?'Belirlediğin hedefe ulaştın.':number(day.goal-sum)+' ml kaldı'):'Hedef belirlemeden de kayıt ekleyebilirsin.';
+ el('undo').disabled=!available||!day.entries.length;el('entries').replaceChildren();
+ const item=(parent,a,b)=>{const li=document.createElement('li'),left=document.createElement('span'),right=document.createElement('span');left.textContent=a;right.textContent=b;li.append(left,right);parent.appendChild(li);};
+ if(!day.entries.length)item(el('entries'),'Bugün henüz kayıt yok.','');
+ for(const entry of [...day.entries].reverse())item(el('entries'),new Date(entry.at).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}),number(entry.amount)+' ml');
+ el('history').replaceChildren();
+ for(let i=0;i<7;i++){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-i);const key=todayKey(d),record=key===todayKey()?day:state.days[key],row=document.createElement('tr');
+ for(const value of [d.toLocaleDateString('tr-TR',{day:'numeric',month:'short'}),record?number(total(record))+' ml':'—',record?.goal?number(record.goal)+' ml':'—']){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);}el('history').appendChild(row);}
+ for(const button of document.querySelectorAll('button'))if(button.id!=='undo'&&button.id!=='installApp')button.disabled=!available;
+}
+el('addForm').addEventListener('submit',event=>{event.preventDefault();if(el('addForm').reportValidity()){add(Number(el('amount').value));}});
+for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>add(Number(button.dataset.add)));
+el('undo').addEventListener('click',()=>{if(!currentDay().entries.length)return;change((next,day)=>day.entries.pop(),'Son kayıt geri alındı.');});
+el('goalForm').addEventListener('submit',event=>{event.preventDefault();const goal=Number(el('goal').value);if(!el('goalForm').reportValidity()||!isAmount(goal))return;change((next,day)=>{next.goal=goal;day.goal=goal;},'Günlük hedef kaydedildi.');});
+function refresh(){read();render();lastDay=todayKey();}
+window.addEventListener('storage',event=>{if(event.key===KEY||event.key===null)refresh();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+setInterval(()=>{if(lastDay!==todayKey())refresh();},30000);
+read();el('goal').value=state.goal||'';render();
+</script>
+<script>
+let installPrompt=null;
+const installButton=document.getElementById('installApp'),offlineStatus=document.getElementById('offlineStatus');
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;installButton.hidden=false;});
+installButton.addEventListener('click',async()=>{
+ if(!installPrompt)return;
+ installButton.disabled=true;
+ try{await installPrompt.prompt();await installPrompt.userChoice;}
+ catch(error){offlineStatus.textContent='Kurulum açılamadı. Tarayıcının ana ekrana ekle menüsünü kullanabilirsin.';}
+ finally{installPrompt=null;installButton.hidden=true;installButton.disabled=false;}
+});
+window.addEventListener('appinstalled',()=>{installPrompt=null;installButton.hidden=true;});
+if('serviceWorker' in navigator){
+ navigator.serviceWorker.register('/club-sw.js').then(()=>navigator.serviceWorker.ready).then(()=>{
+   offlineStatus.textContent='Su takibi çevrimdışı kullanıma hazır.';
+ }).catch(()=>{offlineStatus.textContent='Çevrimdışı kullanım hazırlanamadı. İnternet bağlantısıyla yeniden açmayı dene.';});
+}else{offlineStatus.textContent='Bu tarayıcı çevrimdışı açılışı desteklemiyor. İnternet bağlantısıyla kullanabilirsin.';}
+</script></body></html>
+

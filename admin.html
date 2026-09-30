@@ -1,0 +1,1366 @@
+<!doctype html>
+<html lang="tr">
+
+<head>
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
+
+  <title>
+    Trex Admin
+  </title>
+
+  <link
+    rel="stylesheet"
+    href="/styles.css"
+  >
+
+  <style>
+    .status-ok {
+      color: #157347;
+      font-weight: 700;
+    }
+
+    .status-error {
+      color: #b42318;
+      font-weight: 700;
+    }
+
+    .muted {
+      opacity: .7;
+      font-size: 14px;
+    }
+
+    .loading {
+      opacity: .65;
+    }
+
+    .admin-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logout-btn {
+      border: 0;
+      border-radius: 9px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .returns-toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin:14px 0}
+    .returns-toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+    .returns-toolbar input,.returns-toolbar select{font:inherit;padding:10px;border:1px solid #bdc9bf;border-radius:8px;min-height:44px}
+    #returnsAdmin{scroll-margin-top:20px;overflow-x:auto}
+    #returnsBody td{overflow-wrap:anywhere}
+    #returnsBody button{margin:4px;min-height:44px}
+    #returnsBody button:disabled,#refreshReturns:disabled{opacity:.5;cursor:default}
+  </style>
+</head>
+
+<body>
+
+<header class="top">
+
+  <div class="bar">
+
+    <div class="brand">
+      TREX ADMIN
+    </div>
+
+    <div class="admin-user">
+
+      <div
+        id="adminName"
+        class="pill"
+      >
+        Yönetici
+      </div>
+
+      <button
+        id="logoutBtn"
+        class="logout-btn"
+        type="button"
+      >
+        Çıkış
+      </button>
+
+    </div>
+
+  </div>
+
+</header>
+
+
+<main class="wrap">
+
+  <nav class="nav">
+
+    <a href="/">
+      Müşteri
+    </a>
+
+    <a href="/admin.html">
+      Kontrol Paneli
+    </a>
+
+    <a href="/products.html">Ürünler</a>
+
+    <a href="/orders.html">
+      Siparişler
+    </a>
+
+    <a href="/customers.html">
+      Müşteriler
+    </a>
+
+    <a href="/dealers.html">
+      Bayiler
+    </a>
+
+    <a href="/inventory.html">
+      Stok
+    </a>
+
+    <a href="/finance.html">
+      Finans
+    </a>
+
+    <a href="#returnsAdmin">
+      İadeler
+    </a>
+
+    <a href="/finance.html?view=commissions">
+      Primler
+    </a>
+
+  </nav>
+
+
+  <div style="margin:14px 0">
+
+    <span
+      id="apiStatus"
+      class="muted"
+    >
+      API bağlantısı kontrol ediliyor...
+    </span>
+
+  </div>
+
+
+  <div
+    class="grid"
+    id="metrics"
+  >
+
+    <div class="card metric">
+
+      <strong id="orderCount">
+        -
+      </strong>
+
+      <span>
+        Toplam sipariş
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="revenue">
+        -
+      </strong>
+
+      <span>
+        Toplam sipariş tutarı
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="customerCount">
+        -
+      </strong>
+
+      <span>
+        Müşteri
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="dealerCount">
+        -
+      </strong>
+
+      <span>
+        Aktif bayi
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="stockCount">
+        -
+      </strong>
+
+      <span>
+        Toplam stok adedi
+      </span>
+
+    </div>
+
+
+    <div class="card metric">
+
+      <strong id="returnCount">
+        -
+      </strong>
+
+      <span>
+        Bekleyen iade
+      </span>
+
+    </div>
+
+  </div>
+
+
+  <section
+    class="hero"
+    style="margin-top:18px"
+  >
+
+    <div class="card">
+
+      <h2>
+        Son Siparişler
+      </h2>
+
+      <table class="table">
+
+        <thead>
+
+          <tr>
+
+            <th>
+              No
+            </th>
+
+            <th>
+              Tutar
+            </th>
+
+            <th>
+              Durum
+            </th>
+
+            <th>
+              Tarih
+            </th>
+
+          </tr>
+
+        </thead>
+
+
+        <tbody id="ordersBody">
+
+          <tr>
+
+            <td colspan="4">
+              Veriler yükleniyor...
+            </td>
+
+          </tr>
+
+        </tbody>
+
+      </table>
+
+    </div>
+
+
+    <div class="card">
+
+      <h2>
+        Sistem Durumu
+      </h2>
+
+      <div class="list">
+
+        <div class="row">
+
+          <span>
+            Core API
+          </span>
+
+          <b id="coreStatus">
+            Kontrol ediliyor
+          </b>
+
+        </div>
+
+
+        <div class="row">
+
+          <span>
+            Veritabanı
+          </span>
+
+          <b id="dbStatus">
+            PostgreSQL
+          </b>
+
+        </div>
+
+
+        <div class="row">
+
+          <span>
+            Ödeme
+          </span>
+
+          <b>
+            Mock
+          </b>
+
+        </div>
+
+
+        <div class="row">
+
+          <span>
+            Kargo
+          </span>
+
+          <b>
+            Mock
+          </b>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      Şifre Değiştir
+    </h2>
+
+    <form id="passwordForm">
+
+      <div style="margin-bottom:12px">
+        <label for="currentPassword">
+          Mevcut Şifre
+        </label>
+
+        <input
+          id="currentPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+          style="width:100%;padding:12px;margin-top:6px"
+        >
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label for="newPassword">
+          Yeni Şifre
+        </label>
+
+        <input
+          id="newPassword"
+          type="password"
+          autocomplete="new-password"
+          minlength="10"
+          required
+          style="width:100%;padding:12px;margin-top:6px"
+        >
+      </div>
+
+      <button
+        id="passwordBtn"
+        type="submit"
+        class="logout-btn"
+      >
+        Şifreyi Güncelle
+      </button>
+
+      <div
+        id="passwordStatus"
+        class="muted"
+        style="margin-top:10px"
+      ></div>
+
+    </form>
+
+  </section>
+
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      Bayi Kullanıcısı Oluştur
+    </h2>
+
+    <form id="dealerUserForm">
+      <div style="margin-bottom:12px">
+        <label for="dealerUserDealer">Bayi</label>
+        <select id="dealerUserDealer" required style="width:100%;padding:12px;margin-top:6px">
+          <option value="">Bayiler yükleniyor...</option>
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserName">Ad Soyad</label>
+        <input id="dealerUserName" type="text" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserEmail">E-posta</label>
+        <input id="dealerUserEmail" type="email" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="dealerUserPassword">Geçici Şifre</label>
+        <input id="dealerUserPassword" type="password" minlength="10" required style="width:100%;padding:12px;margin-top:6px">
+      </div>
+      <button id="dealerUserBtn" type="submit" class="logout-btn">Bayi Girişi Oluştur</button>
+      <div id="dealerUserStatus" class="muted" style="margin-top:10px"></div>
+    </form>
+
+  </section>
+
+
+  <section
+    class="card"
+    id="returnsAdmin"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      İade Yönetimi
+    </h2>
+
+    <div class="returns-toolbar">
+      <label>İade ara<input id="returnSearch" type="search" placeholder="İade no, sipariş ID veya neden"></label>
+      <label>Durum<select id="returnFilter"><option value="">Tüm iadeler</option><option value="REQUESTED">Bekleyen</option><option value="APPROVED">Onaylanan</option><option value="REJECTED">Reddedilen</option></select></label>
+      <button id="refreshReturns" type="button" class="logout-btn">Yenile</button>
+    </div>
+    <p class="muted">Onay işlemi mevcut stok ve prim iade kurallarını uygular. Para iadesi gerçekleştirmez.</p>
+    <p id="returnActionStatus" role="status" aria-live="polite"></p>
+    <div
+      role="status" aria-live="polite"
+      id="returnsStatus"
+      class="muted"
+      style="margin-bottom:12px"
+    >
+      İadeler yükleniyor...
+    </div>
+
+    <table class="table">
+
+      <thead>
+        <tr>
+          <th>İade No</th>
+          <th>Sipariş</th>
+          <th>Durum</th>
+          <th>Neden</th>
+          <th>İşlem</th>
+        </tr>
+      </thead>
+
+      <tbody id="returnsBody">
+        <tr>
+          <td colspan="5">
+            Veriler yükleniyor...
+          </td>
+        </tr>
+      </tbody>
+
+    </table>
+
+  </section>
+
+
+  <section
+    class="card"
+    style="margin-top:18px"
+  >
+
+    <h2>
+      Operasyon Notu
+    </h2>
+
+    <div class="notice">
+      Bu panel şu anda Trex Platform Core API üzerindeki gerçek demo verilerini
+      göstermektedir. Ödeme ve kargo entegrasyonları henüz mock durumundadır.
+    </div>
+
+  </section>
+
+</main>
+
+
+<footer class="foot">
+  Trex Admin • PostgreSQL bağlantılı demo
+</footer>
+
+
+<script>
+
+const API_BASE =
+  'https://trex-platform-core-db.onrender.com';
+
+const TOKEN =
+  localStorage.getItem(
+    'trex_token'
+  );
+
+const USER_RAW =
+  localStorage.getItem(
+    'trex_user'
+  );
+
+if (!TOKEN) {
+  window.location.replace(
+    '/login.html'
+  );
+
+  throw new Error(
+    'AUTH_TOKEN_MISSING'
+  );
+}
+
+let CURRENT_USER =
+  null;
+
+try {
+  CURRENT_USER =
+    USER_RAW
+      ?
+      JSON.parse(
+        USER_RAW
+      )
+      :
+      null;
+} catch {
+  CURRENT_USER =
+    null;
+}
+
+if (
+  CURRENT_USER
+  &&
+  CURRENT_USER.full_name
+) {
+  document.getElementById(
+    'adminName'
+  ).textContent =
+    CURRENT_USER.full_name;
+}
+
+function clearSession() {
+  localStorage.removeItem(
+    'trex_token'
+  );
+
+  localStorage.removeItem(
+    'trex_user'
+  );
+}
+
+function redirectLogin() {
+  clearSession();
+
+  window.location.replace(
+    '/login.html'
+  );
+}
+
+async function verifySession() {
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/auth/me',
+        {
+          headers: {
+            Authorization:
+              'Bearer ' +
+              TOKEN
+          }
+        }
+      );
+
+    if (
+      response.status === 401
+      ||
+      response.status === 403
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        'HTTP ' +
+        response.status
+      );
+    }
+
+    const result =
+      await response.json();
+
+    if (
+      !result.success
+      ||
+      !result.data
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    if (
+      result.data.role
+      !==
+      'ADMIN'
+    ) {
+      redirectLogin();
+      return false;
+    }
+
+    CURRENT_USER =
+      result.data;
+
+    localStorage.setItem(
+      'trex_user',
+      JSON.stringify(
+        CURRENT_USER
+      )
+    );
+
+    document.getElementById(
+      'adminName'
+    ).textContent =
+      CURRENT_USER.full_name
+      ||
+      CURRENT_USER.email
+      ||
+      'Yönetici';
+
+    return true;
+
+  } catch (error) {
+    console.error(
+      'Oturum kontrol hatası:',
+      error
+    );
+
+    document.getElementById(
+      'apiStatus'
+    ).textContent =
+      'Oturum doğrulama bağlantı hatası';
+
+    document.getElementById(
+      'apiStatus'
+    ).className =
+      'status-error';
+
+    return false;
+  }
+}
+
+async function logout() {
+  const button =
+    document.getElementById(
+      'logoutBtn'
+    );
+
+  button.disabled =
+    true;
+
+  try {
+    await fetch(
+      API_BASE +
+      '/api/v1/auth/logout',
+      {
+        method:
+          'POST',
+
+        headers: {
+          Authorization:
+            'Bearer ' +
+            TOKEN
+        }
+      }
+    );
+  } catch (error) {
+    console.error(
+      'Logout API hatası:',
+      error
+    );
+  }
+
+  redirectLogin();
+}
+
+document.getElementById(
+  'logoutBtn'
+).addEventListener(
+  'click',
+  logout
+);
+
+function money(value) {
+  return Number(
+    value || 0
+  ).toLocaleString(
+    'tr-TR',
+    {
+      style:
+        'currency',
+
+      currency:
+        'TRY'
+    }
+  );
+}
+
+function dateText(value) {
+  if (!value) {
+    return '-';
+  }
+
+  return new Date(
+    value
+  ).toLocaleString(
+    'tr-TR'
+  );
+}
+
+function statusText(status) {
+  const map = {
+    NEW:
+      'Yeni',
+
+    PAYMENT_PENDING:
+      'Ödeme Bekliyor',
+
+    APPROVED:
+      'Onaylandı',
+
+    STOCK_RESERVED:
+      'Stok Ayrıldı',
+
+    PICKING:
+      'Toplanıyor',
+
+    PACKING:
+      'Paketleniyor',
+
+    READY_TO_SHIP:
+      'Kargoya Hazır',
+
+    SHIPPED:
+      'Kargolandı',
+
+    DELIVERED:
+      'Teslim Edildi',
+
+    COMPLETED:
+      'Tamamlandı',
+
+    CANCELLED:
+      'İptal',
+
+    PROBLEM:
+      'Sorun'
+  };
+
+  return (
+    map[status]
+    ||
+    status
+    ||
+    '-'
+  );
+}
+
+async function loadDashboard() {
+  const apiStatus =
+    document.getElementById(
+      'apiStatus'
+    );
+
+  const coreStatus =
+    document.getElementById(
+      'coreStatus'
+    );
+
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/dashboard',
+        {
+          headers: {
+            Authorization:
+              'Bearer ' +
+              TOKEN
+          }
+        }
+      );
+
+    if (
+      response.status === 401
+      ||
+      response.status === 403
+    ) {
+      redirectLogin();
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        'HTTP ' +
+        response.status
+      );
+    }
+
+    const result =
+      await response.json();
+
+    if (!result.success) {
+      throw new Error(
+        result.error
+        ||
+        'API_ERROR'
+      );
+    }
+
+    const data =
+      result.data;
+
+    document.getElementById(
+      'orderCount'
+    ).textContent =
+      data.orders
+      ??
+      0;
+
+    document.getElementById(
+      'revenue'
+    ).textContent =
+      money(
+        data.revenue
+      );
+
+    document.getElementById(
+      'customerCount'
+    ).textContent =
+      data.customers
+      ??
+      0;
+
+    document.getElementById(
+      'dealerCount'
+    ).textContent =
+      data.active_dealers
+      ??
+      0;
+
+    document.getElementById(
+      'stockCount'
+    ).textContent =
+      data.stock_units
+      ??
+      0;
+
+    document.getElementById(
+      'returnCount'
+    ).textContent =
+      data.pending_returns
+      ??
+      0;
+
+    const body =
+      document.getElementById(
+        'ordersBody'
+      );
+
+    body.innerHTML =
+      '';
+
+    if (
+      !data.latest_orders
+      ||
+      data.latest_orders.length === 0
+    ) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="4">
+            Henüz sipariş yok
+          </td>
+        </tr>
+      `;
+    } else {
+      for (
+        const order
+        of data.latest_orders
+      ) {
+        const row =
+          document.createElement(
+            'tr'
+          );
+
+        row.innerHTML = `
+          <td>${order.order_no}</td>
+          <td>${money(order.total_amount)}</td>
+          <td>
+            <span class="tag">
+              ${statusText(order.status)}
+            </span>
+          </td>
+          <td>${dateText(order.created_at)}</td>
+        `;
+
+        body.appendChild(
+          row
+        );
+      }
+    }
+
+    apiStatus.textContent =
+      'Core API bağlantısı aktif';
+
+    apiStatus.className =
+      'status-ok';
+
+    coreStatus.textContent =
+      'Çalışıyor';
+
+    coreStatus.className =
+      'status-ok';
+
+  } catch (error) {
+    console.error(
+      error
+    );
+
+    apiStatus.textContent =
+      'Core API bağlantı hatası: '
+      +
+      error.message;
+
+    apiStatus.className =
+      'status-error';
+
+    coreStatus.textContent =
+      'Bağlantı Hatası';
+
+    coreStatus.className =
+      'status-error';
+
+    document.getElementById(
+      'ordersBody'
+    ).innerHTML = `
+      <tr>
+        <td colspan="4">
+          API verisi alınamadı.
+        </td>
+      </tr>
+    `;
+  }
+}
+
+async function changePassword() {
+  const currentPassword =
+    document.getElementById(
+      'currentPassword'
+    ).value;
+
+  const newPassword =
+    document.getElementById(
+      'newPassword'
+    ).value;
+
+  const status =
+    document.getElementById(
+      'passwordStatus'
+    );
+
+  const button =
+    document.getElementById(
+      'passwordBtn'
+    );
+
+  if (!currentPassword || !newPassword) {
+    status.textContent =
+      'Mevcut ve yeni şifre gerekli.';
+    status.className =
+      'status-error';
+    return;
+  }
+
+  if (newPassword.length < 10) {
+    status.textContent =
+      'Yeni şifre en az 10 karakter olmalı.';
+    status.className =
+      'status-error';
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent =
+    'Şifre güncelleniyor...';
+  status.className =
+    'muted';
+
+  try {
+    const response =
+      await fetch(
+        API_BASE +
+        '/api/v1/auth/change-password',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              'Bearer ' + TOKEN
+          },
+          body:
+            JSON.stringify({
+              current_password:
+                currentPassword,
+              new_password:
+                newPassword
+            })
+        }
+      );
+
+    const result =
+      await response.json();
+
+    if (
+      response.status === 401 &&
+      result.error ===
+      'CURRENT_PASSWORD_INVALID'
+    ) {
+      throw new Error(
+        'Mevcut şifre yanlış.'
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+        'Şifre değiştirilemedi.'
+      );
+    }
+
+    document.getElementById(
+      'passwordForm'
+    ).reset();
+
+    status.textContent =
+      'Şifre başarıyla değiştirildi.';
+    status.className =
+      'status-ok';
+
+  } catch (error) {
+    status.textContent =
+      error.message ||
+      'Şifre değiştirilemedi.';
+    status.className =
+      'status-error';
+
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById(
+  'passwordForm'
+).addEventListener(
+  'submit',
+  async event => {
+    event.preventDefault();
+    await changePassword();
+  }
+);
+
+async function loadDealerOptions() {
+  const select = document.getElementById('dealerUserDealer');
+
+  try {
+    const response = await fetch(
+      API_BASE + '/api/v1/dealers',
+      { headers: { Authorization: 'Bearer ' + TOKEN } }
+    );
+
+    if (response.status === 401 || response.status === 403) {
+      redirectLogin();
+      return;
+    }
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Bayiler alınamadı.');
+    }
+
+    select.innerHTML = '<option value="">Bayi seçin</option>';
+
+    for (const dealer of result.data || []) {
+      const option = document.createElement('option');
+      option.value = dealer.id;
+      option.textContent = dealer.name + ' • ' + dealer.code;
+      select.appendChild(option);
+    }
+
+    if (!(result.data || []).length) {
+      select.innerHTML = '<option value="">Önce bayi kaydı oluşturulmalı</option>';
+    }
+  } catch (error) {
+    select.innerHTML = '<option value="">Bayi listesi alınamadı</option>';
+  }
+}
+
+async function createDealerUser(event) {
+  event.preventDefault();
+
+  const status = document.getElementById('dealerUserStatus');
+  const button = document.getElementById('dealerUserBtn');
+  const password = document.getElementById('dealerUserPassword').value;
+
+  if (password.length < 10) {
+    status.textContent = 'Geçici şifre en az 10 karakter olmalı.';
+    status.className = 'status-error';
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent = 'Bayi hesabı oluşturuluyor...';
+  status.className = 'muted';
+
+  try {
+    const response = await fetch(
+      API_BASE + '/api/v1/auth/users',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + TOKEN
+        },
+        body: JSON.stringify({
+          role: 'DEALER',
+          dealer_id: Number(document.getElementById('dealerUserDealer').value),
+          full_name: document.getElementById('dealerUserName').value.trim(),
+          email: document.getElementById('dealerUserEmail').value.trim(),
+          password
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (response.status === 401 || response.status === 403) {
+      redirectLogin();
+      return;
+    }
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Bayi hesabı oluşturulamadı.');
+    }
+
+    document.getElementById('dealerUserForm').reset();
+    status.textContent = 'Bayi giriş hesabı oluşturuldu.';
+    status.className = 'status-ok';
+  } catch (error) {
+    status.textContent = error.message || 'Bayi hesabı oluşturulamadı.';
+    status.className = 'status-error';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById('dealerUserForm').addEventListener('submit', createDealerUser);
+
+
+function returnStatusText(status) {
+  const map = {
+    REQUESTED: 'Bekliyor',
+    APPROVED: 'Onaylandı',
+    REJECTED: 'Reddedildi'
+  };
+
+  return map[status] || status || '-';
+}
+
+async function returnAction(path, bodyData = null) {
+  const options = {
+    method: 'POST',
+    headers: {
+      Authorization:
+        'Bearer ' + TOKEN
+    }
+  };
+
+  if (bodyData) {
+    options.headers['Content-Type'] =
+      'application/json';
+
+    options.body =
+      JSON.stringify(bodyData);
+  }
+
+  const response =
+    await fetch(
+      API_BASE + path,
+      options
+    );
+
+  const result =
+    await response.json();
+
+  if (
+    response.status === 401
+    ||
+    response.status === 403
+  ) {
+    redirectLogin();
+    throw new Error('UNAUTHORIZED');
+  }
+
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.error
+      ||
+      'İade işlemi başarısız.'
+    );
+  }
+
+  return result.data;
+}
+
+let returnItems=[],returnsLoading=false,returnsBusy=false,returnsLoaded=false;
+const returnEl=id=>document.getElementById(id);
+function returnText(tag,value){const node=document.createElement(tag);node.textContent=String(value??'—');return node;}
+function returnFeedback(value,error=false){returnEl('returnActionStatus').textContent=value;returnEl('returnActionStatus').className=error?'status-error':'status-ok';}
+function returnError(error){
+ const messages={RETURN_NOT_FOUND:'İade kaydı bulunamadı.',RETURN_ALREADY_PROCESSED:'Bu iade zaten işlenmiş. Listeyi yenileyin.',RETURN_NOT_PENDING:'Bu iade artık beklemiyor. Listeyi yenileyin.',REJECTION_REASON_REQUIRED:'Red nedeni boş olamaz.',UNAUTHORIZED:'Oturum veya yetki sorunu. Yeniden giriş yapın.'};
+ return messages[error.message]||'İşlem tamamlanamadı. Listeyi yenileyip iadenin durumunu kontrol edin.';
+}
+function filteredReturns(){
+ const term=returnEl('returnSearch').value.trim().toLocaleLowerCase('tr-TR'),status=returnEl('returnFilter').value;
+ return returnItems.filter(item=>(!status||item.status===status)&&(!term||[item.return_no,item.order_id,item.reason,item.rejection_reason].some(value=>String(value??'').toLocaleLowerCase('tr-TR').includes(term))));
+}
+function renderReturns(){
+ const body=returnEl('returnsBody');body.replaceChildren();const rows=filteredReturns();
+ if(!rows.length){const row=document.createElement('tr'),cell=returnText('td',returnItems.length?'Filtreye uygun iade yok.':'Henüz iade kaydı yok.');cell.colSpan=5;row.appendChild(cell);body.appendChild(row);}
+ for(const item of rows){
+ const row=document.createElement('tr');row.appendChild(returnText('td',item.return_no||'—'));
+ const orderCell=document.createElement('td');if(item.order_id){const link=returnText('a','#'+item.order_id);link.href='/orders.html?order='+encodeURIComponent(item.order_id);orderCell.appendChild(link);}else orderCell.textContent='—';row.appendChild(orderCell);
+ row.appendChild(returnText('td',returnStatusText(item.status)));
+ row.appendChild(returnText('td',item.status==='REJECTED'?(item.rejection_reason||item.reason||'—'):(item.reason||'—')));
+ const actions=document.createElement('td');
+ if(item.status==='REQUESTED'){
+ for(const [label,handler] of [['Onayla',approveReturnAdmin],['Reddet',rejectReturnAdmin]]){
+ const button=returnText('button',label);button.type='button';button.className='logout-btn';button.disabled=returnsBusy||returnsLoading;
+ button.setAttribute('aria-label',(item.return_no||item.id)+' iadesini '+label.toLocaleLowerCase('tr-TR'));button.addEventListener('click',()=>handler(item.id));actions.appendChild(button);}
+ }else actions.textContent='İşlem tamamlandı';row.appendChild(actions);body.appendChild(row);
+ }
+ returnEl('returnsStatus').textContent=rows.length+' iade gösteriliyor · Toplam '+returnItems.length+' · '+returnItems.filter(item=>item.status==='REQUESTED').length+' bekleyen';
+ returnEl('returnsStatus').className='muted';
+}
+async function processReturn(id,action,bodyData=null){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ const item=returnItems.find(item=>String(item.id)===String(id));if(!item||item.status!=='REQUESTED')return;
+ returnsBusy=true;returnEl('refreshReturns').disabled=true;renderReturns();returnFeedback('İşlem uygulanıyor…');
+ try{
+ await returnAction('/api/v1/returns/'+encodeURIComponent(id)+'/'+action,bodyData);
+ const updated=await loadReturns();
+ returnFeedback(updated?(action==='approve'?'İade onaylandı.':'İade reddedildi.'):'İşlem kaydedildi ancak liste yenilenemedi. Yenile düğmesini kullanın.',!updated);
+ await loadDashboard();
+ }catch(error){returnFeedback(returnError(error),true);}
+ finally{returnsBusy=false;returnEl('refreshReturns').disabled=false;if(returnsLoaded)renderReturns();}
+}
+async function approveReturnAdmin(id){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ if(!confirm('Bu iadeyi onaylamak istiyor musunuz? Mevcut stok ve prim iade kuralları uygulanır; para iadesi yapılmaz.'))return;
+ await processReturn(id,'approve');
+}
+async function rejectReturnAdmin(id){
+ if(returnsBusy||returnsLoading||!returnsLoaded)return;
+ const reason=prompt('İade reddetme nedenini yazın:');if(reason===null)return;
+ const clean=String(reason).trim();if(!clean){returnFeedback('Red nedeni boş bırakılamaz.',true);return;}
+ await processReturn(id,'reject',{reason:clean});
+}
+async function loadReturns(){
+ if(returnsLoading)return false;returnsLoading=true;returnsLoaded=false;returnEl('refreshReturns').disabled=true;
+ returnEl('returnsStatus').textContent='İadeler yükleniyor…';returnEl('returnsStatus').className='muted';returnEl('returnsBody').replaceChildren();
+ try{
+ const response=await fetch(API_BASE+'/api/v1/returns',{headers:{Authorization:'Bearer '+TOKEN}});
+ if(response.status===401||response.status===403){redirectLogin();return false;}
+ const result=await response.json();if(!response.ok||!result.success||!Array.isArray(result.data))throw new Error('İadeler alınamadı.');
+ returnItems=result.data;returnsLoaded=true;renderReturns();return true;
+ }catch(error){returnEl('returnsStatus').textContent='İadeler yüklenemedi. Yenile düğmesiyle yeniden deneyin.';returnEl('returnsStatus').className='status-error';return false;}
+ finally{returnsLoading=false;returnEl('refreshReturns').disabled=returnsBusy;if(returnsLoaded)renderReturns();}
+}
+returnEl('returnSearch').addEventListener('input',()=>{if(returnsLoaded&&!returnsLoading)renderReturns();});
+returnEl('returnFilter').addEventListener('change',()=>{if(returnsLoaded&&!returnsLoading)renderReturns();});
+returnEl('refreshReturns').addEventListener('click',()=>{if(!returnsBusy)loadReturns();});
+
+async function startAdmin() {
+  const valid =
+    await verifySession();
+
+  if (!valid) {
+    return;
+  }
+
+  await loadDashboard();
+  await loadDealerOptions();
+  await loadReturns();
+
+  setInterval(
+    loadDashboard,
+    30000
+  );
+}
+
+startAdmin();
+
+</script>
+
+</body>
+
+</html>
+
+
+
+
+
+
+

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Müşteriler • Trex Admin</title><link rel="stylesheet" href="/styles.css"><style>
+body{margin:0;background:#f6f2e8;color:#20372c;font:16px system-ui,sans-serif}
+header{background:#104c35;color:white;padding:20px max(20px,calc((100vw - 1200px)/2))}
+header a{color:white} main{max-width:1200px;margin:auto;padding:24px}
+nav{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:24px}
+nav a{color:#145a3a} h1{margin-bottom:8px} .muted{color:#64736b;font-size:14px}
+.card{background:white;border:1px solid #dde5de;border-radius:16px;padding:20px;margin:18px 0}
+.toolbar{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.toolbar label{display:grid;gap:6px;flex:1;min-width:180px}
+input,select,button{font:inherit;border:1px solid #b9c8be;border-radius:8px;padding:10px;background:white;color:#20372c}
+button{cursor:pointer}button.primary{background:#145a3a;color:white;border-color:#145a3a}
+button:disabled{opacity:.55;cursor:default} :focus-visible{outline:3px solid #db9f27;outline-offset:3px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid #e3e9e4;white-space:nowrap}th{font-size:13px;color:#52685b}
+.notice{padding:12px;border-radius:8px;background:#edf5ef}.error{color:#a02222;background:#fff0f0}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}.summary dt{font-size:13px;color:#64736b}.summary dd{margin:5px 0;overflow-wrap:anywhere}
+.badge{display:inline-block;background:#edf5ef;padding:4px 9px;border-radius:20px;font-size:13px}
+[hidden]{display:none!important}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:center}
+ol{padding-left:24px}li{margin:10px 0}#actionNote{max-width:700px}
+@media(max-width:600px){main{padding:14px}.card{padding:14px}.toolbar button{width:100%}}
+</style></head>
+<body><header><strong>TREX ADMIN</strong> · Müşteriler</header><main>
+<nav aria-label="Admin gezinme"><a href="/admin.html">← Kontrol paneli</a><a href="/orders.html">Siparişler</a><a href="/products.html">Ürünler</a></nav>
+<h1>Müşteriler</h1><p class="muted">Müşteri iletişim bilgilerini ve müşteriye ait sipariş geçmişini görüntüleyin.</p>
+<section class="card" aria-label="Müşteri listesi"><div class="toolbar">
+<label>Müşteri ara<input id="search" type="search" placeholder="Ad, e-posta veya telefon" autocomplete="off"></label>
+<label>Sipariş durumu<select id="filter"><option value="">Tüm müşteriler</option><option value="has">Siparişi olanlar</option><option value="none">Siparişi olmayanlar</option></select></label>
+<button id="refresh" type="button" disabled>Yenile</button></div>
+<p id="listStatus" role="status" aria-live="polite">Oturum kontrol ediliyor…</p>
+<div class="table-wrap"><table><thead><tr><th>Ad soyad</th><th>E-posta</th><th>Telefon</th><th>Sipariş</th><th>Kayıt tarihi</th><th>İşlem</th></tr></thead><tbody id="customers"></tbody></table></div></section>
+<section class="card" id="detail" hidden aria-labelledby="detailTitle"><div class="detail-title"><h2 id="detailTitle" tabindex="-1">Müşteri detayı</h2><button id="close" type="button">Kapat</button></div>
+<dl id="summary" class="summary"></dl><h3>Sipariş geçmişi</h3>
+<p class="muted">İptal edilenler dahil tüm siparişler gösterilir. Sipariş bağlantısından ürünleri ve durum geçmişini inceleyebilirsiniz.</p>
+<p id="detailStatus" role="status" aria-live="polite"></p>
+<div class="table-wrap"><table><thead><tr><th>Sipariş</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>Ödeme</th></tr></thead><tbody id="history"></tbody></table></div></section>
+</main><script>
+const API='https://trex-platform-core-db.onrender.com',token=localStorage.getItem('trex_token');
+const el=id=>document.getElementById(id),text=(tag,value)=>{const n=document.createElement(tag);n.textContent=String(value??'—');return n;};
+const date=value=>value?new Date(value).toLocaleString('tr-TR'):'—';
+const money=value=>Number(value||0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+const statuses={NEW:'Yeni',PAYMENT_PENDING:'Ödeme bekliyor',APPROVED:'Onaylandı',STOCK_RESERVED:'Stok ayrıldı',PICKING:'Toplanıyor',PACKING:'Paketleniyor',READY_TO_SHIP:'Kargoya hazır',SHIPPED:'Kargolandı',DELIVERED:'Teslim edildi',COMPLETED:'Tamamlandı',CANCELLED:'İptal',PROBLEM:'Sorun'};
+const payments={PAYMENT_PENDING:'Ödeme bekliyor',PAID:'Ödendi',FAILED:'Başarısız',REFUNDED:'İade edildi',COD_PENDING:'Kapıda ödeme bekliyor'};
+let customers=[],orders=[],verified=false,loading=false,loaded=false,selected=null,lastButton=null,byCustomer=new Map();
+function message(id,value,error=false){el(id).textContent=value;el(id).className=error?'notice error':'';}
+async function api(path){
+ const response=await fetch(API+path,{headers:{Authorization:'Bearer '+token}});
+ if(response.status===401){localStorage.removeItem('trex_token');localStorage.removeItem('trex_user');location.replace('/login.html');throw new Error('Oturum sona erdi.');}
+ const result=await response.json();if(!response.ok||result.success===false)throw new Error(response.status===403?'Bu işlem için yetkiniz yok.':'Bilgiler alınamadı. Yeniden deneyin.');return result.data;
+}
+function customerOrders(id){return byCustomer.get(String(id))||[];}
+function filteredCustomers(){
+ const term=el('search').value.trim().toLocaleLowerCase('tr-TR'),phoneTerm=term.replace(/\D/g,''),filter=el('filter').value;
+ return customers.filter(c=>{
+ const count=customerOrders(c.id).length;
+ return (!filter||(filter==='has'?count>0:count===0))&&(!term||[c.full_name,c.email,c.phone].some(v=>String(v||'').toLocaleLowerCase('tr-TR').includes(term))||(phoneTerm.length>=3&&String(c.phone||'').replace(/\D/g,'').includes(phoneTerm)));
+ });
+}
+function empty(body,count,label){const row=document.createElement('tr'),cell=text('td',label);cell.colSpan=count;row.appendChild(cell);body.appendChild(row);}
+function render(){
+ const rows=filteredCustomers(),body=el('customers');body.replaceChildren();message('listStatus',rows.length+' müşteri gösteriliyor · Toplam '+customers.length);
+ if(!rows.length)empty(body,6,customers.length?'Filtreye uygun müşteri yok.':'Henüz müşteri kaydı yok.');
+ for(const c of rows){const row=document.createElement('tr');for(const value of [c.full_name,c.email||'—',c.phone||'—',customerOrders(c.id).length,date(c.created_at)])row.appendChild(text('td',value));
+ const cell=document.createElement('td'),button=text('button','Detay');button.type='button';button.setAttribute('aria-label',c.full_name+' müşteri detayını aç');button.addEventListener('click',()=>{lastButton=button;showCustomer(c);});cell.appendChild(button);row.appendChild(cell);body.appendChild(row);}
+}
+function showCustomer(customer,focus=true){
+ selected=String(customer.id);el('detail').hidden=false;el('detailTitle').textContent=customer.full_name||'Müşteri detayı';el('summary').replaceChildren();
+ for(const [key,value] of [['Müşteri ID',customer.id],['E-posta',customer.email||'—'],['Telefon',customer.phone||'—'],['Kayıt tarihi',date(customer.created_at)]]){
+ const group=document.createElement('div');group.append(text('dt',key),text('dd',value));el('summary').appendChild(group);
+ }
+ const rows=customerOrders(customer.id);message('detailStatus',rows.length+' sipariş');el('history').replaceChildren();
+ if(!rows.length)empty(el('history'),5,'Bu müşterinin henüz siparişi yok.');
+ for(const order of rows){const row=document.createElement('tr'),cell=document.createElement('td'),link=text('a',order.order_no||order.id);link.href='/orders.html?order='+encodeURIComponent(order.id);cell.appendChild(link);row.appendChild(cell);
+ for(const value of [date(order.created_at),money(order.total_amount),statuses[order.status]||order.status,payments[order.payment_status]||order.payment_status])row.appendChild(text('td',value));el('history').appendChild(row);}
+ if(focus)el('detailTitle').focus();
+}
+async function load(){
+ if(loading||!verified)return;loading=true;loaded=false;el('refresh').disabled=true;el('detail').hidden=true;el('customers').replaceChildren();message('listStatus','Müşteriler yükleniyor…');
+ try{
+ const [nextCustomers,nextOrders]=await Promise.all([api('/api/v1/customers'),api('/api/v1/orders')]);
+ if(!Array.isArray(nextCustomers)||!Array.isArray(nextOrders))throw new Error('Müşteri veya sipariş yanıtı okunamadı.');
+ customers=nextCustomers;orders=nextOrders;byCustomer=new Map();
+ for(const order of orders){if(order.customer_id===null||order.customer_id===undefined)continue;const key=String(order.customer_id);if(!byCustomer.has(key))byCustomer.set(key,[]);byCustomer.get(key).push(order);}
+ loaded=true;render();if(selected){const c=customers.find(c=>String(c.id)===selected);if(c)showCustomer(c,false);else selected=null;}
+ }catch(error){message('listStatus',error.message,true);}
+ finally{loading=false;el('refresh').disabled=false;}
+}
+el('refresh').addEventListener('click',load);
+for(const [id,event] of [['search','input'],['filter','change']])el(id).addEventListener(event,()=>{if(loaded&&!loading)render();});
+el('close').addEventListener('click',()=>{selected=null;el('detail').hidden=true;if(lastButton?.isConnected)lastButton.focus();});
+async function start(){if(!token){location.replace('/login.html');return;}try{const user=await api('/api/v1/auth/me');if(user.role!=='ADMIN'){message('listStatus','Müşteri yönetimi için yönetici hesabıyla giriş yapın.',true);return;}verified=true;await load();}catch(error){message('listStatus',error.message,true);}}
+start();
+</script></body></html>

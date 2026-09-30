@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ödeme • Trex Platform</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .checkout-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr);gap:20px;align-items:start}
+    .step{background:#fff;border:1px solid #dfe6e1;border-radius:16px;padding:20px;margin-bottom:16px}
+    .step h2{margin-top:0}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+    label{display:grid;gap:6px;font-weight:600}input,select,textarea{font:inherit;padding:11px;border:1px solid #b9c8be;border-radius:9px;background:#fff;color:#20372c}
+    textarea{min-height:110px;resize:vertical}.wide{grid-column:1/-1}.summary-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0}
+    .total{font-size:22px;font-weight:800;border-top:1px solid #dce5de;margin-top:8px;padding-top:15px}
+    .pay-option{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid #dfe6e1;border-radius:10px;margin:8px 0}
+    .pay-option input{margin-top:3px}.notice{padding:12px;border-radius:9px;background:#edf5ef}.error{background:#fff0f0;color:#9d2424}
+    .success{background:#edf8f0;color:#145c3d}.primary{width:100%;border:0;border-radius:10px;padding:13px 18px;background:#145c3d;color:white;font:inherit;font-weight:800;cursor:pointer}
+    .primary:disabled{opacity:.55;cursor:default}.muted-small{font-size:13px;opacity:.72}
+    @media(max-width:760px){.checkout-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+  </style>
+</head>
+<body>
+<header class="top"><div class="bar"><div class="brand">TREX PLATFORM / Checkout</div><div class="pill">Demo • Gerçek ödeme yok</div></div></header>
+<main class="wrap">
+  <nav class="nav"><a href="/cart.html">← Sepete dön</a><a href="/">Mağaza</a></nav>
+  <h1>Siparişi Tamamla</h1>
+  <p class="muted">Bu demo ekranı gerçek kart tahsilatı yapmaz. Sipariş fiyatları sunucuda yeniden hesaplanmalıdır.</p>
+  <div class="checkout-grid">
+    <div>
+      <section class="step">
+        <h2>1. Müşteri Bilgileri</h2>
+        <div class="form-grid">
+          <label>Ad Soyad<input id="fullName" maxlength="150" autocomplete="name" required></label>
+          <label>Telefon<input id="phone" maxlength="25" autocomplete="tel" required></label>
+          <label class="wide">E-posta<input id="email" type="email" maxlength="320" autocomplete="email"></label>
+        </div>
+      </section>
+
+      <section class="step">
+        <h2>2. Teslimat Adresi</h2>
+        <div class="form-grid">
+          <label>Adres Başlığı<input id="addressTitle" maxlength="80" value="Ev"></label>
+          <label>İl<input id="city" maxlength="100" autocomplete="address-level1" required></label>
+          <label>İlçe<input id="district" maxlength="100" autocomplete="address-level2" required></label>
+          <label>Mahalle<input id="neighborhood" maxlength="150"></label>
+          <label class="wide">Açık Adres<textarea id="addressLine" maxlength="500" autocomplete="street-address" required></textarea></label>
+          <label>Posta Kodu<input id="postalCode" maxlength="20" autocomplete="postal-code"></label>
+        </div>
+      </section>
+
+      <section class="step">
+        <h2>3. Ödeme Yöntemi</h2>
+        <label class="pay-option"><input type="radio" name="payment" value="CARD_MOCK" checked><span><strong>Kredi Kartı</strong><br><span class="muted-small">Demo. Kart bilgisi alınmaz, tahsilat yapılmaz.</span></span></label>
+        <label class="pay-option"><input type="radio" name="payment" value="COD"><span><strong>Kapıda Ödeme</strong><br><span class="muted-small">Sipariş COD_PENDING durumunda başlar.</span></span></label>
+        <label class="pay-option"><input type="radio" name="payment" value="BANK_TRANSFER"><span><strong>Havale / EFT</strong><br><span class="muted-small">Ödeme doğrulanana kadar PAYMENT_PENDING kalır.</span></span></label>
+      </section>
+
+      <section class="step">
+        <h2>4. Onay</h2>
+        <div class="notice">Sipariş oluşturulurken ürünlerin aktifliği, fiyatı ve adet sınırları backend tarafından yeniden doğrulanmalıdır.</div>
+        <p id="actionStatus" role="status" aria-live="polite"></p>
+        <button id="submitOrder" class="primary" type="button" disabled>Siparişi Oluştur</button>
+      </section>
+    </div>
+
+    <aside class="card">
+      <h2>Sipariş Özeti</h2>
+      <div id="summaryItems"></div>
+      <div class="summary-row"><span>Ara toplam</span><strong id="subtotal">—</strong></div>
+      <div class="summary-row"><span>Kargo</span><strong>Sonraki aşama</strong></div>
+      <div class="summary-row total"><span>Toplam</span><strong id="total">—</strong></div>
+      <p id="summaryStatus" class="muted-small">Sepet kontrol ediliyor...</p>
+    </aside>
+  </div>
+</main>
+<footer class="foot">Trex Platform • Demo checkout</footer>
+<script>
+const API='https://trex-platform-core-db.onrender.com';
+const CART_KEY='trex_cart';
+const CHECKOUT_DRAFT='trex_checkout_draft';
+const el=id=>document.getElementById(id);
+const money=v=>Number(v||0).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+let products=[],validCart=[];
+
+function readCart(){try{const v=JSON.parse(localStorage.getItem(CART_KEY)||'[]');return Array.isArray(v)?v.filter(x=>Number.isInteger(Number(x.product_id))&&Number(x.product_id)>0&&Number.isInteger(Number(x.quantity))&&Number(x.quantity)>0&&Number(x.quantity)<=100).map(x=>({product_id:Number(x.product_id),quantity:Number(x.quantity)})):[];}catch{return [];}}
+function textNode(tag,value){const n=document.createElement(tag);n.textContent=String(value??'');return n;}
+function selectedPayment(){return document.querySelector('input[name="payment"]:checked')?.value||'CARD_MOCK';}
+function field(id){return el(id).value.trim();}
+function saveDraft(){const draft={full_name:field('fullName'),phone:field('phone'),email:field('email'),address_title:field('addressTitle'),city:field('city'),district:field('district'),neighborhood:field('neighborhood'),address_line:field('addressLine'),postal_code:field('postalCode'),payment_method:selectedPayment()};localStorage.setItem(CHECKOUT_DRAFT,JSON.stringify(draft));}
+function restoreDraft(){try{const d=JSON.parse(localStorage.getItem(CHECKOUT_DRAFT)||'{}');const map={full_name:'fullName',phone:'phone',email:'email',address_title:'addressTitle',city:'city',district:'district',neighborhood:'neighborhood',address_line:'addressLine',postal_code:'postalCode'};for(const [k,id] of Object.entries(map))if(typeof d[k]==='string')el(id).value=d[k];if(['CARD_MOCK','COD','BANK_TRANSFER'].includes(d.payment_method)){const r=document.querySelector('input[name="payment"][value="'+d.payment_method+'"]');if(r)r.checked=true;}}catch{}}
+function validate(){
+ const ok=field('fullName').length>=2&&field('fullName').length<=150&&field('phone').length>=5&&field('phone').length<=25&&field('city')&&field('district')&&field('addressLine')&&validCart.length>0&&['CARD_MOCK','COD','BANK_TRANSFER'].includes(selectedPayment());
+ el('submitOrder').disabled=!ok;
+ return ok;
+}
+function renderSummary(){
+ const target=el('summaryItems');target.replaceChildren();let subtotal=0;validCart=[];
+ for(const item of readCart()){const p=products.find(x=>Number(x.id)===item.product_id&&x.active!==false&&Number(x.price)>0);if(!p)continue;validCart.push(item);subtotal+=Number(p.price)*item.quantity;const row=document.createElement('div');row.className='summary-row';row.append(textNode('span',p.name+' × '+item.quantity),textNode('strong',money(Number(p.price)*item.quantity)));target.appendChild(row);}
+ el('subtotal').textContent=money(subtotal);el('total').textContent=money(subtotal);el('summaryStatus').textContent=validCart.length?validCart.length+' farklı ürün hazır.':'Sepette siparişe uygun ürün yok.';validate();
+}
+async function load(){restoreDraft();try{const r=await fetch(API+'/api/v1/products');const j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||'API_ERROR');products=j.data||[];renderSummary();}catch(e){console.error(e);el('summaryStatus').textContent='Ürün fiyatları alınamadı.';el('summaryStatus').className='notice error';}}
+for(const id of ['fullName','phone','email','addressTitle','city','district','neighborhood','addressLine','postalCode'])el(id).addEventListener('input',()=>{saveDraft();validate();});
+for(const r of document.querySelectorAll('input[name="payment"]'))r.addEventListener('change',()=>{saveDraft();validate();});
+
+el('submitOrder').addEventListener('click',async()=>{
+ if(!validate())return;
+ saveDraft();
+ const payload={
+   customer:{full_name:field('fullName'),phone:field('phone'),email:field('email')||null},
+   shipping_address:{title:field('addressTitle')||'Adres',full_name:field('fullName'),phone:field('phone'),city:field('city'),district:field('district'),neighborhood:field('neighborhood')||null,address_line:field('addressLine'),postal_code:field('postalCode')||null},
+   payment_method:selectedPayment(),
+   items:validCart.map(x=>({product_id:x.product_id,quantity:x.quantity}))
+ };
+ const button=el('submitOrder');button.disabled=true;
+ el('actionStatus').textContent='Sipariş oluşturuluyor...';el('actionStatus').className='notice';
+ try{
+   const r=await fetch(API+'/api/v1/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   const j=await r.json();
+   if(!r.ok||!j.success)throw new Error(j.error||('HTTP '+r.status));
+   localStorage.removeItem(CART_KEY);localStorage.removeItem(CHECKOUT_DRAFT);localStorage.removeItem('trex_pending_order');
+   const o=j.data||{};
+   el('actionStatus').textContent='Sipariş alındı: '+(o.order_no||('Sipariş #'+o.id))+' • '+money(o.total_amount)+' • '+(o.payment_status||'');
+   el('actionStatus').className='notice success';
+   validCart=[];renderSummary();
+ }catch(e){
+   console.error(e);
+   const messages={CUSTOMER_NOT_FOUND:'Müşteri kaydı doğrulanamadı.',INVALID_PAYMENT_METHOD:'Ödeme yöntemi geçersiz.',PRODUCT_NOT_FOUND:'Sepetteki bir ürün artık satışta değil.',PRODUCT_PRICE_NOT_SET:'Sepetteki bir ürünün fiyatı tanımlı değil.',INVALID_QUANTITY:'Ürün adedi geçersiz.',ORDER_TOTAL_LIMIT_EXCEEDED:'Sipariş toplamı güvenlik limitini aşıyor.',INVALID_ADDRESS:'Teslimat adresini kontrol edin.'};
+   el('actionStatus').textContent=messages[e.message]||('Sipariş oluşturulamadı: '+e.message);
+   el('actionStatus').className='notice error';
+   validate();
+ }
+});
+load();
+</script>
+</body>
+</html>
