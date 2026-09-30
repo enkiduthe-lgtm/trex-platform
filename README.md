@@ -10,7 +10,7 @@ The Render build explicitly includes development dependencies because Next.js ne
 
 The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view the visual storefront at `http://localhost:3001` once dependencies can be installed. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
 
-The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, and `/yasal`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected.
+The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, `/yasal`, and `/club`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected. Trex Club is intentionally separate: its water-tracking records stay only in the visitor's browser and are never sent to the platform.
 
 The storefront also has a customer-friendly not-found route and a fallback error screen, so unavailable product/content links do not expose framework errors.
 
@@ -22,7 +22,7 @@ Customer CRM notes are modeled in migration `017_customer_notes.sql`; the initia
 
 Campaigns and coupons are modeled in migration `018_campaigns.sql`; the initial management screen is `/kampanyalar`.
 
-The admin media guide at `/medya` lists the required asset dimensions, formats, and usage guidance for each storefront placement. Asset upload controls will enforce these recommendations when the CMS asset API is connected.
+The admin media guide at `/medya` lists the required asset dimensions, formats, and usage guidance for each storefront placement. It can validate a selected local image now; permanent binary storage awaits the selected storage provider and CMS asset API connection.
 
 The mock asset-record endpoint is `POST /v1/admin/assets/mock`; it requires an admin access token and records metadata only. Actual binary uploads await a chosen storage provider.
 
