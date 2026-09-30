@@ -1,0 +1,2 @@
+import { WarehouseService } from './warehouse.service';
+describe('WarehouseService', () => { it('creates pick items from a paid order', async () => { const db={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{id:'pick'}]}).mockResolvedValueOnce({rows:[{id:'item',quantity:2}]}).mockResolvedValueOnce({rows:[]})}; const result=await new WarehouseService(db as never).createPick('order','warehouse','user'); expect(result).toEqual({id:'pick'}); expect(db.query).toHaveBeenCalledTimes(4); }); });

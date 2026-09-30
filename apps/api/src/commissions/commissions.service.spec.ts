@@ -1,0 +1,2 @@
+import { CommissionsService } from './commissions.service';
+describe('CommissionsService', () => { it('uses fixed TRY per-unit commission amounts', async () => { const db = { query: jest.fn().mockResolvedValueOnce({ rows: [{ id: 'rule', amount_per_unit: '12.50' }] }).mockResolvedValueOnce({ rows: [{ id: 'entry', amount: '25.00' }] }) }; const service = new CommissionsService(db as never); await expect(service.confirmForOrderItem({ dealerId: 'd', orderId: 'o', orderItemId: 'i', productId: 'p', quantity: 2 })).resolves.toMatchObject({ amount: '25.00' }); }); });

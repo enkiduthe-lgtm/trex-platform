@@ -1,0 +1,3 @@
+'use client';
+import { useState } from 'react';
+export function CouponBox(){const[code,setCode]=useState('');const[message,setMessage]=useState('');function prepare(){setMessage(code.trim()?'Kuponun kaydedildi. Ürün seçtiğinde indirim tutarı güvenli olarak hesaplanacak.':'Önce kupon kodunu yazmalısın.')}return <div className="coupon"><label htmlFor="coupon">İndirim kodun var mı?</label><div><input id="coupon" value={code} onChange={event=>setCode(event.target.value.toUpperCase())} placeholder="Örn. TREX10" maxLength={64}/><button type="button" onClick={prepare}>Uygula</button></div>{message&&<p role="status">{message}</p>}<small>Kupon, sipariş tamamlanmadıkça kullanım hakkından düşmez.</small></div>}

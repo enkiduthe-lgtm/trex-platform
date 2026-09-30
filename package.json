@@ -1,0 +1,25 @@
+{
+  "name": "trex-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @trex/api",
+    "dev": "npm run dev -w @trex/api",
+    "dev:web": "npm run dev -w @trex/web",
+    "dev:admin": "npm run dev -w @trex/admin",
+    "dev:dealer": "npm run dev -w @trex/dealer",
+    "test": "npm run test -w @trex/api",
+    "test:e2e": "npm run test:e2e -w @trex/api",
+    "lint": "npm run lint -w @trex/api",
+    "db:migrate": "npm run db:migrate -w @trex/api",
+    "db:migrate:status": "npm run db:migrate:status -w @trex/api"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

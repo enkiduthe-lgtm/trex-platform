@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Orders(){return <main className="products"><nav><Link href="/"><strong>TREX <span>TEA</span></strong></Link><Link href="/hesabim">Hesabıma dön</Link></nav><p className="eyebrow">SİPARİŞLERİM</p><h1>Sipariş geçmişin</h1><section className="story" style={{marginTop:'2rem'}}><h2>Henüz sipariş yok.</h2><p>İlk siparişini verdiğinde hazırlanma, kargo ve teslimat adımlarını buradan takip edebilirsin.</p><Link className="cta" href="/urunler">Çayları keşfet</Link></section></main>}

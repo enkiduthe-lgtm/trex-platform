@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Orders(){return <main><aside><b>TREX<br/>YÖNETİM</b><Link href="/">Genel bakış</Link><Link href="/urunler">Ürünler</Link><Link href="/siparisler">Siparişler</Link></aside><section><p>SİPARİŞ OPERASYONU</p><h1>Siparişler</h1><div className="cards"><article><h2>Bekleyen sipariş yok</h2><p>Ödeme, stok, kargo ve iade durumları gerçek siparişler oluştuğunda burada izlenecek.</p></article></div></section></main>}

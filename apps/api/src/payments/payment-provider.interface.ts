@@ -1,0 +1,1 @@
+export interface PaymentProvider { initialize(input: { amount: string; currency: string; reference: string }): Promise<{ providerReference: string; redirectUrl?: string }>; verify(providerReference: string): Promise<'SUCCEEDED' | 'FAILED' | 'PENDING'>; }

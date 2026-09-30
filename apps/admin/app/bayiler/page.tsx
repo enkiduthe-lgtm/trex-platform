@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Dealers(){return <main><aside><b>TREX<br/>YÖNETİM</b><Link href="/">Genel bakış</Link><Link href="/urunler">Ürünler</Link><Link href="/siparisler">Siparişler</Link><Link href="/bayiler">Bayiler</Link><Link href="/finans">Finans</Link></aside><section><p>BAYİ YÖNETİMİ</p><h1>Bayiler</h1><button>Yeni bayi</button><div className="cards"><article><h2>Bayi listesi hazır bekliyor</h2><p>Bayi seviyesi, alt bayi ilişkisi, banka hesabı ve özel fiyatlar burada yönetilecek.</p></article></div></section></main>}

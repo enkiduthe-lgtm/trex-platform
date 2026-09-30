@@ -1,0 +1,1 @@
+import { AssetsService } from './assets.service'; describe('AssetsService',()=>{it('rejects unsupported image types',async()=>{const s=new AssetsService({query:jest.fn()}as never);await expect(s.createMock({filename:'x.gif',mimeType:'image/gif',byteSize:1,placement:'PRODUCT',userId:'u'})).rejects.toThrow('Unsupported image format')})});

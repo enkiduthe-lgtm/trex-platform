@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Products(){return <main><aside><b>TREX<br/>YÖNETİM</b><Link href="/">Genel bakış</Link><Link href="/urunler">Ürünler</Link><Link href="/siparisler">Siparişler</Link></aside><section><p>ÜRÜN YÖNETİMİ</p><h1>Ürünler</h1><button>Yeni ürün</button><div className="cards"><article><h2>Katalog bekliyor</h2><p>Ürün, SKU, barkod, görsel ve yayın durumu burada yönetilecek.</p></article></div></section></main>}

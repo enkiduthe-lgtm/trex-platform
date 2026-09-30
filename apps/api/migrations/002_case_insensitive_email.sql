@@ -1,0 +1,2 @@
+-- Reserved migration number. `citext` was moved into 001 before the users table
+-- because PostgreSQL must know the type when that table is created.
