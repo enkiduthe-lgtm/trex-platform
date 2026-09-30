@@ -14,6 +14,8 @@ When the API gets its own production address, set `TREX_API_URL` in the storefro
 
 The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, `/yasal`, and `/club`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected. Trex Club is intentionally separate: its water-tracking records stay only in the visitor's browser and are never sent to the platform.
 
+The initial storefront cart is browser-local and lets visitors add, change, and remove catalogue products before the live cart API is connected. It never creates an order or accepts payment; checkout remains intentionally disabled until the secured API, stock reservation, payment provider, and shipping provider are live.
+
 The storefront also has a customer-friendly not-found route and a fallback error screen, so unavailable product/content links do not expose framework errors.
 
 The initial dealer portal is in `apps/dealer` and starts locally with `npm run dev:dealer` on port 3003. It will connect to the existing dealer hierarchy, pricing, order, and commission API modules.
