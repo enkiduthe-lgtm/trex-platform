@@ -7,6 +7,6 @@ export function validateEnvironment(env: NodeJS.ProcessEnv): void {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32 || env.JWT_SECRET.includes('replace-with-')) throw new Error('JWT_SECRET must be a unique value of at least 32 characters');
   if (production) {
     if (!env.CORS_ORIGIN || env.CORS_ORIGIN.split(',').some(origin => origin.trim() === '*')) throw new Error('Production CORS_ORIGIN must contain explicit origins');
-    if (env.PAYMENT_PROVIDER === 'mock' || env.SHIPPING_PROVIDER === 'mock') throw new Error('Mock payment or shipping providers cannot run in production');
+    if (!env.PAYMENT_PROVIDER || !env.SHIPPING_PROVIDER || env.PAYMENT_PROVIDER === 'mock' || env.SHIPPING_PROVIDER === 'mock') throw new Error('Production payment and shipping providers must be configured; mock adapters cannot run in production');
   }
 }

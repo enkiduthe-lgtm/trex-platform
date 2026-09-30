@@ -1,11 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { MockShippingProvider } from './mock-shipping.provider';
+import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 interface Address { recipient_name: string; phone: string; city: string; district: string; address_line: string; }
 @Injectable()
 export class ShippingService {
   constructor(private readonly db: DatabaseService, private readonly provider: MockShippingProvider) {}
-  async create(orderId: string) {
+  async create(orderId: string) { assertMockIntegrationAllowed('SHIPPING_PROVIDER');
     const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null }>('SELECT id,status,tracking_number FROM shipments WHERE order_id=$1', [orderId]);
     if (existing.rows[0]?.status === 'CREATED') return { shipmentId: existing.rows[0].id, trackingNumber: existing.rows[0].tracking_number, replayed: true };
     const order = await this.db.query<{ id: string }>("SELECT id FROM orders WHERE id=$1 AND status IN ('PAID','PROCESSING')", [orderId]); if (!order.rows[0]) throw new NotFoundException('Shippable order not found');

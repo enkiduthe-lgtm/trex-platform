@@ -3,11 +3,12 @@
 ## Verified locally
 
 - NestJS API TypeScript compilation passes. (The Nest production compiler is currently incompatible with the locally installed Node.js 24 runtime; see the note below.)
-- Jest: 17 test suites and 24 unit tests pass, including campaign/kupon, indirimli ödeme akışı and production-environment safety rules.
+- Jest: 18 test suites and 26 unit tests pass, including campaign/kupon, indirimli ödeme akışı, and mock-provider production safeguards.
 - Storefront TypeScript compilation passes.
 - Admin dashboard TypeScript compilation passes.
 - Dealer portal TypeScript compilation passes.
 - Local previews are available on ports 3001 (store), 3002 (admin), and 3003 (dealer).
+- The public storefront has been deployed to Render at `https://trex-storefront.onrender.com`.
 
 ## Still required before production
 
@@ -16,7 +17,7 @@
 - A production payment provider, signed callback verification, and sandbox acceptance tests.
 - Aras Cargo credentials and sandbox label/tracking validation.
 - SMS/email provider credentials and consent/delivery callback testing.
-- DNS and HTTPS deployment for `www.trextea.com.tr`.
+- DNS records and HTTPS verification for `www.trextea.com.tr` (Render is ready; DNS record management is unavailable in the current Natro plan).
 
 Docker Desktop cannot start on the current computer because its required Windows virtualization features are unavailable despite CPU virtualization being enabled. This prevents local PostgreSQL/Redis verification, not frontend previews or API unit tests.
 

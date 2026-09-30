@@ -3,11 +3,13 @@ import { PoolClient } from 'pg';
 import { createHash } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { MockPaymentProvider } from './mock-payment.provider';
+import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 
 @Injectable()
 export class PaymentsService {
   constructor(private readonly db: DatabaseService, private readonly provider: MockPaymentProvider) {}
   async initialize(checkoutId: string, guestKey: string) {
+    assertMockIntegrationAllowed('PAYMENT_PROVIDER');
     const checkout = await this.db.query<{ id: string; total_amount: string; currency: string }>("SELECT s.id,s.total_amount,s.currency FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND s.status='OPEN' AND s.expires_at>now() AND c.session_key_hash=$2", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
     if (!checkout.rows[0]) throw new NotFoundException('Open checkout not found');
     const existing = await this.db.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1', [checkoutId]);
@@ -18,6 +20,7 @@ export class PaymentsService {
     return { paymentId: payment.rows[0].id, providerReference: external.providerReference, status: 'PENDING' };
   }
   async verify(paymentId: string) {
+    assertMockIntegrationAllowed('PAYMENT_PROVIDER');
     return this.db.transaction(async (client: PoolClient) => {
       const payment = await client.query<{ id: string; checkout_id: string; provider_reference: string; status: string }>('SELECT id,checkout_id,provider_reference,status FROM payments WHERE id=$1 FOR UPDATE', [paymentId]);
       if (!payment.rows[0]) throw new NotFoundException('Payment not found');
