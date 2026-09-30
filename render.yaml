@@ -5,7 +5,7 @@ services:
     region: frankfurt
     plan: free
     branch: main
-    buildCommand: npm ci && npm run build -w @trex/web
+    buildCommand: npm ci --include=dev && npm run build -w @trex/web
     startCommand: npm run start -w @trex/web
     healthCheckPath: /
     autoDeployTrigger: commit
