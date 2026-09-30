@@ -2,13 +2,15 @@
 
 Trex Platform is the operational core for Trex Tea. V1 contains a NestJS API, PostgreSQL and Redis/BullMQ readiness, controlled SQL migrations, database-backed sessions, RBAC, and initial Next.js storefront, admin, and dealer applications.
 
-Production storefront domain: `https://www.trextea.com.tr`. DNS and HTTPS are not configured yet.
+Production storefront: [`https://www.trextea.com.tr`](https://www.trextea.com.tr). The root domain redirects to `www`; DNS verification and HTTPS certificate issuance are complete.
 
 `render.yaml` deploys the public storefront to Render's Frankfurt region from the `main` branch. It intentionally does not deploy the API, admin, dealer, payment, or shipping services until their production credentials and database/queue validation are available.
 
 The Render build explicitly includes development dependencies because Next.js needs TypeScript type packages while compiling the storefront; the running service still uses `NODE_ENV=production`.
 
-The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view the visual storefront at `http://localhost:3001` once dependencies can be installed. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
+The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view it locally at `http://localhost:3001`. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
+
+When the API gets its own production address, set `TREX_API_URL` in the storefront service. Product listing and product detail pages will then read only active products from `GET /v1/products`; if the API is unavailable, the storefront safely keeps its current placeholder catalogue online.
 
 The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, `/yasal`, and `/club`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected. Trex Club is intentionally separate: its water-tracking records stay only in the visitor's browser and are never sent to the platform.
 

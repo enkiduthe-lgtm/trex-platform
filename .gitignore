@@ -11,3 +11,4 @@ outputs/
 work/
 test-results.json
 .jest-temp/
+*.tsbuildinfo
