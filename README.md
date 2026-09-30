@@ -1,6 +1,6 @@
 # Trex Platform
 
-Trex Platform is the operational core for Trex Tea. This repository starts V1 with a NestJS API, PostgreSQL, Redis/BullMQ readiness, controlled SQL migrations, database-backed sessions, and RBAC. The public web, admin, and dealer Next.js applications will be added after this API foundation.
+Trex Platform is the operational core for Trex Tea. V1 contains a NestJS API, PostgreSQL and Redis/BullMQ readiness, controlled SQL migrations, database-backed sessions, RBAC, and initial Next.js storefront, admin, and dealer applications.
 
 Production storefront domain: `https://www.trextea.com.tr`. DNS and HTTPS are not configured yet.
 
@@ -42,6 +42,8 @@ The API image can be built from `apps/api/Dockerfile`. CI runs lint, compilation
 
 Başlangıçta ayar denetimi yapılır: veritabanı, Redis ve en az 32 karakterlik benzersiz JWT anahtarı zorunludur. Canlı ortamda `mock` ödeme/kargo sağlayıcıları veya `*` CORS ayarıyla başlatma engellenir.
 
+Mock ödeme, kargo ve bildirim uçları, ikinci bir koruma olarak `NODE_ENV=production` ortamında istek kabul etmez. Gerçek sağlayıcı adaptörleri ve imzalı geri çağrılar eklenmeden API canlı satış için açılmaz.
+
 Yönetici kampanya ve kupon işlemleri, işlem yapan yönetici ile birlikte denetim günlüğüne kaydedilir.
 
 The latest local verification evidence and remaining environment checks are in [docs/VERIFICATION.md](docs/VERIFICATION.md).
@@ -63,7 +65,7 @@ The latest local verification evidence and remaining environment checks are in [
 
 Roles defined now: `SUPER_ADMIN`, `ADMIN`, `WAREHOUSE`, `FINANCE`, `DEALER`, `CUSTOMER`. `GET /v1/auth/me` requires a valid bearer token; `GET /v1/admin/ping` demonstrates the admin boundary.
 
-The first `SUPER_ADMIN` must be provisioned by a future audited bootstrap command or migration seed; public registration is intentionally absent.
+Public registration is intentionally absent. The first `SUPER_ADMIN` is created with the audited bootstrap command described below.
 
 After migrations have run, create the first administrator once by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` in your local environment, then run `npm run bootstrap:admin`. It refuses passwords shorter than 12 characters, writes an Argon2id hash only, creates an audit record, and makes no change if that email already exists.
 

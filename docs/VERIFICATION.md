@@ -3,7 +3,7 @@
 ## Verified locally
 
 - NestJS API TypeScript compilation passes. (The Nest production compiler is currently incompatible with the locally installed Node.js 24 runtime; see the note below.)
-- Jest: 18 test suites and 26 unit tests pass, including campaign/kupon, indirimli ödeme akışı, and mock-provider production safeguards.
+- Jest: 18 test suites and 27 unit tests pass, including campaign/kupon, indirimli ödeme akışı, and mock-provider production safeguards.
 - Storefront TypeScript compilation passes.
 - Admin dashboard TypeScript compilation passes.
 - Dealer portal TypeScript compilation passes.

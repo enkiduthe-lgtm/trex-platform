@@ -1,3 +1,3 @@
 import { validateEnvironment } from './environment';
-const base={PORT:'3000',DATABASE_URL:'postgres://db',REDIS_URL:'redis://cache',JWT_SECRET:'a'.repeat(32),PAYMENT_PROVIDER:'mock',SHIPPING_PROVIDER:'mock'};
+const base={PORT:'3000',DATABASE_URL:'postgres://db',REDIS_URL:'redis://cache',JWT_SECRET:'a'.repeat(32),PAYMENT_PROVIDER:'mock',SHIPPING_PROVIDER:'mock',NOTIFICATION_PROVIDER:'mock'};
 describe('validateEnvironment',()=>{it('allows safe local mock development',()=>expect(()=>validateEnvironment(base)).not.toThrow());it('blocks mock providers in production',()=>expect(()=>validateEnvironment({...base,NODE_ENV:'production',CORS_ORIGIN:'https://www.trextea.com.tr'})).toThrow('cannot run in production'));it('blocks placeholder secrets',()=>expect(()=>validateEnvironment({...base,JWT_SECRET:'replace-with-a-long-random-secret-at-least-32-characters'})).toThrow('JWT_SECRET'))});
