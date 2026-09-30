@@ -4,6 +4,8 @@ Trex Platform is the operational core for Trex Tea. This repository starts V1 wi
 
 Production storefront domain: `https://www.trextea.com.tr`. DNS and HTTPS are not configured yet.
 
+`render.yaml` deploys the public storefront to Render's Frankfurt region from the `main` branch. It intentionally does not deploy the API, admin, dealer, payment, or shipping services until their production credentials and database/queue validation are available.
+
 The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view the visual storefront at `http://localhost:3001` once dependencies can be installed. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
 
 The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, and `/yasal`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected.

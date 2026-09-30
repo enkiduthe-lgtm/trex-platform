@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: trex-storefront
+    runtime: node
+    region: frankfurt
+    plan: free
+    branch: main
+    buildCommand: npm ci && npm run build -w @trex/web
+    startCommand: npm run start -w @trex/web
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
