@@ -14,12 +14,14 @@
     "bootstrap:admin": "tsx src/database/bootstrap-admin.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1144.0",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
     "@nestjs/core": "^10.4.15",
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/platform-express": "^10.4.15",
     "@nestjs/terminus": "^10.2.3",
+    "@aws-sdk/client-s3": "^3.1144.0",
     "argon2": "^0.41.1",
     "bullmq": "^5.34.10",
     "class-transformer": "^0.5.1",
