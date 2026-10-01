@@ -125,6 +125,8 @@ Admin users can create a mock notification at `POST /v1/admin/notifications`. It
 
 Pages are versioned and are visible publicly only after an admin publishes them. Legal documents use immutable code/version pairs and record user acceptances, ready for checkout integration. Public page read: `GET /v1/pages/:slug`; admin page creation/publishing uses `/v1/admin/pages`.
 
+Editors create a new revision at `POST /v1/admin/pages/:id/revisions`, then publish it deliberately. A published page always serves its specifically published revision, so saving a later draft never changes what visitors see.
+
 ## Warehouse operations foundation
 
 Picking and packing schemas retain the expected quantities, operator assignment, barcode scans, and completion state. A service creates a pick session only from a paid order; the warehouse UI and scan endpoints will use these records when the administration frontend is enabled.

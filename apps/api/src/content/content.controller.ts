@@ -6,7 +6,8 @@ import { Roles } from '../auth/roles';
 import { RolesGuard } from '../auth/roles.guard';
 import { RequestUser } from '../auth/auth.types';
 import { CreatePageDto } from './dto/create-page.dto';
+import { CreatePageRevisionDto } from './dto/create-page-revision.dto';
 import { ContentService } from './content.service';
 type UserRequest = Request & { user: RequestUser };
 @Controller()
-export class ContentController { constructor(private readonly content: ContentService) {} @Get('pages/:slug') public(@Param('slug') slug: string) { return this.content.getPublic(slug); } @Post('admin/pages') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreatePageDto, @Req() req: UserRequest) { return this.content.createPage(dto, req.user.id); } @Post('admin/pages/:id/publish') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) publish(@Param('id') id: string) { return this.content.publish(id); } }
+export class ContentController { constructor(private readonly content: ContentService) {} @Get('pages/:slug') public(@Param('slug') slug: string) { return this.content.getPublic(slug); } @Post('admin/pages') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreatePageDto, @Req() req: UserRequest) { return this.content.createPage(dto, req.user.id); } @Post('admin/pages/:id/revisions') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) createRevision(@Param('id') id: string, @Body() dto: CreatePageRevisionDto, @Req() req: UserRequest) { return this.content.createRevision(id, dto, req.user.id); } @Post('admin/pages/:id/publish') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) publish(@Param('id') id: string) { return this.content.publish(id); } }
