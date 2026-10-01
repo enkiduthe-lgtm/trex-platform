@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles';
 import { RolesGuard } from '../auth/roles.guard';
 import { RequestUser } from '../auth/auth.types';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ImportProductsDto } from './dto/import-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 type UserRequest = Request & { user: RequestUser };
@@ -16,5 +17,6 @@ export class ProductsController {
   @Get('products/:slug') getPublic(@Param('slug') slug: string) { return this.products.getPublic(slug); }
   @Get('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) listAdmin() { return this.products.listAdmin(); }
   @Post('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreateProductDto, @Req() req: UserRequest) { return this.products.create(dto, req.user); }
+  @Post('admin/products/import') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) importMany(@Body() dto: ImportProductsDto, @Req() req: UserRequest) { return this.products.importMany(dto.products, req.user); }
   @Patch('admin/products/:id') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) update(@Param('id') id: string, @Body() dto: UpdateProductDto, @Req() req: UserRequest) { return this.products.update(id, dto, req.user); }
 }

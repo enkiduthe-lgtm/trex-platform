@@ -16,6 +16,8 @@ The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sep
 
 The initial storefront cart is browser-local and lets visitors add, change, and remove catalogue products before the live cart API is connected. It never creates an order or accepts payment; checkout remains intentionally disabled until the secured API, stock reservation, payment provider, and shipping provider are live.
 
+The storefront header shows the browser-local cart count. The home selection, listing, and product detail pages all use the same API-ready product source, preventing storefront pages from drifting apart when live products are enabled.
+
 The storefront also has a customer-friendly not-found route and a fallback error screen, so unavailable product/content links do not expose framework errors.
 
 The initial dealer portal is in `apps/dealer` and starts locally with `npm run dev:dealer` on port 3003. It will connect to the existing dealer hierarchy, pricing, order, and commission API modules.
@@ -76,6 +78,8 @@ After migrations have run, create the first administrator once by setting `BOOTS
 ## Product API (first V1 module)
 
 `GET /v1/products` lists active products; `GET /v1/products/:slug` returns an active product. Admin and super-admin roles can use `GET/POST /v1/admin/products` and `PATCH /v1/admin/products/:id`. Product changes are audited; SKU, barcode (when supplied), and slug are unique. Updates require the current `version`, preventing a user from silently overwriting someone else's edit.
+
+Admins can also submit up to 250 product identities in one all-or-nothing request to `POST /v1/admin/products/import`. The request format and field rules are in [docs/PRODUCT_IMPORT_FORMAT.md](docs/PRODUCT_IMPORT_FORMAT.md). Prices, inventory, and media are deliberately excluded from this first import, so one catalogue upload cannot accidentally alter financial or warehouse data.
 
 ## Pricing API
 
