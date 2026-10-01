@@ -30,6 +30,8 @@ Campaigns and coupons are modeled in migration `018_campaigns.sql`; the initial 
 
 The admin media guide at `/medya` lists the required asset dimensions, formats, and usage guidance for each storefront placement. It can validate a selected local image now; permanent binary storage awaits the selected storage provider and CMS asset API connection.
 
+Permanent media uploads are prepared for Cloudflare R2. The required owner-side setup and the exact Render secret names are documented in [docs/MEDIA_STORAGE_SETUP.md](docs/MEDIA_STORAGE_SETUP.md); no credential belongs in Git or chat.
+
 The mock asset-record endpoint is `POST /v1/admin/assets/mock`; it requires an admin access token and records metadata only. Actual binary uploads await a chosen storage provider.
 
 ## Run locally
