@@ -1,6 +1,6 @@
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { DEFAULT_QUEUE } from './jobs.module';
+import { DEFAULT_QUEUE } from './jobs.constants';
 @Injectable()
 export class JobsService implements OnModuleDestroy {
   constructor(@Inject(DEFAULT_QUEUE) private readonly queue: Queue) {}

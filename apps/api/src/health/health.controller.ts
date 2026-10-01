@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { DatabaseService } from '../database/database.service';
-import { DEFAULT_QUEUE } from '../jobs/jobs.module';
+import { DEFAULT_QUEUE } from '../jobs/jobs.constants';
 @Controller('health')
 export class HealthController {
   constructor(private readonly db: DatabaseService, @Inject(DEFAULT_QUEUE) private readonly queue: Queue) {}

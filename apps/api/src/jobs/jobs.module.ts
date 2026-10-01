@@ -2,8 +2,8 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { JobsService } from './jobs.service';
+import { DEFAULT_QUEUE } from './jobs.constants';
 
-export const DEFAULT_QUEUE = 'trex-default';
 @Global()
 @Module({
   providers: [
