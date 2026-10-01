@@ -1,5 +1,42 @@
 services:
   - type: web
+    name: trex-api-staging
+    runtime: node
+    region: frankfurt
+    plan: free
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build -w @trex/api
+    startCommand: npm run db:migrate -w @trex/api && npm run start -w @trex/api
+    healthCheckPath: /v1/health/live
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: CORS_ORIGIN
+        value: https://www.trextea.com.tr
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: SHIPPING_PROVIDER
+        value: mock
+      - key: NOTIFICATION_PROVIDER
+        value: mock
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: trex-media
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+  - type: web
     name: trex-storefront
     runtime: node
     region: frankfurt

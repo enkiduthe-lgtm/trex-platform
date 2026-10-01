@@ -6,6 +6,8 @@ Production storefront: [`https://www.trextea.com.tr`](https://www.trextea.com.tr
 
 `render.yaml` deploys the public storefront to Render's Frankfurt region from the `main` branch. It intentionally does not deploy the API, admin, dealer, payment, or shipping services until their production credentials and database/queue validation are available.
 
+The same Blueprint includes `trex-api-staging`, a free Frankfurt API service for integration testing with Supabase, Upstash, and R2. It runs migrations on startup and is intentionally marked `staging`: payment, shipping, and notification providers remain mocks until their contracted production adapters and credentials are complete. Never treat this free, sleeping service as the production checkout system.
+
 The Render build explicitly includes development dependencies because Next.js needs TypeScript type packages while compiling the storefront; the running service still uses `NODE_ENV=production`.
 
 The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view it locally at `http://localhost:3001`. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
