@@ -79,7 +79,7 @@ Roles defined now: `SUPER_ADMIN`, `ADMIN`, `WAREHOUSE`, `FINANCE`, `DEALER`, `CU
 
 Public registration is intentionally absent. The first `SUPER_ADMIN` is created with the audited bootstrap command described below.
 
-After migrations have run, create the first administrator once by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` in your local environment, then run `npm run bootstrap:admin`. It refuses passwords shorter than 12 characters, writes an Argon2id hash only, creates an audit record, and makes no change if that email already exists.
+After migrations have run, create the first administrator once by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` in your local environment, then run `npm run bootstrap:admin`. On Render, setting both secrets and redeploying runs this same audited bootstrap once during startup. It refuses passwords shorter than 12 characters, writes an Argon2id hash only, and makes no change if that email already exists. Remove the two bootstrap secrets after a successful first sign-in.
 
 ## Product API (first V1 module)
 

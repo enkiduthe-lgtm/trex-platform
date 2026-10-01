@@ -6,7 +6,7 @@ services:
     plan: free
     branch: main
     buildCommand: npm ci --include=dev && npm run build -w @trex/api
-    startCommand: npm run db:migrate -w @trex/api && npm run start -w @trex/api
+    startCommand: npm run start:render -w @trex/api
     healthCheckPath: /v1/health/live
     autoDeployTrigger: commit
     envVars:
