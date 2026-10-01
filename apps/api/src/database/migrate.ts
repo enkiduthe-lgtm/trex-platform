@@ -8,7 +8,9 @@ const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required');
 
 async function main() {
-  const client = new Client({ connectionString }); await client.connect();
+  console.log('Connecting to PostgreSQL for migrations...');
+  const client = new Client({ connectionString, connectionTimeoutMillis: 15_000 });
+  await client.connect();
   try {
     const files = (await readdir(migrationsDirectory)).filter((name) => name.endsWith('.sql')).sort();
     const tableExists = await client.query("SELECT to_regclass('public.schema_migrations') IS NOT NULL AS exists");
@@ -28,6 +30,12 @@ async function main() {
       try { await client.query(migration.sql); await client.query('INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)', [migration.name, migration.checksum]); await client.query('COMMIT'); console.log(`Applied ${migration.name}`); }
       catch (error) { await client.query('ROLLBACK'); throw error; }
     }
-  } finally { await client.end(); }
+  } finally {
+    await client.end();
+    console.log('PostgreSQL migration check completed.');
+  }
 }
-void main();
+void main().catch((error: unknown) => {
+  console.error('PostgreSQL migration failed.', error);
+  process.exitCode = 1;
+});
