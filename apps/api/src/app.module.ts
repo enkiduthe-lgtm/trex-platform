@@ -20,6 +20,7 @@ import { WarehouseModule } from './warehouse/warehouse.module';
 import { AssetsModule } from './assets/assets.module';
 import { CustomersModule } from './customers/customers.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { FinanceModule } from './finance/finance.module';
 
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule] })
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule, FinanceModule] })
 export class AppModule {}

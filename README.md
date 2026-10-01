@@ -26,6 +26,8 @@ The initial dealer portal is in `apps/dealer` and starts locally with `npm run d
 
 The initial admin dashboard is in `apps/admin` and starts with `npm run dev:admin` on port 3002. It includes dashboard, product-management, order-operation, inventory/warehouse, dealer-management, and finance routes as API-ready user interface shells.
 
+The admin service is deployed separately from the customer storefront. Its initial Render address is `https://trex-admin.onrender.com/giris`; after DNS is added it will use `https://admin.trextea.com.tr`. Staff sign in with their individual account and see only the operations permitted by their role. Super-admins can create `ADMIN`, `WAREHOUSE`, and `FINANCE` personnel accounts from `/personel`.
+
 Customer CRM notes are modeled in migration `017_customer_notes.sql`; the initial admin customer screen is available at `/musteriler`.
 
 Campaigns and coupons are modeled in migration `018_campaigns.sql`; the initial management screen is `/kampanyalar`.
@@ -84,6 +86,10 @@ After migrations have run, create the first administrator once by setting `BOOTS
 `GET /v1/products` lists active products; `GET /v1/products/:slug` returns an active product. Admin and super-admin roles can use `GET/POST /v1/admin/products` and `PATCH /v1/admin/products/:id`. Product changes are audited; SKU, barcode (when supplied), and slug are unique. Updates require the current `version`, preventing a user from silently overwriting someone else's edit.
 
 Admins can also submit up to 250 product identities in one all-or-nothing request to `POST /v1/admin/products/import`. The request format and field rules are in [docs/PRODUCT_IMPORT_FORMAT.md](docs/PRODUCT_IMPORT_FORMAT.md). Prices, inventory, and media are deliberately excluded from this first import, so one catalogue upload cannot accidentally alter financial or warehouse data.
+
+## Admin operations now in progress
+
+The initial visual admin screens are being connected to the API. The API now supports listing dealers, creating up to four configurable dealer levels (`GET/POST /v1/admin/dealers/levels`), and approving, suspending, rejecting, or returning dealers to pending (`PATCH /v1/admin/dealers/:id/status`). Finance users can list and record manual TRY expenses and incoming bank transfers at `GET/POST /v1/admin/finance/records`. Every write has an audit record. The related database migration is `021_admin_operations.sql`.
 
 ## Pricing API
 
