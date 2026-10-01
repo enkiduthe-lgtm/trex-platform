@@ -13,4 +13,5 @@ export class NotificationsService {
     await this.db.query("UPDATE notifications SET status='SENT',provider_reference=$1,sent_at=now() WHERE id=$2", [ref, inserted.rows[0].id]);
     return { id: inserted.rows[0].id, status: 'SENT', providerReference: ref };
   }
+  async list() { return (await this.db.query('SELECT id,channel,recipient,subject,body,status,sent_at,created_at FROM notifications ORDER BY created_at DESC LIMIT 100')).rows; }
 }

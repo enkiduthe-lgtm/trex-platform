@@ -14,6 +14,7 @@ export class ReturnsService {
     }
     return { returnId: created.rows[0].id, status: 'REQUESTED' };
   }
+  async listAdmin() { return (await this.db.query(`SELECT r.id,r.status,r.reason,r.requested_at,r.received_at,o.order_number,COALESCE(SUM(ri.quantity),0) AS item_count FROM returns r JOIN orders o ON o.id=r.order_id LEFT JOIN return_items ri ON ri.return_id=r.id GROUP BY r.id,o.order_number ORDER BY r.requested_at DESC LIMIT 100`)).rows; }
   async inspect(returnId: string, accepted: boolean, notes: string | undefined, actorId: string) {
     const updated = await this.db.query("UPDATE returns SET status=$1,received_at=COALESCE(received_at,now()) WHERE id=$2 AND status IN ('REQUESTED','APPROVED','RECEIVED') RETURNING id", [accepted ? 'INSPECTED' : 'REJECTED', returnId]); if (!updated.rowCount) throw new NotFoundException('Return is not inspectable');
     await this.db.query('INSERT INTO return_inspections (return_id,accepted,notes,inspected_by) VALUES ($1,$2,$3,$4)', [returnId, accepted, notes ?? null, actorId]); return { returnId, status: accepted ? 'INSPECTED' : 'REJECTED' };

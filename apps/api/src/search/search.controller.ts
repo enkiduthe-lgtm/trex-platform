@@ -1,0 +1,3 @@
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard'; import { RolesGuard } from '../auth/roles.guard'; import { RequireRoles } from '../auth/roles.decorator'; import { Roles } from '../auth/roles'; import { SearchService } from './search.service';
+@Controller('admin/search') @UseGuards(JwtAuthGuard,RolesGuard) @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN,Roles.FINANCE,Roles.WAREHOUSE) export class SearchController { constructor(private readonly searchService:SearchService){} @Get() search(@Query('q') q=''){return q.trim().length<2?{products:[],dealers:[],orders:[],customers:[]}:this.searchService.search(q)} }

@@ -20,6 +20,18 @@ export class PricingService {
     const result = await this.db.query<PriceRow>('INSERT INTO product_prices (product_id, scope, channel, dealer_level_id, dealer_id, amount, currency, starts_at, ends_at, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *', [dto.productId, dto.scope, dto.channel ?? null, dto.dealerLevelId ?? null, dto.dealerId ?? null, dto.amount, dto.currency ?? 'TRY', dto.startsAt ?? new Date(), dto.endsAt ?? null, actor.id]);
     await this.db.query('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES ($1,$2,$3,$4)', [actor.id, 'price.created', 'product_price', result.rows[0].id]); return result.rows[0];
   }
+  async list(productId?: string) {
+    const result = await this.db.query<PriceRow & { product_name: string; dealer_level_name: string | null }>(
+      `SELECT pp.*, p.name AS product_name, dl.name AS dealer_level_name
+       FROM product_prices pp
+       JOIN products p ON p.id=pp.product_id
+       LEFT JOIN dealer_levels dl ON dl.id=pp.dealer_level_id
+       WHERE ($1::uuid IS NULL OR pp.product_id=$1)
+       ORDER BY p.name, pp.starts_at DESC`,
+      [productId ?? null],
+    );
+    return result.rows;
+  }
   async resolve(productId: string, context: { channel: SalesChannel; dealerLevelId?: string; dealerId?: string }): Promise<ResolvedPrice | null> {
     const result = await this.db.query<PriceRow>(`SELECT * FROM product_prices WHERE product_id=$1 AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now()) AND (
       (scope='DEALER' AND dealer_id=$2) OR (scope='DEALER_LEVEL' AND dealer_level_id=$3) OR (scope='CHANNEL' AND channel=$4) OR scope='GLOBAL'

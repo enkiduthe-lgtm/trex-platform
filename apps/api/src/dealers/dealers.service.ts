@@ -4,6 +4,8 @@ import { RequestUser } from '../auth/auth.types';
 import { CreateDealerDto } from './dto/create-dealer.dto';
 import { CreateDealerLevelDto } from './dto/create-dealer-level.dto';
 import { DealerStatus } from './dto/update-dealer-status.dto';
+import { PublicDealerApplicationDto } from './dto/public-dealer-application.dto';
+import { randomUUID } from 'crypto';
 @Injectable()
 export class DealersService {
   constructor(private readonly db: DatabaseService) {}
@@ -13,9 +15,14 @@ export class DealersService {
   async create(dto: CreateDealerDto, actor: RequestUser) {
     if (dto.parentDealerId) await this.assertActiveParent(dto.parentDealerId);
     try {
-      const dealer = await this.db.query<{ id: string }>("INSERT INTO dealers (code,company_name,tax_number,parent_dealer_id,dealer_level_id,status) VALUES ($1,$2,$3,$4,$5,'PENDING') RETURNING id", [dto.code, dto.companyName, dto.taxNumber ?? null, dto.parentDealerId ?? null, dto.dealerLevelId ?? null]);
+      const dealer = await this.db.query<{ id: string }>("INSERT INTO dealers (code,company_name,tax_number,parent_dealer_id,dealer_level_id,status) VALUES ($1,$2,$3,$4,$5,'RECEIVED') RETURNING id", [dto.code, dto.companyName, dto.taxNumber ?? null, dto.parentDealerId ?? null, dto.dealerLevelId ?? null]);
       await this.db.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, 'dealer.created', 'dealer', dealer.rows[0].id]); return dealer.rows[0];
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer code already exists'); throw error; }
+  }
+  async createPublicApplication(dto: PublicDealerApplicationDto) {
+    const code = `APP-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+    const result = await this.db.query<{ id: string }>(`INSERT INTO dealers(code,company_name,status,contact_name,contact_email,contact_phone,city,region,sales_channels,social_media) VALUES ($1,$2,'RECEIVED',$3,$4,$5,$6,$7,$8,$9) RETURNING id`, [code, dto.companyName.trim(), dto.contactName.trim(), dto.email.trim().toLowerCase(), dto.phone.trim(), dto.city.trim(), dto.region?.trim() || null, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
+    return { applicationId: result.rows[0].id, status: 'RECEIVED' };
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.created_at,l.name AS dealer_level_name,p.company_name AS parent_dealer_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id ORDER BY d.created_at DESC')).rows; }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }

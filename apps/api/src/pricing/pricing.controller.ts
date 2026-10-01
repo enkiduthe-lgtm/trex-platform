@@ -12,5 +12,6 @@ type UserRequest = Request & { user: RequestUser };
 export class PricingController {
   constructor(private readonly pricing: PricingService) {}
   @Get('products/:id/price') resolve(@Param('id') productId: string, @Query('channel') channel: SalesChannel = SalesChannel.PUBLIC_WEB) { return this.pricing.resolve(productId, { channel }); }
+  @Get('admin/prices') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) list(@Query('productId') productId?: string) { return this.pricing.list(productId); }
   @Post('admin/prices') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreatePriceDto, @Req() req: UserRequest) { return this.pricing.create(dto, req.user); }
 }

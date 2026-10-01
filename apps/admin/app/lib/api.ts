@@ -7,10 +7,11 @@ export function setToken(token: string) { window.localStorage.setItem(tokenKey, 
 export function clearToken() { window.localStorage.removeItem(tokenKey); }
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
+  const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
+    headers: { ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
   });
   if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message ?? `İşlem tamamlanamadı (${response.status})`); }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;

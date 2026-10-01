@@ -1,0 +1,2 @@
+import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+export class PublicDealerApplicationDto { @IsString() @MaxLength(240) companyName!: string; @IsString() @MaxLength(160) contactName!: string; @IsEmail() @MaxLength(240) email!: string; @IsString() @MaxLength(40) phone!: string; @IsString() @MaxLength(120) city!: string; @IsOptional() @IsString() @MaxLength(120) region?: string; @IsOptional() @IsString() @MaxLength(1000) salesChannels?: string; @IsOptional() @IsString() @MaxLength(500) socialMedia?: string; }

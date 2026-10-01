@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { CreateProductCostDto } from './dto/create-product-cost.dto';
 
 type ProductStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 export interface Product { id: string; sku: string; barcode: string | null; slug: string; name: string; description: string | null; status: ProductStatus; version: number; created_at: Date; updated_at: Date; }
@@ -20,6 +21,17 @@ export class ProductsService {
   async listPublic() { return (await this.db.query<Product>("SELECT * FROM products WHERE status='ACTIVE' ORDER BY created_at DESC")).rows; }
   async getPublic(slug: string) { const product = (await this.db.query<Product>("SELECT * FROM products WHERE slug=$1 AND status='ACTIVE'", [slug])).rows[0]; if (!product) throw new NotFoundException('Product not found'); return product; }
   async listAdmin() { return (await this.db.query<Product>('SELECT * FROM products ORDER BY created_at DESC')).rows; }
+  async listCosts() { return (await this.db.query(`SELECT pc.*, pc.amount AS unit_cost, p.name AS product_name, s.name AS supplier_name FROM product_costs pc JOIN products p ON p.id=pc.product_id LEFT JOIN suppliers s ON s.id=pc.supplier_id ORDER BY p.name, pc.starts_at DESC, pc.created_at DESC`)).rows; }
+  async profitability() { return (await this.db.query(`WITH latest_cost AS (SELECT DISTINCT ON (product_id) product_id,amount AS unit_cost FROM product_costs ORDER BY product_id,starts_at DESC,created_at DESC), latest_price AS (SELECT DISTINCT ON (product_id) product_id,amount FROM product_prices WHERE scope='GLOBAL' ORDER BY product_id,starts_at DESC,created_at DESC) SELECT p.id,p.name,lp.amount AS sale_price,lc.unit_cost,CASE WHEN lp.amount IS NOT NULL AND lc.unit_cost IS NOT NULL THEN lp.amount-lc.unit_cost END AS gross_profit,CASE WHEN lp.amount IS NOT NULL AND lp.amount>0 AND lc.unit_cost IS NOT NULL THEN ROUND(((lp.amount-lc.unit_cost)/lp.amount)*100,2) END AS gross_margin_percent FROM products p LEFT JOIN latest_price lp ON lp.product_id=p.id LEFT JOIN latest_cost lc ON lc.product_id=p.id ORDER BY p.name`)).rows; }
+  async createCost(dto: CreateProductCostDto, actor: RequestUser) {
+    return this.db.transaction(async client => {
+      let supplierId = dto.supplierId ?? null;
+      if (!supplierId && dto.supplierName?.trim()) { const supplier = await client.query<{ id: string }>('INSERT INTO suppliers(name) VALUES ($1) ON CONFLICT(name) DO UPDATE SET name=EXCLUDED.name RETURNING id', [dto.supplierName.trim()]); supplierId = supplier.rows[0].id; }
+      const result = await client.query<{ id: string }>('INSERT INTO product_costs(product_id,supplier_id,amount,note,created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [dto.productId, supplierId, dto.unitCost, dto.note?.trim() || null, actor.id]);
+      await client.query('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES ($1,$2,$3,$4)', [actor.id, 'product.cost.created', 'product_cost', result.rows[0].id]);
+      return result.rows[0];
+    });
+  }
   async importMany(products: CreateProductDto[], actor: RequestUser) {
     try {
       return await this.db.transaction(async (client) => {

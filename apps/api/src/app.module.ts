@@ -21,6 +21,8 @@ import { AssetsModule } from './assets/assets.module';
 import { CustomersModule } from './customers/customers.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { FinanceModule } from './finance/finance.module';
+import { OrdersModule } from './orders/orders.module';
+import { SearchModule } from './search/search.module';
 
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule, FinanceModule] })
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule, FinanceModule, OrdersModule, SearchModule] })
 export class AppModule {}

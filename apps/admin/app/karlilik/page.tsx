@@ -1,0 +1,6 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { AdminNav } from '../components/admin-nav';
+import { api } from '../lib/api';
+type Row={id:string;name:string;sale_price:string|null;unit_cost:string|null;gross_profit:string|null;gross_margin_percent:string|null};const money=(v:string|null)=>v===null?'—':Number(v).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
+export default function Profitability(){const [rows,setRows]=useState<Row[]>([]),[message,setMessage]=useState('');useEffect(()=>{api<Row[]>('/admin/product-profitability').then(setRows).catch(e=>setMessage(e.message));},[]);return <main><AdminNav/><section><p>FİNANS / ÜRÜN KÂRLILIĞI</p><h1>Ürün kârlılığı</h1><p>Bu görünüm, güncel site satış fiyatı ile son girilen birim maliyeti karşılaştırır. Kargo, komisyon ve kampanya katkısı eklenince net kâr raporu ayrıca hesaplanacaktır.</p>{message&&<p role="status">{message}</p>}<div className="cards">{rows.map(r=><article key={r.id}><p>ÜRÜN</p><h2>{r.name}</h2><p>Satış: {money(r.sale_price)}</p><p>Maliyet: {money(r.unit_cost)}</p><p>Brüt kâr: <strong>{money(r.gross_profit)}</strong></p><p>Brüt marj: <strong>{r.gross_margin_percent===null?'—':`%${r.gross_margin_percent}`}</strong></p></article>)}</div></section></main>}

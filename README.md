@@ -32,7 +32,7 @@ Customer CRM notes are modeled in migration `017_customer_notes.sql`; the initia
 
 Campaigns and coupons are modeled in migration `018_campaigns.sql`; the initial management screen is `/kampanyalar`.
 
-The admin media guide at `/medya` lists the required asset dimensions, formats, and usage guidance for each storefront placement. It can validate a selected local image now; permanent binary storage awaits the selected storage provider and CMS asset API connection.
+The admin media guide at `/medya` lists the required asset dimensions, formats, and usage guidance for each storefront placement. It validates a selected image before enabling upload, then sends a valid file to the protected media API. Permanent binary storage requires the selected R2 storage connection.
 
 Permanent media uploads use Cloudflare R2 when its server-side secrets are configured. `POST /v1/admin/assets/upload` accepts a single administrator-uploaded image (field name: `file`) plus its `placement`, stores it in R2, and records only its metadata/public URL in PostgreSQL. The required owner-side setup and the exact Render secret names are documented in [docs/MEDIA_STORAGE_SETUP.md](docs/MEDIA_STORAGE_SETUP.md); no credential belongs in Git or chat.
 
@@ -93,7 +93,7 @@ The initial visual admin screens are being connected to the API. The API now sup
 
 ## Pricing API
 
-Admins use `POST /v1/admin/prices` to create time-bounded TRY price rules. Resolution uses the fixed order: a dealer-specific price, then dealer-level price, then sales-channel price, then global price. `GET /v1/products/:id/price?channel=PUBLIC_WEB` resolves the effective price and returns its source and rule identifier; this data is designed to be snapshotted by the future checkout module rather than trusted from the browser.
+Admins use `GET/POST /v1/admin/prices` to review and create time-bounded TRY price rules. The live admin Products screen offers both a normal site sale price and a selected dealer-level price in Turkish lira. Resolution uses the fixed order: a dealer-specific price, then dealer-level price, then sales-channel price, then global price. `GET /v1/products/:id/price?channel=PUBLIC_WEB` resolves the effective price and returns its source and rule identifier; this data is designed to be snapshotted by the future checkout module rather than trusted from the browser.
 
 ## Inventory API
 
@@ -140,6 +140,36 @@ Editors create a new revision at `POST /v1/admin/pages/:id/revisions`, then publ
 ## Warehouse operations foundation
 
 Picking and packing schemas retain the expected quantities, operator assignment, barcode scans, and completion state. A service creates a pick session only from a paid order; the warehouse UI and scan endpoints will use these records when the administration frontend is enabled.
+
+The warehouse dashboard now exposes paid/processing orders, active picks, packing backlog, critical available stock, pending returns, and recent pick sessions to warehouse-authorized users. `023_inventory_lots_fefo.sql` adds lot, shelf-location, expiry, and available-quantity storage; its expiry index is ordered for FEFO selection when the scanning workflow is connected.
+
+## Account-based finance foundation
+
+The finance panel can create bank, cash, marketplace, cash-on-delivery-pending, and foreign-currency accounts. It records collections, income, expenses, refunds, commissions, premium expenses, and manual movements with payment states. Account transfers create matching `TRANSFER_OUT` and `TRANSFER_IN` rows, so they do not distort income or expense totals. The API routes are under `/v1/admin/finance/accounts`, `/transactions`, `/transfers`, and `/dashboard`; migration `022_finance_accounts.sql` creates the required tables.
+
+`GET /v1/admin/finance/alerts` reports derived operational warnings for negative account balances, incomplete collection references, overdue collections, and expense entries without a supporting reference. It is advisory: no financial movement is modified automatically.
+
+## Manual transfer approval
+
+Incoming manual collections can be created with `PENDING`, `COLLECTION_PENDING`, or `PARTIALLY_PAID` status and appear in the protected `/v1/admin/finance/pending-collections` queue. A finance-authorized user explicitly matches one to an order through `POST /v1/admin/finance/collections/:id/approve`. This records the approving user and timestamp, links the collection to the order, and advances a pending-payment order to `PAID` in the same database transaction. Unmatched collections remain pending; they never release an order to warehouse processing automatically.
+
+## Dealer application workflow
+
+Dealer applications begin as `RECEIVED` and can move through `REVIEWING`, `DOCUMENTS_REQUESTED`, approved (`ACTIVE`), rejected, or suspended states. The administration panel exposes these actions alongside the four dealer levels; status updates are audited.
+
+The public storefront has a `/bayilik` application form. It sends company/contact/city/channel details through the storefront server route to `POST /v1/dealer-applications`; the public endpoint creates a `RECEIVED` application without exposing administration credentials.
+
+## Returns operations
+
+Warehouse, finance, and administrator roles can list return requests at `GET /v1/returns/admin`. Warehouse-authorized users record an inspection decision through the existing protected inspection endpoint; the admin panel presents the request, order reference, requested quantity, reason, and depot note. A production refund is intentionally not created merely by inspection; refund payment and stock restoration must be applied as explicit next steps.
+
+## Role-aware master search
+
+`GET /v1/admin/search?q=...` searches products/SKUs/barcodes, dealers/codes, order numbers, and customer email/phone for authorized staff. Queries shorter than two characters intentionally return no records.
+
+## Product cost foundation
+
+Administrators and finance users can record a product's unit cost and optional supplier from the Products panel. Product cost records are historical rather than overwritten, so later reporting can use the cost effective at the time of the transaction. `024_product_costs.sql` adds supplier and product-cost tables; sales prices and dealer-level prices remain separate from cost.
 
 ## External services
 

@@ -1,0 +1,6 @@
+import { Injectable } from '@nestjs/common';
+import { DatabaseService } from '../database/database.service';
+import { RequestUser } from '../auth/auth.types';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+@Injectable()
+export class OrdersService { constructor(private readonly db: DatabaseService) {} async list() { return (await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,c.email AS customer_email,COALESCE(SUM(oi.quantity),0) AS item_count FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN order_items oi ON oi.order_id=o.id GROUP BY o.id,c.email ORDER BY o.created_at DESC LIMIT 100`)).rows; } async updateStatus(id:string,dto:UpdateOrderStatusDto,actor:RequestUser){return this.db.transaction(async client=>{const row=await client.query<{id:string}>('UPDATE orders SET status=$1 WHERE id=$2 RETURNING id',[dto.status,id]);if(!row.rowCount)throw new Error('Sipariş bulunamadı');await client.query('INSERT INTO order_status_history(order_id,status) VALUES ($1,$2)',[id,dto.status]);await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);return {id,status:dto.status};});} }
