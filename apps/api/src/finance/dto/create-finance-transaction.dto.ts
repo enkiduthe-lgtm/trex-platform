@@ -10,6 +10,9 @@ export class CreateFinanceTransactionDto {
   @IsOptional() @IsEnum(FinancePaymentStatus) paymentStatus?: FinancePaymentStatus;
   @IsOptional() @IsString() @MaxLength(240) counterpartyName?: string;
   @IsOptional() @IsString() @MaxLength(120) referenceNumber?: string;
+  @IsOptional() @IsString() @MaxLength(120) expenseCategory?: string;
+  @IsOptional() @IsString() @MaxLength(120) costCenter?: string;
+  @IsOptional() @IsString() @MaxLength(1000) documentUrl?: string;
   @IsOptional() @IsISO8601() occurredAt?: string;
 }
 export class CreateFinanceTransferDto {

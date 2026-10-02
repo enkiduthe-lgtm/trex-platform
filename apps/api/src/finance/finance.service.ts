@@ -40,7 +40,7 @@ export class FinanceService {
     return result.rows;
   }
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
-    const result = await this.db.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz,now()),$9) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.description.trim(), dto.occurredAt ?? null, actor.id]);
+    const result = await this.db.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, dto.description.trim(), dto.occurredAt ?? null, actor.id]);
     return result.rows[0];
   }
   async createMarketplaceSettlement(dto: CreateMarketplaceSettlementDto, actor: RequestUser) {

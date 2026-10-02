@@ -179,6 +179,10 @@ Orders are labelled as retail, dealer, wholesale, or marketplace sales. The prot
 
 An administrator or finance user can record a manual marketplace settlement at `POST /v1/admin/finance/marketplace-settlements`. It requires an active `MARKETPLACE` finance account and stores gross sales, commission, shipping deduction, campaign contribution, return deduction, reference, and the calculated net collection. The net amount creates one linked paid collection in the selected finance account; it is not double-counted as a separate expense. The Pazar yeri panel provides the protected form and recent reconciliation list. Migration `029_marketplace_settlements.sql` adds the auditable settlement record.
 
+## Expense details
+
+Manual finance movements can now carry an expense category (such as cargo, advertising, personnel, rent, software, marketplace commission, supplier, tax, or other), a cost center, and a document/dekont URL. These details are optional for non-expense movements and support future spending reports; missing references still trigger the existing finance alert.
+
 ## External services
 
 Payment and Aras Shipping are intentionally not wired to production. Configuration defaults to `mock`; provider credentials, merchant agreements, callback URLs, and sandbox acceptance tests remain blockers before their production adapters can be enabled. Redis is available for BullMQ workers but no business job is scheduled yet.
