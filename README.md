@@ -111,6 +111,8 @@ Guest carts use an opaque, random client key; the server stores only its SHA-256
 
 `POST /v1/payments/initialize` creates an internal payment attempt for an open checkout. `POST /v1/payments/:id/verify` is a development-only mock verification flow; on success it creates the order from immutable checkout snapshots. No PAN, CVV, or card data is accepted or stored. Before release, a chosen payment provider, production credentials, callback URL, signed-webhook verification, and sandbox acceptance tests are required.
 
+PayTR’s callback endpoint is `POST /v1/payments/paytr/callback`. It verifies the PayTR HMAC before accepting any callback and records duplicate notifications safely. The PayTR payment-initiation adapter and sandbox approval remain required before `PAYMENT_PROVIDER` is switched from `mock` to `paytr`.
+
 ## Shipping (mock/sandbox)
 
 Warehouse and admin roles can create a shipment for a paid order at `POST /v1/admin/orders/:id/shipment`. The mock adapter returns a tracking number and records the provider event. Provider failure is persisted as `FAILED` while the order remains intact, so a retry is safe. The production Aras adapter needs the contracted API credentials, service specification, pickup configuration, and sandbox validation.

@@ -1,9 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
-import { createHash } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { MockPaymentProvider } from './mock-payment.provider';
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
+import { PaytrCallbackDto } from './dto/paytr-callback.dto';
 
 @Injectable()
 export class PaymentsService {
@@ -18,6 +19,21 @@ export class PaymentsService {
     const payment = await this.db.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId, 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
     await this.db.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id, external.providerReference]);
     return { paymentId: payment.rows[0].id, providerReference: external.providerReference, status: 'PENDING' };
+  }
+  async receivePaytrCallback(dto: PaytrCallbackDto) {
+    const key = process.env.PAYTR_MERCHANT_KEY; const salt = process.env.PAYTR_MERCHANT_SALT;
+    if (!key || !salt) throw new ConflictException('PayTR gizli ayarları eksik');
+    const expected = createHmac('sha256', key).update(`${dto.merchant_oid}${salt}${dto.status}${dto.total_amount}`).digest('base64');
+    const received = Buffer.from(dto.hash); const calculated = Buffer.from(expected);
+    if (received.length !== calculated.length || !timingSafeEqual(received, calculated)) throw new ConflictException('Geçersiz PayTR bildirimi');
+    return this.db.transaction(async client => {
+      await client.query(`INSERT INTO payment_callbacks(provider,event_id,payload) VALUES ('paytr',$1,$2) ON CONFLICT (provider,event_id) DO NOTHING`, [dto.merchant_oid, JSON.stringify(dto)]);
+      const payment = await client.query<{ id: string; status: string }>(`SELECT id,status FROM payments WHERE provider='paytr' AND provider_reference=$1 FOR UPDATE`, [dto.merchant_oid]);
+      if (!payment.rowCount) return { response: 'OK', accepted: true, matched: false };
+      if (dto.status === 'failed') { await client.query(`UPDATE payments SET status='FAILED' WHERE id=$1 AND status='PENDING'`, [payment.rows[0].id]); return { response: 'OK', accepted: true, matched: true }; }
+      // Order completion is deliberately performed only after the PayTR payment-initiation adapter creates a matching payment.
+      return { response: 'OK', accepted: true, matched: true };
+    });
   }
   async verify(paymentId: string) {
     assertMockIntegrationAllowed('PAYMENT_PROVIDER');
