@@ -175,6 +175,10 @@ Administrators and finance users can record a product's unit cost and optional s
 
 Orders are labelled as retail, dealer, wholesale, or marketplace sales. The protected order endpoint accepts an optional channel filter: `GET /v1/admin/orders?channel=WHOLESALE` and `GET /v1/admin/orders?channel=MARKETPLACE`. The administration panel now has separate **Toptan** and **Pazar yeri** views, so marketplace gross sales, commission, shipping deduction, and calculated net collection are not mixed with other channels. Marketplace API adapters and automated reconciliation remain intentionally external-service work.
 
+## Marketplace settlement
+
+An administrator or finance user can record a manual marketplace settlement at `POST /v1/admin/finance/marketplace-settlements`. It requires an active `MARKETPLACE` finance account and stores gross sales, commission, shipping deduction, campaign contribution, return deduction, reference, and the calculated net collection. The net amount creates one linked paid collection in the selected finance account; it is not double-counted as a separate expense. The Pazar yeri panel provides the protected form and recent reconciliation list. Migration `029_marketplace_settlements.sql` adds the auditable settlement record.
+
 ## External services
 
 Payment and Aras Shipping are intentionally not wired to production. Configuration defaults to `mock`; provider credentials, merchant agreements, callback URLs, and sandbox acceptance tests remain blockers before their production adapters can be enabled. Redis is available for BullMQ workers but no business job is scheduled yet.
@@ -182,6 +186,8 @@ Payment and Aras Shipping are intentionally not wired to production. Configurati
 ## Database discipline
 
 Migrations live in `apps/api/migrations`, run in filename order, and their SHA-256 checksum is recorded. Applied migration files must never be edited. Add a new numbered SQL file for every schema change.
+
+Enum-value migrations are handled as separate SQL statements because PostgreSQL permits a new enum value to be referenced only after the `ALTER TYPE ... ADD VALUE` statement has committed. Other migrations remain atomic transactions.
 ### Kampanyalar ve kuponlar
 
 Yönetici, kampanyayı taslak olarak oluşturabilir, aktif/pasif yapabilir ve sabit TL veya yüzde indirimli kupon ekleyebilir. Bu uçlar yalnızca yönetici oturumu ile kullanılabilir. Yüzde kuponlar %100'ü geçemez; tarih aralığı da bitişi başlangıçtan sonra olacak şekilde doğrulanır. Siparişe kuponu uygulayan ekran, gerçek ödeme ve sipariş akışı tamamlandığında bu kayıtlarla bağlanacaktır.

@@ -26,6 +26,16 @@ async function main() {
     }
     if (process.argv[2] === 'status') { console.log(JSON.stringify({ applied: applied.size, pending: pending.map((m) => m.name) }, null, 2)); return; }
     for (const migration of pending) {
+      const hasEnumValueAddition = /ALTER\s+TYPE\s+[^;]+\s+ADD\s+VALUE/i.test(migration.sql);
+      if (hasEnumValueAddition) {
+        // PostgreSQL makes a newly-added enum value usable only after commit.
+        // Run the simple statements separately so a later INSERT can reference it.
+        const statements = migration.sql.split(';').map((statement) => statement.trim()).filter(Boolean);
+        for (const statement of statements) await client.query(statement);
+        await client.query('INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)', [migration.name, migration.checksum]);
+        console.log(`Applied ${migration.name}`);
+        continue;
+      }
       await client.query('BEGIN');
       try { await client.query(migration.sql); await client.query('INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)', [migration.name, migration.checksum]); await client.query('COMMIT'); console.log(`Applied ${migration.name}`); }
       catch (error) { await client.query('ROLLBACK'); throw error; }

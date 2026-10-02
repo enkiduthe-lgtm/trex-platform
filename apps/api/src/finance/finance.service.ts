@@ -5,6 +5,7 @@ import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { CreateFinanceAccountDto } from './dto/create-finance-account.dto';
 import { CreateFinanceTransactionDto, CreateFinanceTransferDto } from './dto/create-finance-transaction.dto';
 import { ApproveCollectionDto } from './dto/approve-collection.dto';
+import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlement.dto';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -24,6 +25,9 @@ export class FinanceService {
   async listTransactions() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
   }
+  async listMarketplaceSettlements() {
+    return (await this.db.query(`SELECT s.*,a.name AS account_name FROM marketplace_settlements s JOIN finance_accounts a ON a.id=s.account_id ORDER BY s.occurred_at DESC LIMIT 100`)).rows;
+  }
   async pendingCollections() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC LIMIT 100`)).rows;
   }
@@ -38,6 +42,19 @@ export class FinanceService {
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
     const result = await this.db.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz,now()),$9) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.description.trim(), dto.occurredAt ?? null, actor.id]);
     return result.rows[0];
+  }
+  async createMarketplaceSettlement(dto: CreateMarketplaceSettlementDto, actor: RequestUser) {
+    const commission = dto.commissionAmount ?? 0; const shipping = dto.shippingCostAmount ?? 0; const campaign = dto.campaignContributionAmount ?? 0; const refund = dto.refundAmount ?? 0;
+    const net = Number((dto.grossSalesAmount - commission - shipping - campaign - refund).toFixed(2));
+    if (net < 0) throw new Error('Kesintiler brüt satış tutarından yüksek olamaz');
+    return this.db.transaction(async client => {
+      const account = await client.query<{ id: string }>(`SELECT id FROM finance_accounts WHERE id=$1 AND account_type='MARKETPLACE' AND is_active=true FOR UPDATE`, [dto.accountId]);
+      if (!account.rowCount) throw new Error('Aktif bir pazar yeri hesabı seçin');
+      const transaction = await client.query<{ id: string }>(`INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,description,occurred_at,created_by) VALUES ($1,'COLLECTION',$2,'PAID',$3,$4,$5,COALESCE($6::timestamptz,now()),$7) RETURNING id`, [dto.accountId, net, dto.marketplaceName.trim(), dto.referenceNumber?.trim() || null, `${dto.marketplaceName.trim()} net tahsilatı`, dto.occurredAt ?? null, actor.id]);
+      const settlement = await client.query<{ id: string }>(`INSERT INTO marketplace_settlements(account_id,finance_transaction_id,marketplace_name,reference_number,gross_sales_amount,commission_amount,shipping_cost_amount,campaign_contribution_amount,refund_amount,net_collection_amount,occurred_at,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12,$13) RETURNING id`, [dto.accountId, transaction.rows[0].id, dto.marketplaceName.trim(), dto.referenceNumber?.trim() || null, dto.grossSalesAmount, commission, shipping, campaign, refund, net, dto.occurredAt ?? null, dto.note?.trim() || null, actor.id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.marketplace_settlement.created', 'marketplace_settlement', settlement.rows[0].id, JSON.stringify({ net, marketplace: dto.marketplaceName.trim() })]);
+      return { id: settlement.rows[0].id, transactionId: transaction.rows[0].id, netCollectionAmount: net };
+    });
   }
   async createTransfer(dto: CreateFinanceTransferDto, actor: RequestUser) {
     if (dto.fromAccountId === dto.toAccountId) throw new Error('Transfer source and target accounts must differ');
