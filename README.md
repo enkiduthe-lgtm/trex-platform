@@ -171,6 +171,10 @@ Warehouse, finance, and administrator roles can list return requests at `GET /v1
 
 Administrators and finance users can record a product's unit cost and optional supplier from the Products panel. Product cost records are historical rather than overwritten, so later reporting can use the cost effective at the time of the transaction. `024_product_costs.sql` adds supplier and product-cost tables; sales prices and dealer-level prices remain separate from cost.
 
+## Sales-channel operations
+
+Orders are labelled as retail, dealer, wholesale, or marketplace sales. The protected order endpoint accepts an optional channel filter: `GET /v1/admin/orders?channel=WHOLESALE` and `GET /v1/admin/orders?channel=MARKETPLACE`. The administration panel now has separate **Toptan** and **Pazar yeri** views, so marketplace gross sales, commission, shipping deduction, and calculated net collection are not mixed with other channels. Marketplace API adapters and automated reconciliation remain intentionally external-service work.
+
 ## External services
 
 Payment and Aras Shipping are intentionally not wired to production. Configuration defaults to `mock`; provider credentials, merchant agreements, callback URLs, and sandbox acceptance tests remain blockers before their production adapters can be enabled. Redis is available for BullMQ workers but no business job is scheduled yet.
