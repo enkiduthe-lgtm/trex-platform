@@ -2,7 +2,7 @@ import { CheckoutService } from './checkout.service';
 import { ConflictException } from '@nestjs/common';
 import { createHash } from 'crypto';
 describe('CheckoutService', () => {
-  const dto = { cartId: 'cfb29322-1b9f-47d4-8d78-e5eb16fa6fb8', guestKey: 'guest', warehouseId: '9f886414-bafe-4503-a1c6-8829bde37cfc', recipientName: 'Trex Test', phone: '555', city: 'Istanbul', district: 'Kadikoy', addressLine: 'Test', reservationMinutes: 10 };
+  const dto = { cartId: 'cfb29322-1b9f-47d4-8d78-e5eb16fa6fb8', guestKey: 'guest', warehouseId: '9f886414-bafe-4503-a1c6-8829bde37cfc', recipientName: 'Trex Test', contactEmail: 'test@trextea.com.tr', phone: '555', city: 'Istanbul', district: 'Kadikoy', addressLine: 'Test', reservationMinutes: 10 };
   it('rejects a repeated idempotency key when its request changes', async () => {
     const client = { query: jest.fn().mockResolvedValueOnce({ rows: [{ request_hash: 'different', resource_id: 'existing' }] }) };
     const db = { transaction: async (work: (client: unknown) => unknown) => work(client) };

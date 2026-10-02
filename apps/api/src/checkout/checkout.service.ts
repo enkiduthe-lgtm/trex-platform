@@ -35,7 +35,7 @@ export class CheckoutService {
         if (!inventory.rows[0] || inventory.rows[0].physical_quantity - inventory.rows[0].reserved_quantity < item.quantity) throw new ConflictException(`Insufficient stock for ${item.sku}`);
         await client.query('UPDATE inventory SET reserved_quantity=reserved_quantity+$1, updated_at=now() WHERE product_id=$2 AND warehouse_id=$3', [item.quantity, item.product_id, dto.warehouseId]);
       }
-      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions (cart_id,total_amount,coupon_id,discount_amount,expires_at) VALUES ($1,$2,$3,$4,now() + ($5 * interval '1 minute')) RETURNING id", [dto.cartId, total, couponId, discount, dto.reservationMinutes]);
+      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions (cart_id,total_amount,coupon_id,discount_amount,contact_email,contact_name,expires_at) VALUES ($1,$2,$3,$4,$5,$6,now() + ($7 * interval '1 minute')) RETURNING id", [dto.cartId, total, couponId, discount, dto.contactEmail.trim().toLowerCase(), dto.recipientName.trim(), dto.reservationMinutes]);
       await client.query('INSERT INTO checkout_addresses (checkout_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkout.rows[0].id, dto.recipientName, dto.phone, dto.city, dto.district, dto.addressLine, dto.postalCode ?? null]);
       for (const item of priced) {
         await client.query('INSERT INTO checkout_items (checkout_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkout.rows[0].id, item.product_id, item.name, item.sku, item.quantity, item.price!.amount, item.price!.currency]);

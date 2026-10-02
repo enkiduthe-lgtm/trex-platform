@@ -113,6 +113,8 @@ Guest carts use an opaque, random client key; the server stores only its SHA-256
 
 PayTR’s callback endpoint is `POST /v1/payments/paytr/callback`. It verifies the PayTR HMAC before accepting any callback and records duplicate notifications safely. The PayTR payment-initiation adapter and sandbox approval remain required before `PAYMENT_PROVIDER` is switched from `mock` to `paytr`.
 
+Checkout records now retain a validated contact email and recipient name, which are required by the PayTR initiation request. The public checkout screen will collect this information when the payment UI is enabled.
+
 ## Shipping (mock/sandbox)
 
 Warehouse and admin roles can create a shipment for a paid order at `POST /v1/admin/orders/:id/shipment`. The mock adapter returns a tracking number and records the provider event. Provider failure is persisted as `FAILED` while the order remains intact, so a retry is safe. The production Aras adapter needs the contracted API credentials, service specification, pickup configuration, and sandbox validation.
