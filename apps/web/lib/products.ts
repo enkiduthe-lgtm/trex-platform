@@ -6,6 +6,7 @@ export type StorefrontProduct = {
   name: string;
   description: string;
   price: string;
+  unitAmount?: number;
   tone: string;
 };
 
@@ -14,6 +15,7 @@ type ApiProduct = {
   slug: string;
   name: string;
   description: string | null;
+  sale_price: string | null;
 };
 
 const fallbackProducts: StorefrontProduct[] = catalog;
@@ -24,7 +26,8 @@ function asStorefrontProduct(product: ApiProduct, index: number): StorefrontProd
     slug: product.slug,
     name: product.name,
     description: product.description || 'Özenle hazırlanan Trex Tea seçkisi.',
-    price: 'Fiyat yakında',
+    price: product.sale_price ? Number(product.sale_price).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : 'Fiyat yakında',
+    unitAmount: product.sale_price ? Number(product.sale_price) : undefined,
     tone: `pack-${(index % 3) + 1}`,
   };
 }

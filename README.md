@@ -12,11 +12,11 @@ The Render build explicitly includes development dependencies because Next.js ne
 
 The first public storefront is now scaffolded under `apps/web`. Run `npm run dev:web` to view it locally at `http://localhost:3001`. Its product cards are deliberately placeholder content until the live API/product data integration is enabled.
 
-When the API gets its own production address, set `TREX_API_URL` in the storefront service. Product listing and product detail pages will then read only active products from `GET /v1/products`; if the API is unavailable, the storefront safely keeps its current placeholder catalogue online.
+Set `TREX_API_URL` in the storefront service to the API address without `/v1` (for example `https://trex-api-staging.onrender.com`). Product listing and product detail pages then read only active products from `GET /v1/products`; if the API is unavailable, the storefront safely keeps its current placeholder catalogue online. The same server-only setting powers the public checkout proxy and is never exposed to a visitor's browser.
 
 The storefront routes currently include `/`, `/urunler`, `/urunler/:slug`, `/sepet`, `/hesabim`, `/hesabim/siparisler`, `/yasal`, and `/club`. Cart persistence, sign-in, checkout, and live legal content become available when the API/Redis/PostgreSQL services are connected. Trex Club is intentionally separate: its water-tracking records stay only in the visitor's browser and are never sent to the platform.
 
-The initial storefront cart is browser-local and lets visitors add, change, and remove catalogue products before the live cart API is connected. It never creates an order or accepts payment; checkout remains intentionally disabled until the secured API, stock reservation, payment provider, and shipping provider are live.
+The storefront cart remains browser-local until checkout, where real products are recreated in a short-lived server cart. The API recalculates all prices, locks stock, reserves it, and starts payment; the browser never submits a price or trusted total. Placeholder catalogue items intentionally cannot enter the real checkout flow.
 
 The storefront header shows the browser-local cart count. The home selection, listing, and product detail pages all use the same API-ready product source, preventing storefront pages from drifting apart when live products are enabled.
 
@@ -109,9 +109,9 @@ Guest carts use an opaque, random client key; the server stores only its SHA-256
 
 ## Payments (mock/sandbox)
 
-`POST /v1/payments/initialize` creates an internal payment attempt for an open checkout. `POST /v1/payments/:id/verify` is a development-only mock verification flow; on success it creates the order from immutable checkout snapshots. No PAN, CVV, or card data is accepted or stored. Before release, a chosen payment provider, production credentials, callback URL, signed-webhook verification, and sandbox acceptance tests are required.
+`POST /v1/payments/initialize` creates an internal payment attempt for an open checkout. `POST /v1/payments/:id/verify` is a development-only mock verification flow; on success it creates the order from immutable checkout snapshots. No PAN, CVV, or card data is accepted or stored. The storefront card checkout submits only product IDs, delivery data, and quantities to its server route; it then redirects only to the provider URL returned by the API.
 
-PayTR’s callback endpoint is `POST /v1/payments/paytr/callback`. It verifies the PayTR HMAC before accepting any callback and records duplicate notifications safely. The PayTR payment-initiation adapter and sandbox approval remain required before `PAYMENT_PROVIDER` is switched from `mock` to `paytr`.
+PayTR’s callback endpoint is `POST /v1/payments/paytr/callback`. It verifies the PayTR HMAC before accepting any callback, records duplicate notifications safely, and turns a signed successful callback into one immutable paid order. A paid order automatically produces its matching depot pick list. The PayTR initiation adapter is present, but its sandbox approval remains mandatory before `PAYMENT_PROVIDER` is switched from `mock` to `paytr`.
 
 Checkout records now retain a validated contact email and recipient name, which are required by the PayTR initiation request. The public checkout screen will collect this information when the payment UI is enabled.
 
@@ -141,9 +141,9 @@ Pages are versioned and are visible publicly only after an admin publishes them.
 
 Editors create a new revision at `POST /v1/admin/pages/:id/revisions`, then publish it deliberately. A published page always serves its specifically published revision, so saving a later draft never changes what visitors see.
 
-## Warehouse operations foundation
+## Warehouse operations
 
-Picking and packing schemas retain the expected quantities, operator assignment, barcode scans, and completion state. A service creates a pick session only from a paid order; the warehouse UI and scan endpoints will use these records when the administration frontend is enabled.
+Picking and packing schemas retain the expected quantities, operator assignment, barcode scans, and completion state. A signed successful payment automatically creates the pick session from its stock reservation. In **Stok**, warehouse staff can open a pick list, see the product/SKU/barcode plus FEFO lot, shelf, and expiry recommendation, record every picked quantity, complete picking, then complete packing. A picked quantity cannot exceed the ordered quantity and each change is audited.
 
 The warehouse dashboard now exposes paid/processing orders, active picks, packing backlog, critical available stock, pending returns, and recent pick sessions to warehouse-authorized users. `023_inventory_lots_fefo.sql` adds lot, shelf-location, expiry, and available-quantity storage; its expiry index is ordered for FEFO selection when the scanning workflow is connected.
 
@@ -165,7 +165,7 @@ The public storefront has a `/bayilik` application form. It sends company/contac
 
 ## Returns operations
 
-Warehouse, finance, and administrator roles can list return requests at `GET /v1/returns/admin`. Warehouse-authorized users record an inspection decision through the existing protected inspection endpoint; the admin panel presents the request, order reference, requested quantity, reason, and depot note. A production refund is intentionally not created merely by inspection; refund payment and stock restoration must be applied as explicit next steps.
+Warehouse, finance, and administrator roles can list return requests at `GET /v1/returns/admin`. Warehouse-authorized users record an inspection decision through the existing protected inspection endpoint; the admin panel presents the request, order reference, requested quantity, reason, and depot note. An accepted inspection returns the received quantity to the warehouse that fulfilled the original order and writes an auditable stock receipt. Return requests are checked cumulatively, so several requests cannot exceed the original ordered quantity. A production refund is intentionally not created merely by inspection; the financial refund remains an explicit finance approval.
 
 ## Role-aware master search
 

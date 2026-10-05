@@ -1,4 +1,4 @@
-export type CartItem = { slug: string; name: string; description: string; price: string; quantity: number };
+export type CartItem = { productId?: string; slug: string; name: string; description: string; price: string; unitAmount?: number; quantity: number };
 
 const storageKey = 'trex-tea-cart-v1';
 const changeEvent = 'trex-cart-changed';
@@ -11,7 +11,7 @@ export function readCart(): CartItem[] {
 function isCartItem(value: unknown): value is CartItem {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
-  return typeof item.slug === 'string' && typeof item.name === 'string' && typeof item.description === 'string' && typeof item.price === 'string' && typeof item.quantity === 'number';
+  return typeof item.slug === 'string' && typeof item.name === 'string' && typeof item.description === 'string' && typeof item.price === 'string' && typeof item.quantity === 'number' && (item.productId === undefined || typeof item.productId === 'string') && (item.unitAmount === undefined || typeof item.unitAmount === 'number');
 }
 
 function saveCart(items: CartItem[]) { window.localStorage.setItem(storageKey, JSON.stringify(items)); window.dispatchEvent(new Event(changeEvent)); }

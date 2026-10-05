@@ -17,4 +17,11 @@ describe('OrdersService', () => {
     await expect(service.list('marketplace')).resolves.toEqual([]);
     expect(query.mock.calls[0][1]).toEqual(['MARKETPLACE']);
   });
+
+  it('tracks an order only with its matching checkout email', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [{ order_number: '20261005-000001', status: 'SHIPPED' }] });
+    const service = new OrdersService({ query } as never);
+    await expect(service.track('20261005-000001', 'customer@example.com')).resolves.toEqual({ order_number: '20261005-000001', status: 'SHIPPED' });
+    expect(query.mock.calls[0][1]).toEqual(['20261005-000001', 'customer@example.com']);
+  });
 });

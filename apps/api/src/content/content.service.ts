@@ -5,6 +5,7 @@ import { CreatePageRevisionDto } from './dto/create-page-revision.dto';
 @Injectable()
 export class ContentService {
   constructor(private readonly db: DatabaseService) {}
+  async listAdmin() { return (await this.db.query<{id:string;slug:string;title:string;status:string;published_at:string|null;version:string}>(`SELECT p.id,p.slug,p.title,p.status,p.published_at,COALESCE(MAX(r.version),0)::text AS version FROM cms_pages p LEFT JOIN cms_page_revisions r ON r.page_id=p.id GROUP BY p.id ORDER BY p.updated_at DESC`)).rows; }
   async createPage(dto: CreatePageDto, actorId: string) {
     try { const page = await this.db.query<{ id: string }>('INSERT INTO cms_pages (slug,title) VALUES ($1,$2) RETURNING id', [dto.slug, dto.title]); await this.db.query('INSERT INTO cms_page_revisions (page_id,version,content,created_by) VALUES ($1,1,$2,$3)', [page.rows[0].id, JSON.stringify(dto.content), actorId]); return page.rows[0]; }
     catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Page slug already exists'); throw error; }

@@ -10,6 +10,11 @@ interface CartItem { product_id: string; quantity: number; name: string; sku: st
 @Injectable()
 export class CheckoutService {
   constructor(private readonly db: DatabaseService, private readonly pricing: PricingService) {}
+  async fulfillment() {
+    const warehouse = await this.db.query<{ id: string; name: string }>('SELECT id,name FROM warehouses WHERE is_active=true ORDER BY created_at ASC LIMIT 1');
+    if (!warehouse.rows[0]) throw new NotFoundException('Teslimat için aktif depo bulunamadı');
+    return warehouse.rows[0];
+  }
   async create(dto: CreateCheckoutDto, idempotencyKey: string) {
     if (!idempotencyKey || idempotencyKey.length > 200) throw new ConflictException('Idempotency-Key header required');
     const requestHash = createHash('sha256').update(JSON.stringify(dto)).digest('hex');

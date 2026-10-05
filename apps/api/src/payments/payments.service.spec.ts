@@ -25,4 +25,24 @@ describe('PaymentsService', () => {
     await expect(service.receivePaytrCallback({ merchant_oid: 'order-1', status: 'success', total_amount: '10000', hash })).resolves.toEqual({ response: 'OK', accepted: true, matched: false });
     process.env.PAYTR_MERCHANT_KEY = previousKey; process.env.PAYTR_MERCHANT_SALT = previousSalt;
   });
+
+  it('turns a signed matching PayTR success callback into one order completion', async () => {
+    const previousKey = process.env.PAYTR_MERCHANT_KEY; const previousSalt = process.env.PAYTR_MERCHANT_SALT;
+    process.env.PAYTR_MERCHANT_KEY = 'test-key'; process.env.PAYTR_MERCHANT_SALT = 'test-salt';
+    const hash = createHmac('sha256', 'test-key').update('order-2test-saltsuccess12500').digest('base64');
+    const query = jest.fn().mockResolvedValueOnce({ rowCount: 1 }).mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'payment-1', status: 'PENDING' }] });
+    const service = new PaymentsService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never, {} as never);
+    const complete = jest.spyOn(service as any, 'completeSuccessfulPayment').mockResolvedValue({ status: 'SUCCEEDED', orderId: 'order-2', orderNumber: '20261005-000001', replayed: false });
+    await expect(service.receivePaytrCallback({ merchant_oid: 'order-2', status: 'success', total_amount: '12500', hash })).resolves.toMatchObject({ response: 'OK', matched: true, orderId: 'order-2' });
+    expect(complete).toHaveBeenCalledWith(expect.anything(), 'payment-1');
+    process.env.PAYTR_MERCHANT_KEY = previousKey; process.env.PAYTR_MERCHANT_SALT = previousSalt;
+  });
+
+  it('does not create a second manual-payment order for the same checkout', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'checkout', total_amount: '125.00', currency: 'TRY' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'payment', provider_reference: 'bank_transfer_ref', status: 'PENDING' }] });
+    const service = new PaymentsService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never, {} as never);
+    await expect(service.initializeManual('checkout', 'guest-key', 'TRANSFER')).resolves.toEqual({ paymentId: 'payment', providerReference: 'bank_transfer_ref', status: 'PENDING', replayed: true });
+  });
 });
