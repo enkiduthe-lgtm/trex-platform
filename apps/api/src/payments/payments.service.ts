@@ -5,21 +5,23 @@ import { DatabaseService } from '../database/database.service';
 import { MockPaymentProvider } from './mock-payment.provider';
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 import { PaytrCallbackDto } from './dto/paytr-callback.dto';
+import { PaytrPaymentProvider } from './paytr-payment.provider';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly db: DatabaseService, private readonly provider: MockPaymentProvider) {}
-  async initialize(checkoutId: string, guestKey: string) {
-    assertMockIntegrationAllowed('PAYMENT_PROVIDER');
+  constructor(private readonly db: DatabaseService, private readonly provider: MockPaymentProvider, private readonly paytr?: PaytrPaymentProvider) {}
+  async initialize(checkoutId: string, guestKey: string, userIp = '127.0.0.1') {
+    const usePaytr = process.env.PAYMENT_PROVIDER === 'paytr'; if (!usePaytr) assertMockIntegrationAllowed('PAYMENT_PROVIDER');
     const checkout = await this.db.query<{ id: string; total_amount: string; currency: string }>("SELECT s.id,s.total_amount,s.currency FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND s.status='OPEN' AND s.expires_at>now() AND c.session_key_hash=$2", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
     if (!checkout.rows[0]) throw new NotFoundException('Open checkout not found');
     const existing = await this.db.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1', [checkoutId]);
     if (existing.rows[0]) return { paymentId: existing.rows[0].id, providerReference: existing.rows[0].provider_reference, status: existing.rows[0].status };
-    const external = await this.provider.initialize({ amount: checkout.rows[0].total_amount, currency: checkout.rows[0].currency, reference: checkoutId });
-    const payment = await this.db.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId, 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
+    const external = usePaytr ? await this.initializePaytr(checkoutId, checkout.rows[0].total_amount, checkout.rows[0].currency, userIp) : await this.provider.initialize({ amount: checkout.rows[0].total_amount, currency: checkout.rows[0].currency, reference: checkoutId });
+    const payment = await this.db.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId, usePaytr ? 'paytr' : 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
     await this.db.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id, external.providerReference]);
-    return { paymentId: payment.rows[0].id, providerReference: external.providerReference, status: 'PENDING' };
+    return { paymentId: payment.rows[0].id, providerReference: external.providerReference, redirectUrl: external.redirectUrl, status: 'PENDING' };
   }
+  private async initializePaytr(checkoutId:string, amount:string, currency:string, userIp:string) { if (!this.paytr) throw new ConflictException('PayTR sağlayıcısı hazır değil'); const details=await this.db.query<{contact_email:string;contact_name:string;phone:string;address_line:string;city:string;district:string}>(`SELECT s.contact_email,s.contact_name,a.phone,a.address_line,a.city,a.district FROM checkout_sessions s JOIN checkout_addresses a ON a.checkout_id=s.id WHERE s.id=$1`,[checkoutId]); const data=details.rows[0]; if(!data?.contact_email) throw new ConflictException('PayTR için müşteri e-postası gerekli'); const items=await this.db.query<{product_name:string;quantity:number;unit_amount:string}>(`SELECT product_name,quantity,unit_amount FROM checkout_items WHERE checkout_id=$1`,[checkoutId]); const basket=Buffer.from(JSON.stringify(items.rows.map(i=>[i.product_name,i.unit_amount,i.quantity]))).toString('base64'); return this.paytr.initialize({amount,currency,reference:checkoutId,email:data.contact_email,name:data.contact_name,phone:data.phone,address:`${data.address_line}, ${data.district}/${data.city}`,basket,userIp}); }
   async receivePaytrCallback(dto: PaytrCallbackDto) {
     const key = process.env.PAYTR_MERCHANT_KEY; const salt = process.env.PAYTR_MERCHANT_SALT;
     if (!key || !salt) throw new ConflictException('PayTR gizli ayarları eksik');
