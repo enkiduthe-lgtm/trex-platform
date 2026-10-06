@@ -71,12 +71,34 @@ export class FinanceService {
     return this.db.transaction(async client => {
       const collection = await client.query<{ id: string; amount: string }>(`SELECT id,amount FROM finance_transactions WHERE id=$1 AND kind='COLLECTION' AND payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND approved_at IS NULL FOR UPDATE`, [id]);
       if (!collection.rowCount) throw new Error('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
-      const order = await client.query<{ id: string; status: string }>('SELECT id,status FROM orders WHERE id=$1 FOR UPDATE', [dto.orderId]);
+      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string }>('SELECT id,status,total_amount,checkout_id FROM orders WHERE id=$1 FOR UPDATE', [dto.orderId]);
       if (!order.rowCount) throw new Error('Sipariş bulunamadı');
+      const approved = await client.query<{ total: string }>(`SELECT COALESCE(SUM(amount),0)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='COLLECTION' AND approved_at IS NOT NULL`, [dto.orderId]);
+      const alreadyCollected = Number(approved.rows[0]?.total ?? 0);
+      const collectionAmount = Number(collection.rows[0].amount);
+      const orderTotal = Number(order.rows[0].total_amount);
+      const newCollectedTotal = Number((alreadyCollected + collectionAmount).toFixed(2));
+      if (newCollectedTotal > orderTotal) throw new Error('Bu havale siparişin kalan bakiyesinden yüksek');
       await client.query(`UPDATE finance_transactions SET order_id=$1,payment_status='PAID',approved_by=$2,approved_at=now() WHERE id=$3`, [dto.orderId, actor.id, id]);
-      if (order.rows[0].status === 'PENDING_PAYMENT') await client.query(`UPDATE orders SET status='PAID' WHERE id=$1`, [dto.orderId]);
-      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.collection.approved', 'finance_transaction', id, JSON.stringify({ orderId: dto.orderId, amount: collection.rows[0].amount })]);
-      return { collectionId: id, orderId: dto.orderId, paymentStatus: 'PAID' };
+      const outstandingAmount = Number((orderTotal - newCollectedTotal).toFixed(2));
+      let orderStatus = order.rows[0].status;
+      if (outstandingAmount === 0 && orderStatus === 'PENDING_PAYMENT') {
+        await client.query(`UPDATE orders SET status='PAID' WHERE id=$1`, [dto.orderId]);
+        await client.query(`UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE checkout_id=$1 AND status='PENDING'`, [order.rows[0].checkout_id]);
+        await client.query(`UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id IN (SELECT id FROM payments WHERE checkout_id=$1)`, [order.rows[0].checkout_id]);
+        await client.query(`INSERT INTO order_status_history(order_id,status) VALUES ($1,'PAID')`, [dto.orderId]);
+        const warehouse = await client.query<{ warehouse_id: string }>(`SELECT warehouse_id FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 ORDER BY created_at ASC LIMIT 1`, [order.rows[0].checkout_id]);
+        if (warehouse.rows[0]) {
+          const pick = await client.query<{ id: string }>(`INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') ON CONFLICT (order_id) DO NOTHING RETURNING id`, [dto.orderId, warehouse.rows[0].warehouse_id]);
+          if (pick.rows[0]) {
+            const orderItems = await client.query<{ id: string; quantity: number }>(`SELECT id,quantity FROM order_items WHERE order_id=$1`, [dto.orderId]);
+            for (const item of orderItems.rows) await client.query(`INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)`, [pick.rows[0].id, item.id, item.quantity]);
+          }
+        }
+        orderStatus = 'PAID';
+      }
+      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.collection.approved', 'finance_transaction', id, JSON.stringify({ orderId: dto.orderId, amount: collection.rows[0].amount, collectedTotal: newCollectedTotal, outstandingAmount, orderStatus })]);
+      return { collectionId: id, orderId: dto.orderId, paymentStatus: 'PAID', orderStatus, collectedTotal: newCollectedTotal, outstandingAmount };
     });
   }
 }
