@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { CreateWarehouseDto } from './dto/create-warehouse.dto';
+import { ReceiveStockDto } from './dto/receive-stock.dto';
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
@@ -7,6 +9,24 @@ export class WarehouseService {
     const result = await this.db.query<{ waiting: string; picking: string; packing: string; critical_stock: string; returns_pending: string }>(`SELECT (SELECT count(*)::text FROM orders WHERE status='PAID') waiting, (SELECT count(*)::text FROM picking_sessions WHERE status IN ('OPEN','IN_PROGRESS')) picking, (SELECT count(*)::text FROM picking_sessions ps JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE ps.status='COMPLETED' AND pk.packed_at IS NULL) packing, (SELECT count(*)::text FROM inventory WHERE physical_quantity-reserved_quantity <= 5) critical_stock, (SELECT count(*)::text FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED')) returns_pending`);
     return result.rows[0];
   }
+  async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
+  async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async createLocation(dto:CreateWarehouseDto,userId:string) {
+    try {
+      const row=await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('INSERT INTO warehouses(code,name,is_active) VALUES ($1,$2,$3) RETURNING id,code,name,is_active',[dto.code.trim().toUpperCase(),dto.name.trim(),dto.isActive ?? true]);
+      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'warehouse.created','warehouse',row.rows[0].id,JSON.stringify({code:row.rows[0].code})]);
+      return row.rows[0];
+    } catch (error:unknown) { if ((error as {code?:string}).code==='23505') throw new ConflictException('Bu depo kodu zaten kullanılıyor'); throw error; }
+  }
+  async receiveStock(dto:ReceiveStockDto,userId:string) { return this.db.transaction(async client=>{
+    const exists=await client.query('SELECT 1 FROM products WHERE id=$1',[dto.productId]); if(!exists.rowCount) throw new NotFoundException('Ürün bulunamadı');
+    const warehouse=await client.query('SELECT 1 FROM warehouses WHERE id=$1 AND is_active=true',[dto.warehouseId]); if(!warehouse.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
+    const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,dto.warehouseId,dto.quantity]);
+    await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)',[dto.productId,dto.warehouseId,dto.lotCode.trim(),dto.expiryDate ?? null,dto.quantity,dto.locationCode?.trim() || null]);
+    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by) VALUES ($1,$2,'RECEIPT',$3,$4,$5)",[dto.productId,dto.warehouseId,dto.quantity,'stock_receipt',userId]);
+    await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.received','inventory',`${dto.productId}:${dto.warehouseId}`,JSON.stringify({quantity:dto.quantity,lotCode:dto.lotCode,expiryDate:dto.expiryDate ?? null,locationCode:dto.locationCode ?? null,note:dto.note ?? null})]);
+    return inventory.rows[0];
+  }); }
   async listPicks() { return (await this.db.query(`SELECT ps.id, ps.status, ps.created_at, o.order_number, w.name AS warehouse_name, u.email AS assigned_email, COALESCE(SUM(pi.expected_quantity),0) AS expected_items, COALESCE(SUM(pi.picked_quantity),0) AS picked_items FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id JOIN warehouses w ON w.id=ps.warehouse_id LEFT JOIN users u ON u.id=ps.assigned_to LEFT JOIN picking_items pi ON pi.picking_session_id=ps.id GROUP BY ps.id,o.order_number,w.name,u.email ORDER BY ps.created_at DESC LIMIT 50`)).rows; }
   async getPick(id:string) {
     const pick = await this.db.query<{id:string;status:string;order_number:string;warehouse_name:string}>(`SELECT ps.id,ps.status,o.order_number,w.name AS warehouse_name FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id JOIN warehouses w ON w.id=ps.warehouse_id WHERE ps.id=$1`,[id]);

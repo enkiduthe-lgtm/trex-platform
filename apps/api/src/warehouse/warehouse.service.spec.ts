@@ -35,4 +35,17 @@ describe('WarehouseService', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE stock_reservations SET status='CONSUMED'"),['reservation']);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'FULFILLMENT'"),['product','warehouse',-2,'order','user']);
   });
+
+  it('receives stock by creating inventory, a lot, movement and audit entry', async () => {
+    const client={query:jest.fn()
+      .mockResolvedValueOnce({rowCount:1})
+      .mockResolvedValueOnce({rowCount:1})
+      .mockResolvedValueOnce({rows:[{physical_quantity:12}]})
+      .mockResolvedValue({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    const result=await new WarehouseService(db as never).receiveStock({productId:'product',warehouseId:'warehouse',quantity:12,lotCode:'LOT-1'},'user');
+    expect(result).toEqual({physical_quantity:12});
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_lots'),['product','warehouse','LOT-1',null,12,null]);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"),['product','warehouse',12,'stock_receipt','user']);
+  });
 });

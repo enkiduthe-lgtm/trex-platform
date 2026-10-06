@@ -8,15 +8,21 @@ import { WarehouseService } from './warehouse.service';
 import { CreatePickDto } from './dto/create-pick.dto';
 import { UpdatePickItemDto } from './dto/update-pick-item.dto';
 import { RequestUser } from '../auth/auth.types';
+import { CreateWarehouseDto } from './dto/create-warehouse.dto';
+import { ReceiveStockDto } from './dto/receive-stock.dto';
 type UserRequest = Request & { user: RequestUser };
 
 @Controller('admin/warehouse') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
 export class WarehouseController {
   constructor(private readonly warehouse: WarehouseService) {}
   @Get('dashboard') dashboard() { return this.warehouse.dashboard(); }
+  @Get('locations') locations() { return this.warehouse.listLocations(); }
+  @Get('stock') stock() { return this.warehouse.listStock(); }
   @Get('picks') picks() { return this.warehouse.listPicks(); }
   @Get('picks/:id') pick(@Param('id') id:string) { return this.warehouse.getPick(id); }
   @Get('critical-stock') criticalStock() { return this.warehouse.criticalStock(); }
+  @Post('locations') createLocation(@Body() dto: CreateWarehouseDto, @Req() req: UserRequest) { return this.warehouse.createLocation(dto, req.user.id); }
+  @Post('receipts') receiveStock(@Body() dto: ReceiveStockDto, @Req() req: UserRequest) { return this.warehouse.receiveStock(dto, req.user.id); }
   @Post('picks') createPick(@Body() dto: CreatePickDto, @Req() req: UserRequest) { return this.warehouse.createPick(dto.orderId, dto.warehouseId, req.user.id); }
   @Patch('picks/:pickId/items/:itemId') updatePickedQuantity(@Param('pickId') pickId:string, @Param('itemId') itemId:string, @Body() dto: UpdatePickItemDto, @Req() req: UserRequest) { return this.warehouse.updatePickedQuantity(pickId, itemId, dto.pickedQuantity, req.user.id); }
   @Post('picks/:id/complete') completePick(@Param('id') id:string, @Req() req: UserRequest) { return this.warehouse.completePick(id, req.user.id); }
