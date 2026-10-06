@@ -16,7 +16,17 @@ function isCartItem(value: unknown): value is CartItem {
 
 function saveCart(items: CartItem[]) { window.localStorage.setItem(storageKey, JSON.stringify(items)); window.dispatchEvent(new Event(changeEvent)); }
 
-export function addToCart(item: Omit<CartItem, 'quantity'>) { const cart = readCart(); const existing = cart.find((entry) => entry.slug === item.slug); if (existing) existing.quantity += 1; else cart.push({ ...item, quantity: 1 }); saveCart(cart); }
+export function addToCart(item: Omit<CartItem, 'quantity'>) {
+  const cart = readCart();
+  const existing = cart.find((entry) => entry.slug === item.slug);
+  if (existing) {
+    // Replace a legacy fallback/catalogue item with the API-backed product.
+    // Both can share the same slug, but only the API item has a product ID for checkout.
+    if (!existing.productId && item.productId) Object.assign(existing, item);
+    existing.quantity += 1;
+  } else cart.push({ ...item, quantity: 1 });
+  saveCart(cart);
+}
 
 export function setCartQuantity(slug: string, quantity: number) { const cart = readCart(); const items = quantity < 1 ? cart.filter((item) => item.slug !== slug) : cart.map((item) => item.slug === slug ? { ...item, quantity } : item); saveCart(items); }
 
