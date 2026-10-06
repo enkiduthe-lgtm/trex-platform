@@ -1,5 +1,17 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { clearToken } from '../lib/api';
-export function AdminNav() { const router = useRouter(); return <aside><b>TREX<br/>YÖNETİM</b><Link href="/">Genel bakış</Link><Link href="/urunler">Ürünler</Link><Link href="/karlilik">Kârlılık</Link><Link href="/siparisler">Siparişler</Link><Link href="/toptan">Toptan</Link><Link href="/pazaryeri">Pazar yeri</Link><Link href="/iadeler">İadeler</Link><Link href="/stok">Stok</Link><Link href="/bayiler">Bayiler</Link><Link href="/finans">Finans</Link><Link href="/finans/masraflar">Masraflar</Link><Link href="/finans/havaleler">Havale onayı</Link><Link href="/musteriler">Müşteriler</Link><Link href="/kampanyalar">Kampanyalar</Link><Link href="/icerikler">İçerikler ve SEO</Link><Link href="/bildirimler">Bildirimler</Link><Link href="/medya">Medya</Link><Link href="/personel">Personel</Link><button className="nav-button" onClick={() => { clearToken(); router.push('/giris'); }}>Çıkış yap</button></aside>; }
+
+const groups = [
+  { label: 'OPERASYON', items: [['Genel bakış','/'],['Siparişler','/siparisler'],['Stok ve depo','/stok'],['İadeler','/iadeler']] },
+  { label: 'KATALOG', items: [['Ürünler','/urunler'],['Kârlılık','/karlilik'],['Kampanyalar','/kampanyalar'],['Medya','/medya'],['İçerikler ve SEO','/icerikler']] },
+  { label: 'TİCARİ', items: [['Müşteriler','/musteriler'],['Bayiler','/bayiler'],['Toptan','/toptan'],['Pazar yeri','/pazaryeri']] },
+  { label: 'FİNANS', items: [['Finans özeti','/finans'],['Masraflar','/finans/masraflar'],['Havale onayı','/finans/havaleler']] },
+  { label: 'SİSTEM', items: [['Bildirimler','/bildirimler'],['Personel','/personel']] },
+] as const;
+
+export function AdminNav() {
+  const router = useRouter(); const pathname = usePathname();
+  return <aside className="admin-nav"><Link className="brand" href="/"><span>TREX</span><strong>YÖNETİM</strong><small>OPERASYON MERKEZİ</small></Link><nav>{groups.map(group=><div className="nav-group" key={group.label}><p>{group.label}</p>{group.items.map(([label,href])=><Link className={pathname===href?'active':''} key={href} href={href}>{label}</Link>)}</div>)}</nav><div className="nav-footer"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Mağazayı görüntüle ↗</a><button className="nav-button" onClick={() => { clearToken(); router.push('/giris'); }}>Çıkış yap</button></div></aside>;
+}
