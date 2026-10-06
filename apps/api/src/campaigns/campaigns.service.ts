@@ -7,7 +7,8 @@ type CouponRow = { id:string; discount_type:'FIXED_TRY'|'PERCENT'; discount_valu
 @Injectable()
 export class CampaignsService {
   constructor(private readonly db: DatabaseService) {}
-  async list() { return (await this.db.query('SELECT id,name,status,starts_at,ends_at,created_at FROM campaigns ORDER BY created_at DESC')).rows; }
+  async list() { return (await this.db.query(`SELECT p.id,p.name,p.status,p.starts_at,p.ends_at,p.created_at,COUNT(c.id)::int AS coupon_count FROM campaigns p LEFT JOIN coupons c ON c.campaign_id=p.id GROUP BY p.id ORDER BY p.created_at DESC`)).rows; }
+  async listCoupons() { return (await this.db.query(`SELECT c.id,c.campaign_id,c.code,c.discount_type,c.discount_value,c.usage_limit,c.used_count,c.starts_at,c.ends_at,p.name AS campaign_name,p.status AS campaign_status FROM coupons c JOIN campaigns p ON p.id=c.campaign_id ORDER BY c.created_at DESC`)).rows; }
   async create(name: string, actorId: string, startsAt?: string, endsAt?: string) {
     this.validateWindow(startsAt, endsAt);
     const campaign=(await this.db.query<{ id: string }>('INSERT INTO campaigns (name,starts_at,ends_at) VALUES ($1,$2,$3) RETURNING id', [name, startsAt ?? null, endsAt ?? null])).rows[0]; await this.audit(actorId,'campaign.created','campaign',campaign.id,{name}); return campaign;
