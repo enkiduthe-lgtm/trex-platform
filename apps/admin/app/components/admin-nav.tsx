@@ -1,17 +1,21 @@
 'use client';
+
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearToken } from '../lib/api';
 
-const groups = [
-  { label: 'OPERASYON', items: [['Genel bakış','/'],['Siparişler','/siparisler'],['Stok ve depo','/stok'],['İadeler','/iadeler']] },
-  { label: 'KATALOG', items: [['Ürünler','/urunler'],['Kârlılık','/karlilik'],['Kampanyalar','/kampanyalar'],['Medya','/medya'],['İçerikler ve SEO','/icerikler']] },
-  { label: 'TİCARİ', items: [['Müşteriler','/musteriler'],['Bayiler','/bayiler'],['Toptan','/toptan'],['Pazar yeri','/pazaryeri']] },
-  { label: 'FİNANS', items: [['Finans özeti','/finans'],['Masraflar','/finans/masraflar'],['Havale onayı','/finans/havaleler']] },
-  { label: 'SİSTEM', items: [['Bildirimler','/bildirimler'],['Personel','/personel']] },
-] as const;
-
-export function AdminNav() {
-  const router = useRouter(); const pathname = usePathname();
-  return <aside className="admin-nav"><Link className="brand" href="/"><span>TREX</span><strong>YÖNETİM</strong><small>OPERASYON MERKEZİ</small></Link><nav>{groups.map(group=><div className="nav-group" key={group.label}><p>{group.label}</p>{group.items.map(([label,href])=><Link className={pathname===href?'active':''} key={href} href={href}>{label}</Link>)}</div>)}</nav><div className="nav-footer"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Mağazayı görüntüle ↗</a><button className="nav-button" onClick={() => { clearToken(); router.push('/giris'); }}>Çıkış yap</button></div></aside>;
-}
+type Entry = { label: string; href?: string };
+type Menu = { label: string; href?: string; icon: string; groups?: { title: string; entries: Entry[] }[] };
+const menus: Menu[] = [
+  { label: 'SİPARİŞLER', href: '/siparisler', icon: '▤', groups: [{ title: 'Sipariş durumları', entries: [{ label: 'Tüm siparişler', href: '/siparisler' }, { label: 'İade talepleri', href: '/iadeler' }, { label: 'Ödeme hareketleri', href: '/finans' }] }, { title: 'Operasyon', entries: [{ label: 'Depo ve stok', href: '/stok' }, { label: 'Kargo işlemleri' }, { label: 'Sipariş etiketleri' }] }] },
+  { label: 'ÜRÜNLER', href: '/urunler', icon: '◇', groups: [{ title: 'Katalog', entries: [{ label: 'Ürünler', href: '/urunler' }, { label: 'Stok yönetimi', href: '/stok' }, { label: 'Ürün görselleri', href: '/medya' }] }, { title: 'Ürün işlemleri', entries: [{ label: 'Fiyat ve kârlılık', href: '/karlilik' }, { label: 'Toplu ürün güncelleme' }, { label: 'İçe / dışa aktarma' }] }] },
+  { label: 'PAZARYERİ', href: '/pazaryeri', icon: '◫', groups: [{ title: 'Kanallar', entries: [{ label: 'Pazaryeri bağlantıları', href: '/pazaryeri' }, { label: 'Bayi satış kanalı', href: '/toptan' }] }, { title: 'Senkronizasyon', entries: [{ label: 'Ürün eşleştirmeleri' }, { label: 'Ürün gönderimleri' }, { label: 'Fiyat rekabeti analizi' }] }] },
+  { label: 'KAMPANYALAR', href: '/kampanyalar', icon: '✦', groups: [{ title: 'Fiyatlandırma', entries: [{ label: 'Kampanya yönetimi', href: '/kampanyalar' }, { label: 'Bayi indirimleri', href: '/bayiler' }, { label: 'Hızlı indirimler' }] }, { title: 'Pazarlama', entries: [{ label: 'Hediye çekleri' }, { label: 'Satış kotaları' }, { label: 'E-posta ve SMS bültenleri', href: '/bildirimler' }] }] },
+  { label: 'MÜŞTERİLER', href: '/musteriler', icon: '♙', groups: [{ title: 'Müşteri yönetimi', entries: [{ label: 'Müşteriler', href: '/musteriler' }, { label: 'Bayiler', href: '/bayiler' }, { label: 'Cari ve bakiye', href: '/finans' }] }, { title: 'İletişim', entries: [{ label: 'Bildirim merkezi', href: '/bildirimler' }, { label: 'Müşteri talepleri' }, { label: 'Müşteri grupları' }] }] },
+  { label: 'TASARIM', icon: '◈', groups: [{ title: 'Mağaza', entries: [{ label: 'İçerikler', href: '/icerikler' }, { label: 'Medya merkezi', href: '/medya' }, { label: 'SEO optimizasyonu' }] }, { title: 'İçerik', entries: [{ label: 'Bannerlar ve görseller', href: '/medya' }, { label: 'Sayfalar', href: '/icerikler' }, { label: 'Yönlendirmeler' }] }] },
+  { label: 'RAPORLAR', href: '/karlilik', icon: '▥', groups: [{ title: 'Analiz', entries: [{ label: 'Kârlılık raporu', href: '/karlilik' }, { label: 'Satış performansı', href: '/' }, { label: 'Stok raporları', href: '/stok' }] }] },
+  { label: 'ARAÇLAR', icon: '⚙', groups: [{ title: 'Entegrasyonlar', entries: [{ label: 'Ödeme yöntemleri', href: '/finans' }, { label: 'Kargo ve teslimat', href: '/stok' }, { label: 'Pazaryeri bağlantıları', href: '/pazaryeri' }] }, { title: 'Sistem', entries: [{ label: 'Bildirimler', href: '/bildirimler' }, { label: 'Muhasebe / ERP' }, { label: 'Eklentiler' }] }] },
+  { label: 'AYARLAR', href: '/personel', icon: '⚿', groups: [{ title: 'Yönetim', entries: [{ label: 'Personeller ve yetkiler', href: '/personel' }, { label: 'Bildirim ayarları', href: '/bildirimler' }, { label: 'Mağaza ayarları' }] }, { title: 'Ticari', entries: [{ label: 'Vergiler' }, { label: 'Para birimleri' }, { label: 'Yazdırma etiketleri' }] }] },
+];
+function active(pathname: string, menu: Menu) { return Boolean(menu.href && (pathname === menu.href || (menu.href !== '/' && pathname.startsWith(`${menu.href}/`)))) || Boolean(menu.groups?.some(g => g.entries.some(e => e.href === pathname))); }
+export function AdminNav() { const router = useRouter(); const pathname = usePathname(); return <header className="admin-header"><div className="header-main"><Link className="header-brand" href="/"><b>TREX</b><span>YÖNETİM</span></Link><label className="panel-search"><input aria-label="Panelde ara" placeholder="Panelde ara" /><span>⌕</span></label><div className="header-links"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Siteyi görüntüle ↗</a><Link href="/bildirimler">● Bildirimler</Link><button onClick={() => { clearToken(); router.push('/giris'); }}>Çıkış</button></div></div><nav className="header-nav" aria-label="Yönetim menüsü"><Link className={pathname === '/' ? 'active' : ''} href="/"><i>⌂</i> ANA SAYFA</Link>{menus.map(menu => <div className={`nav-menu ${active(pathname, menu) ? 'active' : ''}`} key={menu.label}>{menu.href ? <Link href={menu.href}><i>{menu.icon}</i>{menu.label}<small>⌄</small></Link> : <button type="button"><i>{menu.icon}</i>{menu.label}<small>⌄</small></button>}<div className="nav-dropdown">{menu.groups?.map(group => <section key={group.title}><h3>{group.title}</h3>{group.entries.map(entry => entry.href ? <Link href={entry.href} key={entry.label}>{entry.label}</Link> : <span className="soon" key={entry.label}>{entry.label}<em>Yakında</em></span>)}</section>)}</div></div>)}</nav></header>; }
