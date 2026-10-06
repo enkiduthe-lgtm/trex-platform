@@ -48,7 +48,10 @@ async function requestProducts(): Promise<ApiProduct[] | null> {
 
 export async function getStorefrontProducts(): Promise<StorefrontProduct[]> {
   const products = await requestProducts();
-  return products?.length ? products.map(asStorefrontProduct) : fallbackProducts;
+  // Production storefronts must never silently sell placeholder catalogue items.
+  // The fallback exists solely for an unconfigured local development environment.
+  if (process.env.TREX_API_URL) return products ? products.map(asStorefrontProduct) : [];
+  return fallbackProducts;
 }
 
 export async function getStorefrontProduct(slug: string): Promise<StorefrontProduct | undefined> {

@@ -30,4 +30,6 @@ export function addToCart(item: Omit<CartItem, 'quantity'>) {
 
 export function setCartQuantity(slug: string, quantity: number) { const cart = readCart(); const items = quantity < 1 ? cart.filter((item) => item.slug !== slug) : cart.map((item) => item.slug === slug ? { ...item, quantity } : item); saveCart(items); }
 
+export function removeLegacyCartItems() { saveCart(readCart().filter((item) => Boolean(item.productId))); }
+
 export function subscribeToCart(listener: () => void) { window.addEventListener(changeEvent, listener); return () => window.removeEventListener(changeEvent, listener); }
