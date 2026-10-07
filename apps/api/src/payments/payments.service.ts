@@ -17,7 +17,8 @@ export class PaymentsService {
     const existing = await this.db.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1', [checkoutId]);
     if (existing.rows[0]) return { paymentId: existing.rows[0].id, providerReference: existing.rows[0].provider_reference, status: existing.rows[0].status };
     const external = usePaytr ? await this.initializePaytr(checkoutId, checkout.rows[0].total_amount, checkout.rows[0].currency, userIp) : await this.provider.initialize({ amount: checkout.rows[0].total_amount, currency: checkout.rows[0].currency, reference: checkoutId });
-    const payment = await this.db.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId, usePaytr ? 'paytr' : 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
+    const payment = await this.db.query<{ id: string }>(`INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) SELECT id,$2,$3,$4,$5 FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND expires_at>now() RETURNING id`, [checkoutId, usePaytr ? 'paytr' : 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
+    if(!payment.rows[0]) throw new ConflictException('Ödeme başlatılırken sepetin süresi doldu. Sepetinizi yeniden doğrulayın.');
     await this.db.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id, external.providerReference]);
     return { paymentId: payment.rows[0].id, providerReference: external.providerReference, redirectUrl: external.redirectUrl, status: 'PENDING' };
   }

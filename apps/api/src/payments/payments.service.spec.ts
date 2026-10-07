@@ -2,6 +2,17 @@ import { PaymentsService } from './payments.service';
 import { createHmac } from 'crypto';
 
 describe('PaymentsService', () => {
+  it('does not persist a payment when checkout expires during provider initialization',async()=>{
+    const previous=process.env.PAYMENT_PROVIDER;process.env.PAYMENT_PROVIDER='paytr';
+    try{
+      const db={query:jest.fn().mockResolvedValueOnce({rows:[{id:'checkout',total_amount:'10',currency:'TRY'}]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]})};
+      const service=new PaymentsService(db as never,{} as never);
+      jest.spyOn(service as any,'initializePaytr').mockResolvedValue({providerReference:'reference',redirectUrl:'https://example.com'});
+      await expect(service.initialize('checkout','guest')).rejects.toThrow('sepetin süresi doldu');
+      expect(db.query).toHaveBeenCalledTimes(3);
+      expect(db.query.mock.calls[2][0]).toContain("status='OPEN' AND expires_at>now()");
+    }finally{if(previous===undefined)delete process.env.PAYMENT_PROVIDER;else process.env.PAYMENT_PROVIDER=previous;}
+  });
   it('returns an existing payment instead of creating a duplicate initialization', async () => {
     const db = { query: jest.fn().mockResolvedValueOnce({ rows: [{ id: 'checkout', total_amount: '99.00', currency: 'TRY' }] }).mockResolvedValueOnce({ rows: [{ id: 'payment', provider_reference: 'mock_ref', status: 'PENDING' }] }) };
     const service = new PaymentsService(db as never, {} as never);

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
@@ -6,8 +6,20 @@ import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { ReserveStockDto } from './dto/reserve-stock.dto';
 
 @Injectable()
-export class InventoryService {
+export class InventoryService implements OnModuleInit, OnModuleDestroy {
+  private timer?:ReturnType<typeof setInterval>;
+  private cleaning=false;
+  private readonly logger=new Logger(InventoryService.name);
   constructor(private readonly db: DatabaseService) {}
+  onModuleInit(){void this.cleanExpiredReservations();this.timer=setInterval(()=>{void this.cleanExpiredReservations()},60_000);this.timer.unref();}
+  onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
+  async cleanExpiredReservations(){
+    if(this.cleaning)return;
+    this.cleaning=true;
+    try{await this.db.query('SELECT release_expired_checkout_reservations()');}
+    catch{this.logger.error('Süresi dolan rezervasyon kontrolü başarısız; kayıtlar korunuyor.');}
+    finally{this.cleaning=false;}
+  }
   async adjust(dto: AdjustStockDto, actor: RequestUser) {
     return this.db.transaction(async (client: PoolClient) => {
       const row = await client.query<{ physical_quantity: number }>('UPDATE inventory SET physical_quantity=physical_quantity+$1, updated_at=now() WHERE product_id=$2 AND warehouse_id=$3 RETURNING physical_quantity', [dto.quantity, dto.productId, dto.warehouseId]);
