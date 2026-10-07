@@ -9,7 +9,7 @@ export class CreateCheckoutDto {
   @IsString() @MaxLength(100) city!: string;
   @IsString() @MaxLength(100) district!: string;
   @IsString() @MaxLength(500) addressLine!: string;
-  @IsString() @MaxLength(20) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
   @IsInt() @Min(1) reservationMinutes!: number;
   @IsOptional() @IsString() @MaxLength(64) couponCode?: string;
 }

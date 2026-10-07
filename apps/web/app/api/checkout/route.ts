@@ -13,7 +13,13 @@ type CheckoutRequest = {
 };
 
 function message(data: unknown, fallback: string) {
-  return typeof data === 'object' && data !== null && 'message' in data && typeof data.message === 'string' ? data.message : fallback;
+  if (typeof data !== 'object' || data === null || !('message' in data)) return fallback;
+  if (typeof data.message === 'string') return data.message;
+  if (Array.isArray(data.message)) {
+    const errors = data.message.filter((item): item is string => typeof item === 'string');
+    if (errors.length) return errors.join(' · ');
+  }
+  return fallback;
 }
 
 export async function POST(request: Request) {
