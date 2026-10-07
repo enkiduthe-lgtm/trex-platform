@@ -12,7 +12,7 @@ describe('PayTR callback HTTP contract',()=>{
     app.useGlobalPipes(new ValidationPipe({whitelist:true,transform:true,forbidNonWhitelisted:true}));
     await app.init();
     try{
-      const payload={merchant_oid:'order1',status:'success',total_amount:'75999',hash:'signed',payment_amount:'75999',payment_type:'card',currency:'TL',test_mode:'1'};
+      const payload={merchant_oid:'order1',status:'success',total_amount:'75999',hash:'signed',payment_amount:'75999',payment_type:'card',currency:'TL',test_mode:'1',installment_count:'0',merchant_id:'123456'};
       const response=await request(app.getHttpServer()).post('/v1/payments/paytr/callback').type('form').send(payload);
       expect(response.status).toBe(200);expect(response.text).toBe('OK');expect(response.headers['content-type']).toContain('text/plain');
       expect(payments.receivePaytrCallback).toHaveBeenCalledWith(expect.objectContaining(payload));

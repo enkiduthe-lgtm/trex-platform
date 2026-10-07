@@ -11,4 +11,6 @@ export class PaytrCallbackDto {
   @IsOptional() @IsIn(['card', 'eft']) payment_type?: string;
   @IsOptional() @IsIn(['TL', 'TRY', 'USD', 'EUR', 'GBP', 'RUB']) currency?: string;
   @IsOptional() @IsString() @MaxLength(32) payment_amount?: string;
+  @IsOptional() @IsString() @MaxLength(32) installment_count?: string;
+  @IsOptional() @IsString() @MaxLength(32) merchant_id?: string;
 }
