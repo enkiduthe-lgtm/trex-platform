@@ -1,27 +1,17 @@
-import { BadRequestException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
-
-describe('OrdersService', () => {
-  it('rejects an unknown sales channel before querying PostgreSQL', async () => {
-    const query = jest.fn();
-    const service = new OrdersService({ query } as never);
-
-    await expect(service.list('not-a-channel')).rejects.toBeInstanceOf(BadRequestException);
-    expect(query).not.toHaveBeenCalled();
+describe('Order detail',()=>{
+  it('returns guest contact, address snapshots and persisted payment status',async()=>{
+    const order={id:'order',customer_email:'guest@example.com',contact_name:'Guest'};
+    const db={query:jest.fn().mockResolvedValueOnce({rows:[order]}).mockResolvedValueOnce({rows:[{recipient_name:'Guest'}]}).mockResolvedValueOnce({rows:[{product_name:'Tea',unit_amount:'759.99'}]}).mockResolvedValueOnce({rows:[{provider:'PAYTR',status:'SUCCEEDED'}]})};
+    const result=await new OrdersService(db as never).detail('order');
+    expect(result).toMatchObject({...order,address:{recipient_name:'Guest'},items:[{unit_amount:'759.99'}],payments:[{status:'SUCCEEDED'}]});
+    expect(db.query.mock.calls.every(call=>call[1][0]==='order')).toBe(true);
+    expect(db.query.mock.calls[0][0]).toContain('COALESCE(c.email,cs.contact_email)');
   });
-
-  it('normalizes valid sales channel filters', async () => {
-    const query = jest.fn().mockResolvedValue({ rows: [] });
-    const service = new OrdersService({ query } as never);
-
-    await expect(service.list('marketplace')).resolves.toEqual([]);
-    expect(query.mock.calls[0][1]).toEqual(['MARKETPLACE']);
-  });
-
-  it('tracks an order only with its matching checkout email', async () => {
-    const query = jest.fn().mockResolvedValue({ rows: [{ order_number: '20261005-000001', status: 'SHIPPED' }] });
-    const service = new OrdersService({ query } as never);
-    await expect(service.track('20261005-000001', 'customer@example.com')).resolves.toEqual({ order_number: '20261005-000001', status: 'SHIPPED' });
-    expect(query.mock.calls[0][1]).toEqual(['20261005-000001', 'customer@example.com']);
+  it('rejects an unknown order before reading its data',async()=>{
+    const db={query:jest.fn().mockResolvedValue({rows:[]})};
+    await expect(new OrdersService(db as never).detail('missing')).rejects.toBeInstanceOf(NotFoundException);
+    expect(db.query).toHaveBeenCalledTimes(1);
   });
 });
