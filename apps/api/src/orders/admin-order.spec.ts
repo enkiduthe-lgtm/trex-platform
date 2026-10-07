@@ -25,7 +25,7 @@ describe('Administrator order input and access', () => {
   });
   it.each(['WAREHOUSE','FINANCE','DEALER','CUSTOMER',undefined])('blocks %s from order entry',role => {
     const guard = new RolesGuard(new Reflector());
-    for(const handler of [OrdersController.prototype.create,OrdersController.prototype.options,OrdersController.prototype.prices,OrdersController.prototype.cancel]) {
+    for(const handler of [OrdersController.prototype.create,OrdersController.prototype.options,OrdersController.prototype.prices,OrdersController.prototype.cancel,OrdersController.prototype.edit]) {
       const context:any = { getHandler:()=>handler,getClass:()=>OrdersController,switchToHttp:()=>({getRequest:()=>({user:role?{role}:undefined})}) };
       expect(()=>guard.canActivate(context)).toThrow(ForbiddenException);
     }

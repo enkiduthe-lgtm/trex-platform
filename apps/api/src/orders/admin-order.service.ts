@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { CreateAdminOrderDto } from './dto/create-admin-order.dto';
 import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
+import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
+import { editVersion } from './edit-version';
 
 const effectivePrice = `SELECT amount,currency FROM product_prices
   WHERE product_id=$1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
@@ -108,6 +110,61 @@ export class AdminOrderService {
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,'order.admin.created','order',orderId,JSON.stringify({ currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);
       return { ...order.rows[0], replayed: false };
+    });
+  }
+  async update(id:string,dto:UpdateAdminOrderDto,actor:RequestUser) {
+    if(!['ADMIN','SUPER_ADMIN'].includes(actor.role)) throw new ForbiddenException('Sipariş düzenlemek için yönetici yetkisi gerekli');
+    if([dto.reason,dto.recipientName,dto.phone,dto.city,dto.district,dto.addressLine].some(value=>!value.trim())) throw new BadRequestException('Teslimat bilgileri ve değişiklik nedeni gerekli');
+    if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
+    return this.db.transaction(async client=>{
+      const order=(await client.query<{checkout_id:string;status:string;sales_channel:string;currency:string;total_amount:string}>('SELECT checkout_id,status,sales_channel,currency,total_amount FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      if(!order) throw new NotFoundException('Sipariş bulunamadı');
+      if(order.sales_channel!=='ADMIN_ORDER'||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
+      const contact=(await client.query<{contact_name:string|null;contact_email:string|null}>('SELECT contact_name,contact_email FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
+      const payments=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
+      if(payments.length!==1) throw new ConflictException('Ödeme kaydı doğrulanamadı');
+      const collected=(await client.query('SELECT id FROM finance_transactions WHERE order_id=$1 AND approved_at IS NOT NULL LIMIT 1',[id])).rowCount;
+      const picks=(await client.query<{id:string;status:string}>('SELECT id,status FROM picking_sessions WHERE order_id=$1 FOR UPDATE',[id])).rows;
+      const packing=(await client.query('SELECT pk.id FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 LIMIT 1',[id])).rowCount;
+      const address=(await client.query<{recipient_name:string;phone:string;city:string;district:string;address_line:string;postal_code:string|null}>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1 FOR UPDATE',[id])).rows[0];
+      const lines=(await client.query<{id:string;product_id:string;quantity:number;unit_amount:string}>('SELECT id,product_id,quantity,unit_amount FROM order_items WHERE order_id=$1 ORDER BY product_id,id FOR UPDATE',[id])).rows;
+      if(!address||!contact) throw new ConflictException('Sipariş bilgileri eksik');
+      if(editVersion(contact,address,lines)!==dto.version) throw new ConflictException('Sipariş başka bir işlemle değişmiş; ekranı yenileyin');
+      if(lines.length!==dto.items.length||lines.some(line=>!dto.items.some(item=>item.itemId===line.id))) throw new BadRequestException('Siparişin bütün ürün satırları gerekli');
+      const changes=lines.map(line=>({...line,next:dto.items.find(item=>item.itemId===line.id)!}));
+      const financialChanged=changes.some(line=>line.quantity!==line.next.quantity||line.unit_amount!==line.next.unitAmount.toFixed(2));
+      const financialEditable=['PENDING_PAYMENT','PROCESSING'].includes(order.status)&&payments[0].status==='PENDING'&&['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payments[0].provider)&&!collected&&!packing&&picks.every(pick=>pick.status==='OPEN');
+      if(financialChanged&&!financialEditable) throw new ConflictException('Tahsilat veya depo işlemi başlamış siparişte yalnız müşteri/teslimat bilgileri düzeltilebilir');
+      const cents=changes.reduce((sum,line)=>sum+BigInt(line.next.unitAmount.toFixed(2).replace('.',''))*BigInt(line.next.quantity),0n);
+      if(cents<=0n||cents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
+      if(financialChanged) {
+      const reservations=(await client.query<{id:string;product_id:string;warehouse_id:string;quantity:number}>("SELECT id,product_id,warehouse_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' ORDER BY product_id,warehouse_id,id FOR UPDATE",[order.checkout_id])).rows;
+      if(reservations.length!==lines.length||lines.some(line=>reservations.filter(r=>r.product_id===line.product_id&&r.quantity===line.quantity).length!==1)) throw new ConflictException('Ayrılan stok doğrulanamadı; sipariş değiştirilmedi');
+      for(const line of changes) {
+        const reservation=reservations.find(r=>r.product_id===line.product_id)!;
+        const delta=line.next.quantity-line.quantity;
+        if(delta!==0) {
+          const stock=await client.query('UPDATE inventory SET reserved_quantity=reserved_quantity+$1,updated_at=now() WHERE product_id=$2 AND warehouse_id=$3 AND reserved_quantity>=$4 AND physical_quantity-reserved_quantity>=$1 RETURNING product_id',[delta,line.product_id,reservation.warehouse_id,line.quantity]);
+          if(!stock.rowCount) throw new ConflictException('Yeni adet için yeterli veya doğrulanabilir stok yok');
+          await client.query('UPDATE stock_reservations SET quantity=$1 WHERE id=$2',[line.next.quantity,reservation.id]);
+          await client.query('INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES ($1,$2,$3,0,$4,$5,$6)',[line.product_id,reservation.warehouse_id,delta>0?'RESERVATION':'RELEASE','order_edit',id,actor.id]);
+        }
+        await client.query('UPDATE order_items SET quantity=$1,unit_amount=$2 WHERE id=$3',[line.next.quantity,line.next.unitAmount.toFixed(2),line.id]);
+        await client.query('UPDATE checkout_items SET quantity=$1,unit_amount=$2 WHERE checkout_id=$3 AND product_id=$4',[line.next.quantity,line.next.unitAmount.toFixed(2),order.checkout_id,line.product_id]);
+        await client.query('UPDATE picking_items SET expected_quantity=$1 WHERE order_item_id=$2 AND picking_session_id IN (SELECT id FROM picking_sessions WHERE order_id=$3)',[line.next.quantity,line.id,id]);
+      }
+      }
+      const total=`${cents/100n}.${(cents%100n).toString().padStart(2,'0')}`;
+      const delivery=[dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode.trim()||null];
+      await client.query('UPDATE order_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE order_id=$7',[...delivery,id]);
+      await client.query('UPDATE checkout_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE checkout_id=$7',[...delivery,order.checkout_id]);
+      await client.query('UPDATE checkout_sessions SET contact_name=$1,contact_email=$2,total_amount=$3 WHERE id=$4',[dto.recipientName.trim(),dto.contactEmail.trim().toLowerCase(),total,order.checkout_id]);
+      if(financialChanged) {
+        await client.query('UPDATE orders SET total_amount=$1 WHERE id=$2',[total,id]);
+        await client.query('UPDATE payments SET amount=$1 WHERE id=$2',[total,payments[0].id]);
+      }
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actor.id,'order.admin.updated','order',id,JSON.stringify({reason:dto.reason.trim(),currency:order.currency,previous:{contact,address,items:lines,total:order.total_amount},current:{delivery,email:dto.contactEmail.trim().toLowerCase(),items:dto.items,total}})]);
+      return {id,total_amount:total,currency:order.currency};
     });
   }
   async updatePrices(id:string,dto:UpdateAdminOrderPricesDto,actor:RequestUser) {

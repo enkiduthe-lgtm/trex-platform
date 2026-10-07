@@ -82,7 +82,31 @@ async function main() {
     const override=await service.create({...dto,priceChangeReason:'Special customer offer',items:[{productId,quantity:1,unitAmount:80.50}]},randomUUID(),actor);
     assert.equal(override.total_amount,'80.50');
     const orders = new OrdersService(adapter);
-    assert.equal((await orders.list()).find(order=>order.id===result.id).customer_name,'Test Recipient');
+    const editDto=detail=>({version:detail.edit_version,reason:'Test correction',recipientName:detail.address.recipient_name,contactEmail:detail.contact_email,phone:detail.address.phone,city:detail.address.city,district:detail.address.district,addressLine:detail.address.address_line,postalCode:detail.address.postal_code??'',items:detail.items.map(item=>({itemId:item.id,quantity:item.quantity,unitAmount:Number(item.unit_amount)}))});
+    const initial=await orders.detail(override.id);
+    const draft=editDto(initial);
+    const editStock=(await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity;
+    await assert.rejects(()=>service.update(override.id,draft,{...actor,role:'FINANCE'}),/yönetici/);
+    const updated=await service.update(override.id,{...draft,recipientName:'Corrected Name',items:[{...draft.items[0],quantity:2,unitAmount:25}]},actor);
+    assert.equal(updated.total_amount,'50.00');
+    assert.equal((await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity,editStock+1);
+    assert.equal((await orders.detail(override.id)).address.recipient_name,'Corrected Name');
+    assert.equal((await orders.list()).find(order=>order.id===override.id).customer_name,'Corrected Name');
+    await assert.rejects(()=>service.update(override.id,draft,actor),/ekranı yenileyin/);
+    const excessive=editDto(await orders.detail(override.id));
+    await assert.rejects(()=>service.update(override.id,{...excessive,recipientName:'Must roll back',items:[{...excessive.items[0],quantity:100}]},actor),/yeterli/);
+    assert.equal((await orders.detail(override.id)).address.recipient_name,'Corrected Name');
+    assert.equal((await orders.detail(override.id)).total_amount,'50.00');
+    await service.update(override.id,{...excessive,items:[{...excessive.items[0],quantity:1}]},actor);
+    assert.equal((await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity,editStock);
+    const partial=editDto(await orders.detail(result.id));
+    await service.update(result.id,{...partial,recipientName:'Paid Customer Correction'},actor);
+    assert.equal((await orders.detail(result.id)).total_amount,'1000.00');
+    await assert.rejects(async()=>service.update(result.id,{...editDto(await orders.detail(result.id)),items:[{...partial.items[0],unitAmount:400}]},actor),/yalnız müşteri/);
+    const packedEdit=editDto(await orders.detail(cardOrder.id));
+    await service.update(cardOrder.id,{...packedEdit,addressLine:'Corrected packed address'},actor);
+    await assert.rejects(async()=>service.update(cardOrder.id,{...editDto(await orders.detail(cardOrder.id)),items:[{...packedEdit.items[0],quantity:2}]},actor),/yalnız müşteri/);
+    assert.equal((await orders.list()).find(order=>order.id===result.id).customer_name,'Paid Customer Correction');
     await assert.rejects(()=>service.create({...dto,currency:'EUR'},randomUUID(),actor),/elle girin/);
     await assert.rejects(()=>service.create({...dto,currency:'USD',paymentMethod:'COD_CARD'},randomUUID(),actor),/yalnız TL/);
     for(const [paymentMethod,currency] of [['HAND_CASH','TRY'],['HAND_CASH','EUR'],['TRANSFER','USD'],['TRANSFER','EUR'],['HAND_CASH','USD']]) {
@@ -91,6 +115,12 @@ async function main() {
       const detail=await orders.detail(foreign.id);
       assert.equal(detail.items[0].currency,currency);assert.equal(detail.payments[0].currency,currency);
       assert.equal(detail.payments[0].status,'PENDING');
+      if(currency!=='TRY') {
+        const edit=editDto(detail);
+        await service.update(foreign.id,{...edit,items:[{...edit.items[0],unitAmount:19.95}]},actor);
+        const edited=await orders.detail(foreign.id);
+        assert.equal(edited.currency,currency);assert.equal(edited.payments[0].currency,currency);assert.equal(edited.payments[0].amount,'19.95');
+      }
       assert.equal((await db.query('SELECT currency FROM checkout_sessions WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[foreign.id])).rows[0].currency,currency);
       assert.equal((await db.query('SELECT currency FROM carts WHERE id=(SELECT cart_id FROM checkout_sessions WHERE id=(SELECT checkout_id FROM orders WHERE id=$1))',[foreign.id])).rows[0].currency,currency);
       const before=(await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity;
@@ -99,6 +129,7 @@ async function main() {
       assert.equal((await orders.cancel(foreign.id,actor)).replayed,true);
       assert.equal((await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity,before-1);
       assert.equal((await orders.detail(foreign.id)).payments[0].status,'FAILED');
+      await assert.rejects(async()=>service.update(foreign.id,editDto(await orders.detail(foreign.id)),actor),/İptal edilmemiş/);
     }
     await assert.rejects(()=>orders.cancel(result.id,actor),/Kısmi tahsilat/);
     await assert.rejects(()=>orders.cancel(cardOrder.id,actor),/Paketlenmiş/);
@@ -108,6 +139,9 @@ async function main() {
     assert.equal((await orders.detail(override.id)).status,'PENDING_PAYMENT');
     await db.query('UPDATE inventory SET reserved_quantity=$2 WHERE product_id=$1',[productId,before]);
     await db.query("UPDATE payments SET status='SUCCEEDED' WHERE checkout_id=(SELECT checkout_id FROM orders WHERE id=$1)",[override.id]);
+    await service.update(override.id,{...editDto(await orders.detail(override.id)),recipientName:'Collected Customer Correction'},actor);
+    assert.equal((await orders.detail(override.id)).payments[0].status,'SUCCEEDED');
+    await assert.rejects(async()=>service.update(override.id,{...editDto(await orders.detail(override.id)),items:[{itemId:draft.items[0].itemId,quantity:2,unitAmount:25}]},actor),/yalnız müşteri/);
     await assert.rejects(()=>orders.cancel(override.id,actor),/Tahsil edilmiş/);
     await db.query("UPDATE products SET status='DRAFT' WHERE id=$1",[productId]);
     await assert.rejects(()=>service.create(dto,randomUUID(),actor),/Aktif ürün/);
@@ -116,7 +150,7 @@ async function main() {
     assert.equal((await db.query("SELECT count(*) AS n FROM audit_logs WHERE action='order.admin.created'")).rows[0].n,9);
     const audit=(await db.query("SELECT metadata FROM audit_logs WHERE action='order.admin.prices.updated'")).rows[0].metadata;
     assert.equal(audit.previousTotal,'1519.98');assert.equal(audit.total,'1000.00');
-    console.log('Admin order SQL checks passed: exact totals, snapshots, stock rollback, retry safety, channel pricing, pending payments, inactive product/warehouse rejection.');
+    console.log('Admin order SQL checks passed: totals, snapshots, retry safety, currency preservation, stock edits/rollback, stale edit protection, customer corrections after collection, cancellation safety.');
   } finally { await db.close(); }
 }
 main().catch(error=>{console.error(error);process.exitCode=1});
