@@ -154,7 +154,7 @@ export class AdminOrderService {
         await client.query('UPDATE picking_items SET expected_quantity=$1 WHERE order_item_id=$2 AND picking_session_id IN (SELECT id FROM picking_sessions WHERE order_id=$3)',[line.next.quantity,line.id,id]);
       }
       }
-      const total=`${cents/100n}.${(cents%100n).toString().padStart(2,'0')}`;
+      const total=financialChanged?`${cents/100n}.${(cents%100n).toString().padStart(2,'0')}`:order.total_amount;
       const delivery=[dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode.trim()||null];
       await client.query('UPDATE order_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE order_id=$7',[...delivery,id]);
       await client.query('UPDATE checkout_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE checkout_id=$7',[...delivery,order.checkout_id]);

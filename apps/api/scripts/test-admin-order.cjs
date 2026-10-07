@@ -139,7 +139,14 @@ async function main() {
     assert.equal((await orders.detail(override.id)).status,'PENDING_PAYMENT');
     await db.query('UPDATE inventory SET reserved_quantity=$2 WHERE product_id=$1',[productId,before]);
     await db.query("UPDATE payments SET status='SUCCEEDED' WHERE checkout_id=(SELECT checkout_id FROM orders WHERE id=$1)",[override.id]);
+    // A contact-only correction must preserve any existing total adjustments.
+    await db.query('UPDATE orders SET total_amount=30 WHERE id=$1',[override.id]);
+    await db.query('UPDATE checkout_sessions SET total_amount=30 WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[override.id]);
+    await db.query('UPDATE payments SET amount=30 WHERE checkout_id=(SELECT checkout_id FROM orders WHERE id=$1)',[override.id]);
     await service.update(override.id,{...editDto(await orders.detail(override.id)),recipientName:'Collected Customer Correction'},actor);
+    assert.equal((await orders.detail(override.id)).total_amount,'30.00');
+    assert.equal((await orders.detail(override.id)).payments[0].amount,'30.00');
+    assert.equal((await db.query('SELECT total_amount FROM checkout_sessions WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[override.id])).rows[0].total_amount,'30.00');
     assert.equal((await orders.detail(override.id)).payments[0].status,'SUCCEEDED');
     await assert.rejects(async()=>service.update(override.id,{...editDto(await orders.detail(override.id)),items:[{itemId:draft.items[0].itemId,quantity:2,unitAmount:25}]},actor),/yalnız müşteri/);
     await assert.rejects(()=>orders.cancel(override.id,actor),/Tahsil edilmiş/);
