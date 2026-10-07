@@ -12,6 +12,8 @@ const money=(value:string,currency:string)=>Number(value).toLocaleString('tr-TR'
 const date=(value:string)=>new Date(value).toLocaleString('tr-TR',{dateStyle:'short',timeStyle:'short'});
 
 export default function Orders(){
+  const [canCreate,setCanCreate]=useState(false);
+  useEffect(()=>{api<{user:{role:string}}>('/auth/me').then(data=>setCanCreate(['ADMIN','SUPER_ADMIN'].includes(data.user.role))).catch(()=>setCanCreate(false));},[]);
   const [orders,setOrders]=useState<Order[]>([]); const [message,setMessage]=useState(''); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('ALL'); const [selected,setSelected]=useState<string[]>([]); const [filtersOpen,setFiltersOpen]=useState(false);
   const load=()=>api<Order[]>('/admin/orders').then(setOrders).catch(e=>setMessage(e instanceof Error?e.message:'Siparişler yüklenemedi'));
   useEffect(()=>{void load();},[]);
@@ -20,7 +22,7 @@ export default function Orders(){
   async function updateStatus(id:string,value:string){try{await api(`/admin/orders/${id}/status`,{method:'PATCH',body:JSON.stringify({status:value})});setMessage('Sipariş durumu güncellendi.');void load();}catch(e){setMessage(e instanceof Error?e.message:'Durum güncellenemedi');}}
   async function shipment(id:string){try{const data=await api<{trackingNumber?:string}>(`/admin/orders/${id}/shipment`,{method:'POST'});setMessage(data.trackingNumber?`Kargo kaydı oluşturuldu: ${data.trackingNumber}`:'Kargo kaydı oluşturuldu.');void load();}catch(e){setMessage(e instanceof Error?e.message:'Kargo kaydı oluşturulamadı');}}
   return <main><AdminNav/><section className={styles.page}>
-    <div className={styles.titleRow}><div><p>SİPARİŞ OPERASYONU</p><h1>Siparişler</h1></div><Link href="/finans/havaleler" className={styles.financeLink}>Havale onayları →</Link></div>
+    <div className={styles.titleRow}><div><p>SİPARİŞ OPERASYONU</p><h1>Siparişler</h1></div><div className={styles.actions}>{canCreate&&<Link href="/siparisler/yeni" className={styles.financeLink}>+ Yeni sipariş</Link>}<Link href="/finans/havaleler" className={styles.financeLink}>Havale onayları →</Link></div></div>
     {message&&<p className={styles.notice} role="status">{message}</p>}
     <div className={styles.toolbar}><button type="button" className={styles.filterButton} onClick={()=>setFiltersOpen(open=>!open)}>☷ Filtreler <span>{filtersOpen?'⌃':'⌄'}</span></button><label className={styles.search}><span>⌕</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Sipariş no, e-posta veya kanal ara" /></label><div className={styles.bulk}>{selected.length>0&&<><strong>{selected.length} seçildi</strong><button type="button" onClick={()=>setSelected([])}>Seçimi kaldır</button></>}</div></div>
     {filtersOpen&&<div className={styles.filters}><label>Durum<select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="ALL">Tüm durumlar</option>{Object.entries(statusText).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><button type="button" onClick={()=>{setQuery('');setStatusFilter('ALL')}}>Filtreleri sıfırla</button></div>}

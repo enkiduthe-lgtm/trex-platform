@@ -112,6 +112,10 @@ export class FinanceService {
         }
         orderStatus = 'PAID';
       }
+      if (outstandingAmount === 0 && ['PROCESSING','SHIPPED','DELIVERED'].includes(orderStatus)) {
+        await client.query(`UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE checkout_id=$1 AND status='PENDING' AND provider IN ('cash_on_delivery_card','cash_on_delivery_cash')`, [order.rows[0].checkout_id]);
+        await client.query(`UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id IN (SELECT id FROM payments WHERE checkout_id=$1 AND status='SUCCEEDED' AND provider IN ('cash_on_delivery_card','cash_on_delivery_cash'))`, [order.rows[0].checkout_id]);
+      }
       await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.collection.approved', 'finance_transaction', id, JSON.stringify({ orderId: dto.orderId, amount: collection.rows[0].amount, collectedTotal: newCollectedTotal, outstandingAmount, orderStatus })]);
       return { collectionId: id, orderId: dto.orderId, paymentStatus: 'PAID', orderStatus, collectedTotal: newCollectedTotal, outstandingAmount };
     });

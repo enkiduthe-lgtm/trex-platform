@@ -1,6 +1,16 @@
 import { FinanceService } from './finance.service';
 
 describe('FinanceService marketplace settlements', () => {
+  it('marks collected COD payment paid without changing delivery status or creating another pick',async()=>{
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00'}]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'DELIVERED',total_amount:'100.00',checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rows:[{total:'0.00'}]});
+    const service=new FinanceService({transaction:async(work:any)=>work({query})} as never);
+    await expect(service.approveCollection('collection',{orderId:'order'},{id:'user'} as never)).resolves.toMatchObject({orderStatus:'DELIVERED',outstandingAmount:0});
+    expect(query.mock.calls.some(([sql])=>sql.includes("provider IN ('cash_on_delivery_card','cash_on_delivery_cash')"))).toBe(true);
+    expect(query.mock.calls.some(([sql])=>sql.includes('UPDATE orders')||sql.includes('INSERT INTO picking_sessions'))).toBe(false);
+  });
   it('rejects deductions that exceed the marketplace gross sale before any write', async () => {
     const transaction = jest.fn();
     const service = new FinanceService({ transaction } as never);
