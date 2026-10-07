@@ -5,6 +5,10 @@ export const tokenKey = 'trex_admin_access_token';
 export function getToken() { return typeof window === 'undefined' ? null : window.localStorage.getItem(tokenKey); }
 export function setToken(token: string) { window.localStorage.setItem(tokenKey, token); }
 export function clearToken() { window.localStorage.removeItem(tokenKey); }
+export async function logout() {
+  await api<void>('/auth/logout', { method: 'POST' });
+  clearToken();
+}
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;

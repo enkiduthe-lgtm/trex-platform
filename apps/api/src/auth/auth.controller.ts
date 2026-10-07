@@ -13,6 +13,11 @@ export class AuthController {
   private metadata(req: Request) { return { ip: req.ip, userAgent: req.get('user-agent') }; }
   @Post('login') @HttpCode(200) async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { const result = await this.auth.login(dto.email, dto.password, this.metadata(req)); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
   @Post('refresh') @HttpCode(200) async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) { const result = await this.auth.rotate(req.cookies?.trex_session ?? '', this.metadata(req)); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
-  @Post('logout') @HttpCode(204) async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) { await this.auth.logout(req.cookies?.trex_session ?? ''); res.clearCookie('trex_session', { path: '/v1/auth' }); }
+  @Post('logout') @HttpCode(204) async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const authorization = req.headers.authorization;
+    const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    await this.auth.logout(req.cookies?.trex_session ?? '', accessToken);
+    res.clearCookie('trex_session', { path: '/v1/auth' });
+  }
   @Get('me') @UseGuards(JwtAuthGuard) me(@Req() req: UserRequest) { return { user: req.user }; }
 }

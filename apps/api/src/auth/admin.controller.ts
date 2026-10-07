@@ -18,13 +18,20 @@ export class AdminController {
   @Post('staff') @RequireRoles(Roles.SUPER_ADMIN) async createStaff(@Body() dto: CreateStaffUserDto, @Req() req: UserRequest) {
     try {
       const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
-      const created = await this.db.query<{ id: string }>('INSERT INTO users(email,password_hash,role) VALUES ($1,$2,$3) RETURNING id', [dto.email.trim().toLowerCase(), passwordHash, dto.role]);
-      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, 'staff.created', 'user', created.rows[0].id]); return created.rows[0];
+      return await this.db.transaction(async client => {
+        const created = await client.query<{ id: string }>('INSERT INTO users(email,password_hash,role) VALUES ($1,$2,$3) RETURNING id', [dto.email.trim().toLowerCase(), passwordHash, dto.role]);
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, 'staff.created', 'user', created.rows[0].id]);
+        return created.rows[0];
+      });
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta ile bir hesap zaten var'); throw error; }
   }
   @Patch('staff/:id') @RequireRoles(Roles.SUPER_ADMIN) async updateStaff(@Param('id') id: string, @Body() dto: UpdateStaffUserDto, @Req() req: UserRequest) {
-    const changed = await this.db.query('UPDATE users SET is_active=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [dto.isActive, id]);
-    if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
-    await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, dto.isActive ? 'staff.activated' : 'staff.deactivated', 'user', id]); return changed.rows[0];
+    return this.db.transaction(async client => {
+      const changed = await client.query('UPDATE users SET is_active=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [dto.isActive, id]);
+      if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
+      if (!dto.isActive) await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, dto.isActive ? 'staff.activated' : 'staff.deactivated', 'user', id]);
+      return changed.rows[0];
+    });
   }
 }

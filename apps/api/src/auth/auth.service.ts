@@ -40,5 +40,19 @@ export class AuthService {
       return { accessToken: await this.accessToken({ id: session.user_id, email: session.email, role: session.role }, inserted.rows[0].id), refreshToken: newToken, expiresAt };
     });
   }
-  async logout(refreshToken: string) { await this.db.query('UPDATE sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [this.hashToken(refreshToken)]); }
+  async logout(refreshToken: string, accessToken?: string) {
+    let claims: JwtClaims | undefined;
+    if (accessToken) {
+      // Expired but correctly signed access tokens may revoke their own session.
+      // This is a logout-only operation, never an authorization bypass.
+      try {
+        const verified = await this.jwt.verifyAsync<JwtClaims>(accessToken, { ignoreExpiration: true });
+        if (typeof verified.sub === 'string' && typeof verified.sid === 'string') claims = verified;
+      } catch { /* A bad access token must not prevent valid refresh-cookie logout. */ }
+    }
+    if (!refreshToken && !claims) return;
+    await this.db.query(`UPDATE sessions SET revoked_at=now()
+      WHERE revoked_at IS NULL AND (token_hash=$1 OR (id=$2 AND user_id=$3))`,
+      [refreshToken ? this.hashToken(refreshToken) : null, claims?.sid ?? null, claims?.sub ?? null]);
+  }
 }
