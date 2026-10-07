@@ -9,6 +9,21 @@ import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlem
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
+  async paytrCash() {
+    const [settings,receipts]=await Promise.all([
+      this.db.query('SELECT commission_rate FROM paytr_finance_settings WHERE singleton=true'),
+      this.db.query('SELECT r.*,o.order_number FROM paytr_receipts r JOIN orders o ON o.id=r.order_id ORDER BY r.created_at DESC LIMIT 100'),
+    ]);
+    return {commissionRate:settings.rows[0].commission_rate,receipts:receipts.rows};
+  }
+  async updatePaytrRate(rate:number,actor:RequestUser) {
+    return this.db.transaction(async client=>{
+      const previous=await client.query('SELECT commission_rate FROM paytr_finance_settings WHERE singleton=true FOR UPDATE');
+      await client.query('UPDATE paytr_finance_settings SET commission_rate=$1 WHERE singleton=true',[rate]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,metadata) VALUES ($1,$2,$3,$4)',[actor.id,'finance.paytr.rate.updated','paytr_finance_settings',JSON.stringify({previous:previous.rows[0].commission_rate,current:rate})]);
+      return {commissionRate:rate};
+    });
+  }
   async list() { return (await this.db.query('SELECT r.*,u.email AS created_by_email FROM admin_finance_records r JOIN users u ON u.id=r.created_by ORDER BY r.occurred_at DESC, r.created_at DESC')).rows; }
   async create(dto: CreateFinanceRecordDto, actor: RequestUser) {
     const result = await this.db.query<{ id: string }>('INSERT INTO admin_finance_records(kind,amount,occurred_at,counterparty_name,bank_name,reference_number,description,created_by) VALUES ($1,$2,COALESCE($3::timestamptz,now()),$4,$5,$6,$7,$8) RETURNING id', [dto.kind, dto.amount, dto.occurredAt ?? null, dto.counterpartyName?.trim() || null, dto.bankName?.trim() || null, dto.referenceNumber?.trim() || null, dto.description.trim(), actor.id]);
