@@ -5,6 +5,43 @@ import { ReceiveStockDto } from './dto/receive-stock.dto';
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
+  async deleteStock(warehouseId:string,productId:string,userId:string) {
+    return this.db.transaction(async client=>{
+      await client.query('SELECT id FROM warehouses WHERE id=$1 FOR UPDATE',[warehouseId]);
+      const stock=await client.query<{physical_quantity:number;reserved_quantity:number}>('SELECT physical_quantity,reserved_quantity FROM inventory WHERE warehouse_id=$1 AND product_id=$2 FOR UPDATE',[warehouseId,productId]);
+      if(!stock.rows[0]) throw new NotFoundException('Stok kaydı bulunamadı');
+      const reservations=await client.query("SELECT 1 FROM stock_reservations WHERE warehouse_id=$1 AND product_id=$2 AND status='ACTIVE' LIMIT 1",[warehouseId,productId]);
+      if(stock.rows[0].reserved_quantity>0 || reservations.rowCount) throw new ConflictException('Siparişe rezerve stok silinemez. Önce ilgili siparişi tamamlayın veya iptal edin.');
+      await client.query('UPDATE inventory_lots SET available_quantity=0 WHERE warehouse_id=$1 AND product_id=$2',[warehouseId,productId]);
+      await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by) VALUES ($1,$2,'ADJUSTMENT',$3,'stock_deleted',$4)",[productId,warehouseId,-stock.rows[0].physical_quantity,userId]);
+      await client.query('DELETE FROM inventory WHERE warehouse_id=$1 AND product_id=$2',[warehouseId,productId]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.deleted','inventory',`${productId}:${warehouseId}`,JSON.stringify(stock.rows[0])]);
+      return {deleted:true};
+    });
+  }
+  async deleteLocation(id:string,userId:string) {
+    try { return await this.db.transaction(async client=>{
+      const warehouse=await client.query('SELECT * FROM warehouses WHERE id=$1 FOR UPDATE',[id]);
+      if(!warehouse.rows[0]) throw new NotFoundException('Depo bulunamadı');
+      const dependencies=await client.query("SELECT 1 FROM inventory WHERE warehouse_id=$1 AND (physical_quantity>0 OR reserved_quantity>0) UNION ALL SELECT 1 FROM stock_reservations WHERE warehouse_id=$1 AND status='ACTIVE' UNION ALL SELECT 1 FROM picking_sessions WHERE warehouse_id=$1 LIMIT 1",[id]);
+      if(dependencies.rowCount) throw new ConflictException('Depoda stok, rezervasyon veya sipariş toplama kaydı var. Stokları önce silin; sipariş geçmişine bağlı depolar silinemez.');
+      const lots=await client.query('SELECT 1 FROM inventory_lots WHERE warehouse_id=$1 AND available_quantity>0 LIMIT 1',[id]);
+      if(lots.rowCount) throw new ConflictException('Depoda kullanılabilir lot stoğu var. Önce stokları silin.');
+      const movements=await client.query('SELECT * FROM inventory_movements WHERE warehouse_id=$1',[id]);
+      const reservations=await client.query('SELECT * FROM stock_reservations WHERE warehouse_id=$1',[id]);
+      const lotRows=await client.query('SELECT * FROM inventory_lots WHERE warehouse_id=$1',[id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'warehouse.deleted','warehouse',id,JSON.stringify({warehouse:warehouse.rows[0],movements:movements.rows,reservations:reservations.rows,lots:lotRows.rows})]);
+      await client.query('DELETE FROM inventory WHERE warehouse_id=$1',[id]);
+      await client.query('DELETE FROM inventory_lots WHERE warehouse_id=$1',[id]);
+      await client.query('DELETE FROM inventory_movements WHERE warehouse_id=$1',[id]);
+      await client.query('DELETE FROM stock_reservations WHERE warehouse_id=$1',[id]);
+      await client.query('DELETE FROM warehouses WHERE id=$1',[id]);
+      return {deleted:true};
+    }); } catch(error:unknown) {
+      if((error as {code?:string}).code==='23503') throw new ConflictException('Depo başka kayıtlara bağlı; geçmiş kayıtları korumak için silme geri alındı.');
+      throw error;
+    }
+  }
   async dashboard() {
     const result = await this.db.query<{ waiting: string; picking: string; packing: string; critical_stock: string; returns_pending: string }>(`SELECT (SELECT count(*)::text FROM orders WHERE status='PAID') waiting, (SELECT count(*)::text FROM picking_sessions WHERE status IN ('OPEN','IN_PROGRESS')) picking, (SELECT count(*)::text FROM picking_sessions ps JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE ps.status='COMPLETED' AND pk.packed_at IS NULL) packing, (SELECT count(*)::text FROM inventory WHERE physical_quantity-reserved_quantity <= 5) critical_stock, (SELECT count(*)::text FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED')) returns_pending`);
     return result.rows[0];

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -14,6 +14,8 @@ type UserRequest = Request & { user: RequestUser };
 @Controller()
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
+  @Delete('admin/products/:id') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  delete(@Param('id', ParseUUIDPipe) id:string, @Req() req:UserRequest) { return this.products.delete(id,req.user); }
   @Get('products') listPublic() { return this.products.listPublic(); }
   @Get('products/:slug') getPublic(@Param('slug') slug: string) { return this.products.getPublic(slug); }
   @Get('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) listAdmin() { return this.products.listAdmin(); }

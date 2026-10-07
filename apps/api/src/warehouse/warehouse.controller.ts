@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -18,6 +18,10 @@ export class WarehouseController {
   @Get('dashboard') dashboard() { return this.warehouse.dashboard(); }
   @Get('locations') locations() { return this.warehouse.listLocations(); }
   @Get('stock') stock() { return this.warehouse.listStock(); }
+  @Delete('stock/:warehouseId/:productId') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  deleteStock(@Param('warehouseId', ParseUUIDPipe) warehouseId:string, @Param('productId', ParseUUIDPipe) productId:string, @Req() req:UserRequest) { return this.warehouse.deleteStock(warehouseId,productId,req.user.id); }
+  @Delete('locations/:id') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  deleteLocation(@Param('id', ParseUUIDPipe) id:string, @Req() req:UserRequest) { return this.warehouse.deleteLocation(id,req.user.id); }
   @Get('picks') picks() { return this.warehouse.listPicks(); }
   @Get('picks/:id') pick(@Param('id') id:string) { return this.warehouse.getPick(id); }
   @Get('critical-stock') criticalStock() { return this.warehouse.criticalStock(); }

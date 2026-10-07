@@ -11,6 +11,25 @@ export interface Product { id: string; sku: string; barcode: string | null; slug
 @Injectable()
 export class ProductsService {
   constructor(private readonly db: DatabaseService) {}
+  async delete(id:string,actor:RequestUser) {
+    try { return await this.db.transaction(async client=>{
+      const product=await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE',[id]);
+      if(!product.rows[0]) throw new NotFoundException('Ürün bulunamadı');
+      const dependencies=await client.query('SELECT 1 FROM checkout_items WHERE product_id=$1 UNION ALL SELECT 1 FROM order_items WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_movements WHERE product_id=$1 UNION ALL SELECT 1 FROM stock_reservations WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_lots WHERE product_id=$1 UNION ALL SELECT 1 FROM commission_rules WHERE product_id=$1 LIMIT 1',[id]);
+      if(dependencies.rowCount) throw new ConflictException('Ürün sipariş, stok veya prim geçmişine bağlı. Stok/depo kayıtlarını önce silin. Geçmiş siparişlere bağlı ürünler arşivlenebilir, kalıcı silinemez.');
+      const prices=await client.query('SELECT * FROM product_prices WHERE product_id=$1',[id]);
+      const costs=await client.query('SELECT * FROM product_costs WHERE product_id=$1',[id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actor.id,'product.deleted','product',id,JSON.stringify({product:product.rows[0],prices:prices.rows,costs:costs.rows})]);
+      await client.query('DELETE FROM cart_items WHERE product_id=$1',[id]);
+      await client.query('DELETE FROM product_prices WHERE product_id=$1',[id]);
+      await client.query('DELETE FROM product_costs WHERE product_id=$1',[id]);
+      await client.query('DELETE FROM products WHERE id=$1',[id]);
+      return {deleted:true};
+    }); } catch(error:unknown) {
+      if((error as {code?:string}).code==='23503') throw new ConflictException('Ürün başka kayıtlara bağlı; geçmiş kayıtları korumak için silme geri alındı.');
+      throw error;
+    }
+  }
   private async audit(actor: RequestUser, action: string, productId: string) { await this.db.query('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES ($1,$2,$3,$4)', [actor.id, action, 'product', productId]); }
   async create(dto: CreateProductDto, actor: RequestUser) {
     try {
