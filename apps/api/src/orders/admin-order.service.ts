@@ -34,6 +34,10 @@ export class AdminOrderService {
       throw new BadRequestException('Teslimat bilgileri boş bırakılamaz');
     }
     const items = [...dto.items].sort((a,b) => a.productId.localeCompare(b.productId));
+    const currency = dto.currency ?? 'TRY';
+    if (!['TRY','EUR','USD'].includes(currency)) throw new BadRequestException('Geçersiz para birimi');
+    if (currency !== 'TRY' && !['TRANSFER','HAND_CASH'].includes(dto.paymentMethod)) throw new BadRequestException('Kapıda ödeme yalnız TL olabilir');
+    if (currency !== 'TRY' && items.some(item=>item.unitAmount===undefined)) throw new BadRequestException('Dövizli siparişte her ürünün birim fiyatını elle girin');
     if (new Set(items.map(item => item.productId)).size !== items.length) {
       throw new BadRequestException('Aynı ürün için tek satır kullanın');
     }
@@ -74,33 +78,34 @@ export class AdminOrderService {
       if (totalCents <= 0n) throw new BadRequestException('Sipariş toplamı sıfırdan büyük olmalı');
       const total = `${totalCents / 100n}.${(totalCents % 100n).toString().padStart(2,'0')}`;
       // COD may be prepared before collection, but its payment stays PENDING.
-      const orderStatus = dto.paymentMethod === 'TRANSFER' ? 'PENDING_PAYMENT' : 'PROCESSING';
-      const cart = await client.query<{ id: string }>("INSERT INTO carts(customer_id,session_key_hash,expires_at) VALUES ($1,$2,now()+interval '30 days') RETURNING id", [dto.customerId ?? null,createHash('sha256').update(randomBytes(48)).digest('hex')]);
-      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions(cart_id,status,total_amount,contact_email,contact_name,expires_at,completed_at) VALUES ($1,'COMPLETED',$2,$3,$4,now()+interval '30 days',now()) RETURNING id", [cart.rows[0].id,total,dto.contactEmail.trim().toLowerCase(),dto.recipientName.trim()]);
+      const isCod = dto.paymentMethod === 'COD_CARD' || dto.paymentMethod === 'COD_CASH';
+      const orderStatus = isCod ? 'PROCESSING' : 'PENDING_PAYMENT';
+      const cart = await client.query<{ id: string }>("INSERT INTO carts(customer_id,session_key_hash,currency,expires_at) VALUES ($1,$2,$3,now()+interval '30 days') RETURNING id", [dto.customerId ?? null,createHash('sha256').update(randomBytes(48)).digest('hex'),currency]);
+      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions(cart_id,status,total_amount,contact_email,contact_name,currency,expires_at,completed_at) VALUES ($1,'COMPLETED',$2,$3,$4,$5,now()+interval '30 days',now()) RETURNING id", [cart.rows[0].id,total,dto.contactEmail.trim().toLowerCase(),dto.recipientName.trim(),currency]);
       const checkoutId = checkout.rows[0].id;
       const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
-      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,'TRY','ADMIN_ORDER') RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dto.customerId ?? null,total,orderStatus]);
+      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,'ADMIN_ORDER') RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dto.customerId ?? null,total,orderStatus,currency]);
       const orderId = order.rows[0].id;
       const address = [dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode?.trim() || null];
       await client.query('INSERT INTO checkout_addresses(checkout_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkoutId,...address]);
       await client.query('INSERT INTO order_addresses(order_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [orderId,...address]);
       for (const item of priced) {
         const values = [item.productId,item.name,item.sku,item.quantity,item.amount];
-        await client.query("INSERT INTO checkout_items(checkout_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,'TRY')", [checkoutId,...values]);
-        await client.query("INSERT INTO order_items(order_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,'TRY')", [orderId,...values]);
+        await client.query("INSERT INTO checkout_items(checkout_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,$7)", [checkoutId,...values,currency]);
+        await client.query("INSERT INTO order_items(order_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,$7)", [orderId,...values,currency]);
         await client.query("INSERT INTO stock_reservations(product_id,warehouse_id,quantity,reference_type,reference_id,expires_at) VALUES ($1,$2,$3,'checkout',$4,now()+interval '30 days')", [item.productId,dto.warehouseId,item.quantity,checkoutId]);
         await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES ($1,$2,'RESERVATION',0,'order',$3,$4)", [item.productId,dto.warehouseId,orderId,actor.id]);
       }
-      if (dto.paymentMethod !== 'TRANSFER') {
+      if (isCod) {
         const pick = await client.query<{ id:string }>("INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') RETURNING id", [orderId,dto.warehouseId]);
         await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) SELECT $1,id,quantity FROM order_items WHERE order_id=$2', [pick.rows[0].id,orderId]);
       }
-      const provider = dto.paymentMethod === 'TRANSFER' ? 'bank_transfer' : dto.paymentMethod === 'COD_CARD' ? 'cash_on_delivery_card' : 'cash_on_delivery_cash';
+      const provider = dto.paymentMethod === 'TRANSFER' ? 'bank_transfer' : dto.paymentMethod === 'HAND_CASH' ? 'cash' : dto.paymentMethod === 'COD_CARD' ? 'cash_on_delivery_card' : 'cash_on_delivery_cash';
       const reference = `${provider}_${randomUUID()}`;
-      const payment = await client.query<{ id: string }>("INSERT INTO payments(checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,'TRY') RETURNING id", [checkoutId,provider,reference,total]);
+      const payment = await client.query<{ id: string }>("INSERT INTO payments(checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id", [checkoutId,provider,reference,total,currency]);
       await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$3,$2)', [orderId,actor.id,orderStatus]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,'order.admin.created','order',orderId,JSON.stringify({ paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,'order.admin.created','order',orderId,JSON.stringify({ currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);
       return { ...order.rows[0], replayed: false };
     });
@@ -115,7 +120,7 @@ export class AdminOrderService {
       if(order.sales_channel!=='ADMIN_ORDER'||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
       const payment=(await client.query<{id:string;status:string;provider:string}>(
         'SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
-      if(!payment||payment.status!=='PENDING'||!['bank_transfer','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) throw new ConflictException('Tahsil edilmiş siparişin fiyatı değiştirilemez');
+      if(!payment||payment.status!=='PENDING'||!['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) throw new ConflictException('Tahsil edilmiş siparişin fiyatı değiştirilemez');
       const collection=await client.query('SELECT id FROM finance_transactions WHERE order_id=$1 AND approved_at IS NOT NULL LIMIT 1',[id]);
       if(collection.rowCount) throw new ConflictException('Kısmi tahsilat yapılmış siparişin fiyatı değiştirilemez');
       const packed=await client.query('SELECT pk.id FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 AND pk.packed_at IS NOT NULL LIMIT 1',[id]);

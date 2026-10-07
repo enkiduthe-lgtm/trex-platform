@@ -11,6 +11,7 @@ require.extensions['.ts'] = (module, filename) => {
   module._compile(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,experimentalDecorators:true,emitDecoratorMetadata:true}}).outputText,filename);
 };
 const { AdminOrderService } = require('../src/orders/admin-order.service.ts');
+const { OrdersService } = require('../src/orders/orders.service.ts');
 async function main() {
   const db = new PGlite();
   try {
@@ -80,11 +81,39 @@ async function main() {
     await assert.rejects(()=>service.updatePrices(cardOrder.id,{reason:'Too late',items:[{itemId:cardLine.id,unitAmount:90}]},actor),/Paketlenmiş/);
     const override=await service.create({...dto,priceChangeReason:'Special customer offer',items:[{productId,quantity:1,unitAmount:80.50}]},randomUUID(),actor);
     assert.equal(override.total_amount,'80.50');
+    const orders = new OrdersService(adapter);
+    assert.equal((await orders.list()).find(order=>order.id===result.id).customer_name,'Test Recipient');
+    await assert.rejects(()=>service.create({...dto,currency:'EUR'},randomUUID(),actor),/elle girin/);
+    await assert.rejects(()=>service.create({...dto,currency:'USD',paymentMethod:'COD_CARD'},randomUUID(),actor),/yalnız TL/);
+    for(const [paymentMethod,currency] of [['HAND_CASH','TRY'],['HAND_CASH','EUR'],['TRANSFER','USD'],['TRANSFER','EUR'],['HAND_CASH','USD']]) {
+      const foreign = await service.create({...dto,paymentMethod,currency,priceChangeReason:'Manual agreed amount',items:[{productId,quantity:1,unitAmount:20.25}]},randomUUID(),actor);
+      assert.equal(foreign.currency,currency);assert.equal(foreign.total_amount,'20.25');assert.equal(foreign.status,'PENDING_PAYMENT');
+      const detail=await orders.detail(foreign.id);
+      assert.equal(detail.items[0].currency,currency);assert.equal(detail.payments[0].currency,currency);
+      assert.equal(detail.payments[0].status,'PENDING');
+      assert.equal((await db.query('SELECT currency FROM checkout_sessions WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[foreign.id])).rows[0].currency,currency);
+      assert.equal((await db.query('SELECT currency FROM carts WHERE id=(SELECT cart_id FROM checkout_sessions WHERE id=(SELECT checkout_id FROM orders WHERE id=$1))',[foreign.id])).rows[0].currency,currency);
+      const before=(await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity;
+      await assert.rejects(()=>orders.cancel(foreign.id,{...actor,role:'FINANCE'}),/yönetici/);
+      const cancelled=await orders.cancel(foreign.id,actor);assert.equal(cancelled.releasedQuantity,1);
+      assert.equal((await orders.cancel(foreign.id,actor)).replayed,true);
+      assert.equal((await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity,before-1);
+      assert.equal((await orders.detail(foreign.id)).payments[0].status,'FAILED');
+    }
+    await assert.rejects(()=>orders.cancel(result.id,actor),/Kısmi tahsilat/);
+    await assert.rejects(()=>orders.cancel(cardOrder.id,actor),/Paketlenmiş/);
+    const before=(await db.query('SELECT reserved_quantity FROM inventory WHERE product_id=$1',[productId])).rows[0].reserved_quantity;
+    await db.query('UPDATE inventory SET reserved_quantity=0 WHERE product_id=$1',[productId]);
+    await assert.rejects(()=>orders.cancel(override.id,actor),/stok doğrulanamadı/);
+    assert.equal((await orders.detail(override.id)).status,'PENDING_PAYMENT');
+    await db.query('UPDATE inventory SET reserved_quantity=$2 WHERE product_id=$1',[productId,before]);
+    await db.query("UPDATE payments SET status='SUCCEEDED' WHERE checkout_id=(SELECT checkout_id FROM orders WHERE id=$1)",[override.id]);
+    await assert.rejects(()=>orders.cancel(override.id,actor),/Tahsil edilmiş/);
     await db.query("UPDATE products SET status='DRAFT' WHERE id=$1",[productId]);
     await assert.rejects(()=>service.create(dto,randomUUID(),actor),/Aktif ürün/);
     await db.query('UPDATE warehouses SET is_active=false WHERE id=$1',[warehouseId]);
     await assert.rejects(()=>service.create(dto,randomUUID(),actor),/Aktif depo/);
-    assert.equal((await db.query("SELECT count(*) AS n FROM audit_logs WHERE action='order.admin.created'")).rows[0].n,4);
+    assert.equal((await db.query("SELECT count(*) AS n FROM audit_logs WHERE action='order.admin.created'")).rows[0].n,9);
     const audit=(await db.query("SELECT metadata FROM audit_logs WHERE action='order.admin.prices.updated'")).rows[0].metadata;
     assert.equal(audit.previousTotal,'1519.98');assert.equal(audit.total,'1000.00');
     console.log('Admin order SQL checks passed: exact totals, snapshots, stock rollback, retry safety, channel pricing, pending payments, inactive product/warehouse rejection.');

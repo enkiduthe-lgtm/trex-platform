@@ -16,7 +16,8 @@ export class CreateAdminOrderDto {
   @IsString() @MinLength(1) @MaxLength(100) district!: string;
   @IsString() @MinLength(1) @MaxLength(500) addressLine!: string;
   @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
-  @IsIn(['TRANSFER', 'COD_CARD', 'COD_CASH']) paymentMethod!: 'TRANSFER' | 'COD_CARD' | 'COD_CASH';
+  @IsIn(['TRANSFER', 'COD_CARD', 'COD_CASH', 'HAND_CASH']) paymentMethod!: 'TRANSFER' | 'COD_CARD' | 'COD_CASH' | 'HAND_CASH';
+  @ValidateIf((_object,value)=>value!==undefined) @IsIn(['TRY','EUR','USD']) currency?: 'TRY' | 'EUR' | 'USD';
   @IsOptional() @IsString() @MinLength(1) @MaxLength(500) priceChangeReason?: string;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100)
   @ValidateNested({ each: true }) @Type(() => AdminOrderItemDto) items!: AdminOrderItemDto[];

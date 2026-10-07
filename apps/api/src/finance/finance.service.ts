@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { RequestUser } from '../auth/auth.types';
 import { DatabaseService } from '../database/database.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
@@ -34,24 +34,24 @@ export class FinanceService {
     return (await this.db.query(`SELECT a.*, COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) AS balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`)).rows;
   }
   async createAccount(dto: CreateFinanceAccountDto, actor: RequestUser) {
-    const result = await this.db.query<{ id: string }>('INSERT INTO finance_accounts(name,account_type,created_by) VALUES ($1,$2,$3) RETURNING id', [dto.name.trim(), dto.accountType, actor.id]);
+    const result = await this.db.query<{ id: string }>('INSERT INTO finance_accounts(name,account_type,created_by,currency) VALUES ($1,$2,$3,$4) RETURNING id', [dto.name.trim(), dto.accountType, actor.id, dto.currency ?? 'TRY']);
     return result.rows[0];
   }
   async listTransactions() {
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
   }
   async listMarketplaceSettlements() {
-    return (await this.db.query(`SELECT s.*,a.name AS account_name FROM marketplace_settlements s JOIN finance_accounts a ON a.id=s.account_id ORDER BY s.occurred_at DESC LIMIT 100`)).rows;
+    return (await this.db.query(`SELECT s.*,a.name AS account_name, a.currency FROM marketplace_settlements s JOIN finance_accounts a ON a.id=s.account_id ORDER BY s.occurred_at DESC LIMIT 100`)).rows;
   }
   async pendingCollections() {
-    return (await this.db.query(`SELECT t.*, a.name AS account_name FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC LIMIT 100`)).rows;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC LIMIT 100`)).rows;
   }
   async dashboard() {
-    const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`SELECT COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text income, COALESCE(SUM(CASE WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text expense, COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN -amount ELSE 0 END),0)::text net, COALESCE(SUM(CASE WHEN payment_status IN ('PENDING','PARTIALLY_PAID','COLLECTION_PENDING','OVERDUE') THEN amount ELSE 0 END),0)::text pending_collection FROM finance_transactions`);
+    const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`SELECT COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text income, COALESCE(SUM(CASE WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text expense, COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN -amount ELSE 0 END),0)::text net, COALESCE(SUM(CASE WHEN payment_status IN ('PENDING','PARTIALLY_PAID','COLLECTION_PENDING','OVERDUE') THEN amount ELSE 0 END),0)::text pending_collection FROM finance_transactions WHERE account_id IN (SELECT id FROM finance_accounts WHERE currency='TRY')`);
     return result.rows[0];
   }
   async alerts() {
-    const result = await this.db.query<{ code: string; title: string; detail: string; severity: string }>(`WITH balances AS (SELECT a.id,a.name,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id) SELECT 'NEGATIVE_ACCOUNT' code,'Negatif hesap bakiyesi' title,name || ': ' || balance::text || ' TL' detail,'HIGH' severity FROM balances WHERE balance < 0 UNION ALL SELECT 'UNMATCHED_TRANSFER','Eşleşmemiş havale','Referans veya gönderici bilgisi eksik: ' || amount::text || ' TL','MEDIUM' FROM finance_transactions WHERE kind='COLLECTION' AND (reference_number IS NULL OR counterparty_name IS NULL) UNION ALL SELECT 'OVERDUE_COLLECTION','Gecikmiş tahsilat',description || ': ' || amount::text || ' TL','HIGH' FROM finance_transactions WHERE payment_status='OVERDUE' UNION ALL SELECT 'MISSING_REFERENCE','Belgesiz masraf','Referans/dekont girilmemiş: ' || amount::text || ' TL','LOW' FROM finance_transactions WHERE kind IN ('EXPENSE','COMMISSION','PRIME_EXPENSE') AND reference_number IS NULL ORDER BY severity DESC LIMIT 50`);
+    const result = await this.db.query<{ code: string; title: string; detail: string; severity: string }>(`WITH movements AS (SELECT t.*,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id), balances AS (SELECT a.id,a.name,a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id) SELECT 'NEGATIVE_ACCOUNT' code,'Negatif hesap bakiyesi' title,name || ': ' || balance::text || ' ' || currency detail,'HIGH' severity FROM balances WHERE balance < 0 UNION ALL SELECT 'UNMATCHED_TRANSFER','Eşleşmemiş tahsilat','Referans veya gönderici bilgisi eksik: ' || amount::text || ' ' || currency,'MEDIUM' FROM movements WHERE kind='COLLECTION' AND (reference_number IS NULL OR counterparty_name IS NULL) UNION ALL SELECT 'OVERDUE_COLLECTION','Gecikmiş tahsilat',description || ': ' || amount::text || ' ' || currency,'HIGH' FROM movements WHERE payment_status='OVERDUE' UNION ALL SELECT 'MISSING_REFERENCE','Belgesiz masraf','Referans/dekont girilmemiş: ' || amount::text || ' ' || currency,'LOW' FROM movements WHERE kind IN ('EXPENSE','COMMISSION','PRIME_EXPENSE') AND reference_number IS NULL ORDER BY severity DESC LIMIT 50`);
     return result.rows;
   }
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
@@ -74,6 +74,8 @@ export class FinanceService {
   async createTransfer(dto: CreateFinanceTransferDto, actor: RequestUser) {
     if (dto.fromAccountId === dto.toAccountId) throw new Error('Transfer source and target accounts must differ');
     return this.db.transaction(async client => {
+      const accounts = await client.query<{id:string;currency:string}>("SELECT id,currency FROM finance_accounts WHERE id=ANY($1::uuid[]) AND is_active=true ORDER BY id FOR UPDATE",[[dto.fromAccountId,dto.toAccountId]]);
+      if(accounts.rows.length!==2 || accounts.rows[0].currency!==accounts.rows[1].currency) throw new BadRequestException('Transfer için aynı para biriminde iki aktif hesap seçin; otomatik döviz dönüşümü yapılmaz');
       const group = await client.query<{ id: string }>('SELECT gen_random_uuid() AS id');
       const transferGroupId = group.rows[0].id;
       const values = (accountId: string) => [accountId, dto.amount, dto.description.trim(), transferGroupId, actor.id];
@@ -84,10 +86,12 @@ export class FinanceService {
   }
   async approveCollection(id: string, dto: ApproveCollectionDto, actor: RequestUser) {
     return this.db.transaction(async client => {
-      const collection = await client.query<{ id: string; amount: string }>(`SELECT id,amount FROM finance_transactions WHERE id=$1 AND kind='COLLECTION' AND payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND approved_at IS NULL FOR UPDATE`, [id]);
+      const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL FOR UPDATE OF t`, [id]);
       if (!collection.rowCount) throw new Error('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
-      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string }>('SELECT id,status,total_amount,checkout_id FROM orders WHERE id=$1 FOR UPDATE', [dto.orderId]);
+      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string; currency:string }>('SELECT id,status,total_amount,checkout_id,currency FROM orders WHERE id=$1 FOR UPDATE', [dto.orderId]);
       if (!order.rowCount) throw new Error('Sipariş bulunamadı');
+      if(order.rows[0].status==='CANCELLED') throw new BadRequestException('İptal edilmiş siparişe tahsilat bağlanamaz');
+      if(collection.rows[0].currency?.trim()!==order.rows[0].currency?.trim() || !order.rows[0].currency) throw new BadRequestException('Tahsilat hesabı ve sipariş aynı para biriminde olmalı');
       const approved = await client.query<{ total: string }>(`SELECT COALESCE(SUM(amount),0)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='COLLECTION' AND approved_at IS NOT NULL`, [dto.orderId]);
       const alreadyCollected = Number(approved.rows[0]?.total ?? 0);
       const collectionAmount = Number(collection.rows[0].amount);
