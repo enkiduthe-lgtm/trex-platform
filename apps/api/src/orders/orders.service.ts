@@ -58,5 +58,19 @@ export class OrdersService { constructor(private readonly db: DatabaseService) {
       return {id,status:'CANCELLED',releasedQuantity,replayed:false};
     });
   }
-  async updateStatus(id:string,dto:UpdateOrderStatusDto,actor:RequestUser){if(dto.status==='CANCELLED')return this.cancel(id,actor);return this.db.transaction(async client=>{const row=await client.query<{id:string}>('UPDATE orders SET status=$1 WHERE id=$2 RETURNING id',[dto.status,id]);if(!row.rowCount)throw new Error('Sipariş bulunamadı');await client.query('INSERT INTO order_status_history(order_id,status) VALUES ($1,$2)',[id,dto.status]);await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);return {id,status:dto.status};});}
+  async updateStatus(id:string,dto:UpdateOrderStatusDto,actor:RequestUser) {
+    if(dto.status==='CANCELLED') return this.cancel(id,actor);
+    if(!['SUPER_ADMIN','ADMIN','WAREHOUSE'].includes(actor.role)) throw new ForbiddenException('Sipariş operasyonu yetkisi gerekli');
+    return this.db.transaction(async client=>{
+      const order=(await client.query<{status:string}>('SELECT status FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      if(!order) throw new NotFoundException('Sipariş bulunamadı');
+      if(order.status===dto.status) return {id,status:dto.status,replayed:true};
+      const next:Record<string,string>={PAID:'PROCESSING',PROCESSING:'SHIPPED',SHIPPED:'DELIVERED'};
+      if(next[order.status]!==dto.status) throw new ConflictException('Bu sipariş durum geçişine izin verilmiyor');
+      await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
+      await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);
+      return {id,status:dto.status};
+    });
+  }
 }

@@ -17,18 +17,25 @@ export class PaymentsService {
     const existing = await this.db.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1', [checkoutId]);
     if (existing.rows[0]) return { paymentId: existing.rows[0].id, providerReference: existing.rows[0].provider_reference, status: existing.rows[0].status };
     const external = usePaytr ? await this.initializePaytr(checkoutId, checkout.rows[0].total_amount, checkout.rows[0].currency, userIp) : await this.provider.initialize({ amount: checkout.rows[0].total_amount, currency: checkout.rows[0].currency, reference: checkoutId });
-    const payment = await this.db.query<{ id: string }>(`INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) SELECT id,$2,$3,$4,$5 FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND expires_at>now() RETURNING id`, [checkoutId, usePaytr ? 'paytr' : 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
+    return this.db.transaction(async client => {
+    const payable = await client.query("SELECT id FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND expires_at>now() FOR UPDATE", [checkoutId]);
+    if (!payable.rows[0]) throw new ConflictException('Ödeme başlatılırken sepetin süresi doldu. Sepetinizi yeniden doğrulayın.');
+    const concurrent = await client.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1', [checkoutId]);
+    if (concurrent.rows[0]) return { paymentId: concurrent.rows[0].id, providerReference: concurrent.rows[0].provider_reference, status: concurrent.rows[0].status };
+    const payment = await client.query<{ id: string }>(`INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) SELECT id,$2,$3,$4,$5 FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND expires_at>now() RETURNING id`, [checkoutId, usePaytr ? 'paytr' : 'mock', external.providerReference, checkout.rows[0].total_amount, checkout.rows[0].currency]);
     if(!payment.rows[0]) throw new ConflictException('Ödeme başlatılırken sepetin süresi doldu. Sepetinizi yeniden doğrulayın.');
-    await this.db.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id, external.providerReference]);
+    await client.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id, external.providerReference]);
     return { paymentId: payment.rows[0].id, providerReference: external.providerReference, redirectUrl: external.redirectUrl, status: 'PENDING' };
+    });
   }
   async initializeManual(checkoutId: string, guestKey: string, method: 'TRANSFER' | 'COD' | 'CASH') {
     const provider = method === 'TRANSFER' ? 'bank_transfer' : method === 'COD' ? 'cash_on_delivery' : 'cash';
     return this.db.transaction(async (client: PoolClient) => {
-      const checkout = await client.query<{ id: string; total_amount: string; currency: string }>("SELECT s.id,s.total_amount,s.currency FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND s.status='OPEN' AND s.expires_at>now() AND c.session_key_hash=$2 FOR UPDATE", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
+      const checkout = await client.query<{ id: string; total_amount: string; currency: string; payable: boolean }>("SELECT s.id,s.total_amount,s.currency,(s.status='OPEN' AND s.expires_at>now()) AS payable FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND c.session_key_hash=$2 FOR UPDATE", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
       if (!checkout.rows[0]) throw new NotFoundException('Open checkout not found');
       const existing = await client.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1 FOR UPDATE', [checkoutId]);
       if (existing.rows[0]) return { paymentId: existing.rows[0].id, providerReference: existing.rows[0].provider_reference, status: existing.rows[0].status, replayed: true };
+      if (!checkout.rows[0].payable) throw new ConflictException('Checkout is no longer payable');
       const reference = `${provider}_${randomUUID()}`;
       const payment = await client.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId,provider,reference,checkout.rows[0].total_amount,checkout.rows[0].currency]);
       await client.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
@@ -46,10 +53,15 @@ export class PaymentsService {
     return this.db.transaction(async client => {
       await client.query(`INSERT INTO payment_callbacks(provider,event_id,payload) VALUES ('paytr',$1,$2) ON CONFLICT (provider,event_id) DO NOTHING`, [dto.merchant_oid, JSON.stringify(dto)]);
       const payment = await client.query<{ id: string; status: string }>(`SELECT id,status FROM payments WHERE provider='paytr' AND provider_reference=$1 FOR UPDATE`, [dto.merchant_oid]);
-      if (!payment.rowCount) return { response: 'OK', accepted: true, matched: false };
-      if (dto.status === 'failed') { await client.query(`UPDATE payments SET status='FAILED' WHERE id=$1 AND status='PENDING'`, [payment.rows[0].id]); return { response: 'OK', accepted: true, matched: true }; }
-      if (payment.rows[0].status === 'SUCCEEDED') return { response: 'OK', accepted: true, matched: true, replayed: true };
-      const completed = await this.completeSuccessfulPayment(client, payment.rows[0].id);
+      if (!payment.rowCount) throw new ConflictException('PayTR bildirimi ödeme kaydıyla eşleşmedi; yeniden denenmeli');
+      if (payment.rows[0].status !== 'PENDING') return { response: 'OK', accepted: true, matched: true, replayed: true };
+      if (dto.status === 'failed') {
+        await client.query(`UPDATE payments SET status='FAILED' WHERE id=$1 AND status='PENDING'`, [payment.rows[0].id]);
+        await client.query(`UPDATE payment_attempts SET status='FAILED' WHERE payment_id=$1 AND status='PENDING'`, [payment.rows[0].id]);
+        await client.query('INSERT INTO audit_logs(action,entity_type,entity_id) VALUES ($1,$2,$3)', ['payment.failed','payment',payment.rows[0].id]);
+        return { response: 'OK', accepted: true, matched: true };
+      }
+      const completed = await this.completeSuccessfulPayment(client, payment.rows[0].id, undefined, { allowExpiredCheckout: true });
       return { response: 'OK', accepted: true, matched: true, ...completed };
     });
   }
@@ -64,11 +76,25 @@ export class PaymentsService {
       return this.completeSuccessfulPayment(client, payment.rows[0].id, payment.rows[0].checkout_id);
     });
   }
-  private async completeSuccessfulPayment(client: PoolClient, paymentId: string, knownCheckoutId?: string, options: { orderStatus?: 'PAID' | 'PENDING_PAYMENT'; createPick?: boolean; markPaymentSucceeded?: boolean } = {}) {
+  private async completeSuccessfulPayment(client: PoolClient, paymentId: string, knownCheckoutId?: string, options: { orderStatus?: 'PAID' | 'PENDING_PAYMENT'; createPick?: boolean; markPaymentSucceeded?: boolean; allowExpiredCheckout?: boolean } = {}) {
       const payment = knownCheckoutId ? { checkout_id: knownCheckoutId } : (await client.query<{ checkout_id: string }>('SELECT checkout_id FROM payments WHERE id=$1 FOR UPDATE', [paymentId])).rows[0];
       if (!payment) throw new NotFoundException('Payment not found');
-      const checkout = await client.query<{ total_amount: string; currency: string; cart_id: string; coupon_id:string|null; discount_amount:string }>("SELECT total_amount,currency,cart_id,coupon_id,discount_amount FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND expires_at > now() FOR UPDATE", [payment.checkout_id]);
+      const checkout = await client.query<{ total_amount: string; currency: string; cart_id: string; coupon_id:string|null; discount_amount:string }>("SELECT total_amount,currency,cart_id,coupon_id,discount_amount FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND (expires_at > now() OR $2::boolean) FOR UPDATE", [payment.checkout_id, options.allowExpiredCheckout === true]);
       if (!checkout.rows[0]) throw new ConflictException('Checkout is no longer payable');
+      const items = await client.query<{ product_id: string; product_name: string; sku: string; quantity: number; unit_amount: string; currency: string }>('SELECT product_id,product_name,sku,quantity,unit_amount,currency FROM checkout_items WHERE checkout_id=$1', [payment.checkout_id]);
+      if (!items.rows.length || items.rows.some(item=>item.currency!==checkout.rows[0].currency)) throw new ConflictException('Sipariş kalemleri doğrulanamadı');
+      const reservations = await client.query<{product_id:string;warehouse_id:string;quantity:number}>("SELECT product_id,warehouse_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' ORDER BY product_id,warehouse_id,id FOR UPDATE",[payment.checkout_id]);
+      const warehouseIds=new Set(reservations.rows.map(row=>row.warehouse_id));
+      const expected=new Map<string,number>();
+      for(const item of items.rows) expected.set(item.product_id,(expected.get(item.product_id)??0)+item.quantity);
+      const held=new Map<string,number>();
+      for(const row of reservations.rows) held.set(row.product_id,(held.get(row.product_id)??0)+row.quantity);
+      if(warehouseIds.size!==1 || held.size!==expected.size || [...expected].some(([product,quantity])=>held.get(product)!==quantity)) throw new ConflictException('Sipariş stok rezervasyonu doğrulanamadı');
+      const warehouseId=reservations.rows[0].warehouse_id;
+      for(const [product,quantity] of [...expected].sort(([a],[b])=>a.localeCompare(b))) {
+        const stock=await client.query<{physical_quantity:number;reserved_quantity:number}>('SELECT physical_quantity,reserved_quantity FROM inventory WHERE product_id=$1 AND warehouse_id=$2 FOR UPDATE',[product,warehouseId]);
+        if(!stock.rows[0] || stock.rows[0].reserved_quantity<quantity || stock.rows[0].physical_quantity<stock.rows[0].reserved_quantity) throw new ConflictException('Ayrılan stok doğrulanamadı');
+      }
       const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
       const orderStatus = options.orderStatus ?? 'PAID';
       const order = await client.query<{ id: string; order_number: string }>('INSERT INTO orders (order_number,checkout_id,total_amount,currency,status) VALUES ($1,$2,$3,$4,$5) RETURNING id,order_number', [sequence.rows[0].value, payment.checkout_id, checkout.rows[0].total_amount, checkout.rows[0].currency, orderStatus]);
@@ -78,14 +104,12 @@ export class PaymentsService {
         await client.query('INSERT INTO coupon_redemptions (coupon_id,order_id,discount_amount) VALUES ($1,$2,$3)', [checkout.rows[0].coupon_id, order.rows[0].id, checkout.rows[0].discount_amount]);
         await client.query('UPDATE coupons SET used_count=used_count+1 WHERE id=$1', [checkout.rows[0].coupon_id]);
       }
-      const items = await client.query<{ product_id: string; product_name: string; sku: string; quantity: number; unit_amount: string; currency: string }>('SELECT product_id,product_name,sku,quantity,unit_amount,currency FROM checkout_items WHERE checkout_id=$1', [payment.checkout_id]);
       for (const item of items.rows) await client.query('INSERT INTO order_items (order_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,$7)', [order.rows[0].id, item.product_id, item.product_name, item.sku, item.quantity, item.unit_amount, item.currency]);
       const address = await client.query<{ recipient_name: string; phone: string; city: string; district: string; address_line: string; postal_code: string | null }>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM checkout_addresses WHERE checkout_id=$1', [payment.checkout_id]);
       if (!address.rows[0]) throw new ConflictException('Checkout address is missing');
       await client.query('INSERT INTO order_addresses (order_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [order.rows[0].id, address.rows[0].recipient_name, address.rows[0].phone, address.rows[0].city, address.rows[0].district, address.rows[0].address_line, address.rows[0].postal_code]);
-      const reservation = await client.query<{ warehouse_id: string }>(`SELECT warehouse_id FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 ORDER BY created_at ASC LIMIT 1`, [payment.checkout_id]);
-      if (options.createPick !== false && reservation.rows[0]) {
-        const pick = await client.query<{ id: string }>(`INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') RETURNING id`, [order.rows[0].id, reservation.rows[0].warehouse_id]);
+      if (options.createPick !== false) {
+        const pick = await client.query<{ id: string }>(`INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') RETURNING id`, [order.rows[0].id, warehouseId]);
         for (const item of items.rows) {
           const orderItem = await client.query<{ id: string }>(`SELECT id FROM order_items WHERE order_id=$1 AND product_id=$2`, [order.rows[0].id, item.product_id]);
           if (orderItem.rows[0]) await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)', [pick.rows[0].id, orderItem.rows[0].id, item.quantity]);

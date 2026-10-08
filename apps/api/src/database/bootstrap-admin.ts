@@ -1,5 +1,5 @@
-import * as argon2 from 'argon2';
 import { Client } from 'pg';
+import { bootstrapAdminAccount } from './bootstrap-admin-account';
 
 const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
 const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
@@ -12,19 +12,8 @@ if (bootstrapPassword.length < 12) throw new Error('BOOTSTRAP_ADMIN_PASSWORD mus
 async function main() {
   const client = new Client({ connectionString: process.env.DATABASE_URL }); await client.connect();
   try {
-    const existing = await client.query<{ id: string }>('SELECT id FROM users WHERE email=$1', [email]);
-    if (existing.rowCount) {
-      if (!resetExisting) { console.log('Admin already exists; no change made.'); return; }
-      const passwordHash = await argon2.hash(bootstrapPassword, { type: argon2.argon2id });
-      await client.query('UPDATE users SET password_hash=$1, is_active=true, updated_at=now() WHERE id=$2', [passwordHash, existing.rows[0].id]);
-      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [existing.rows[0].id, 'user.bootstrap_password_reset', 'user', existing.rows[0].id]);
-      console.log(`Reset SUPER_ADMIN password ${existing.rows[0].id}`);
-      return;
-    }
-    const passwordHash = await argon2.hash(bootstrapPassword, { type: argon2.argon2id });
-    const created = await client.query<{ id: string }>("INSERT INTO users (email,password_hash,role) VALUES ($1,$2,'SUPER_ADMIN') RETURNING id", [email, passwordHash]);
-    await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [created.rows[0].id, 'user.bootstrap_super_admin', 'user', created.rows[0].id]);
-    console.log(`Created SUPER_ADMIN ${created.rows[0].id}`);
+    const result = await bootstrapAdminAccount(client, email!, bootstrapPassword, resetExisting);
+    console.log(`SUPER_ADMIN bootstrap: ${result.outcome} (${result.id})`);
   } finally { await client.end(); }
 }
-void main();
+void main().catch(() => { console.error('SUPER_ADMIN bootstrap failed; account changes were not applied.'); process.exitCode=1; });

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { PricingService } from '../pricing/pricing.service';
@@ -19,6 +19,8 @@ export class CartService {
     await this.assertOwnership(cartId, guestKey);
     const items = (await this.db.query<CartItemRow>("SELECT ci.product_id, ci.quantity, p.slug, p.name FROM cart_items ci JOIN products p ON p.id=ci.product_id WHERE ci.cart_id=$1 AND p.status='ACTIVE'", [cartId])).rows;
     const resolved = await Promise.all(items.map(async (item) => ({ ...item, price: await this.pricing.resolve(item.product_id, { channel: SalesChannel.PUBLIC_WEB }) })));
+    if (resolved.some(item => !item.price)) throw new ConflictException('Sepetteki bir ürünün geçerli satış fiyatı bulunamadı');
+    if (resolved.some(item => item.price!.currency !== 'TRY')) throw new ConflictException('Mağaza siparişi için ürün fiyatları TL olmalıdır. Yönetim panelindeki mağaza fiyatını kontrol edin.');
     const total = resolved.reduce((sum, item) => sum + (item.price ? Number(item.price.amount) * item.quantity : 0), 0);
     return { id: cartId, items: resolved, total: total.toFixed(2), currency: 'TRY' };
   }
