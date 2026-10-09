@@ -10,6 +10,7 @@ import { UpdatePickItemDto } from './dto/update-pick-item.dto';
 import { RequestUser } from '../auth/auth.types';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ScanPickItemDto } from './dto/scan-pick-item.dto';
 type UserRequest = Request & { user: RequestUser };
 
 @Controller('admin/warehouse') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
@@ -29,6 +30,7 @@ export class WarehouseController {
   @Post('receipts') receiveStock(@Body() dto: ReceiveStockDto, @Req() req: UserRequest) { return this.warehouse.receiveStock(dto, req.user.id); }
   @Post('picks') createPick(@Body() dto: CreatePickDto, @Req() req: UserRequest) { return this.warehouse.createPick(dto.orderId, dto.warehouseId, req.user.id); }
   @Patch('picks/:pickId/items/:itemId') updatePickedQuantity(@Param('pickId') pickId:string, @Param('itemId') itemId:string, @Body() dto: UpdatePickItemDto, @Req() req: UserRequest) { return this.warehouse.updatePickedQuantity(pickId, itemId, dto.pickedQuantity, req.user.id); }
+  @Post('picks/:id/scan') scanPickBarcode(@Param('id') id:string, @Body() dto: ScanPickItemDto, @Req() req: UserRequest) { return this.warehouse.scanPickBarcode(id, dto.barcode, req.user.id); }
   @Post('picks/:id/complete') completePick(@Param('id') id:string, @Req() req: UserRequest) { return this.warehouse.completePick(id, req.user.id); }
   @Post('picks/:id/pack') completePacking(@Param('id') id:string, @Req() req: UserRequest) { return this.warehouse.completePacking(id, req.user.id); }
 }

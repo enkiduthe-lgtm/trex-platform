@@ -24,6 +24,17 @@ describe('WarehouseService', () => {
     expect(client.query).toHaveBeenCalledWith('UPDATE picking_items SET picked_quantity=$1 WHERE id=$2',[2,'item']);
   });
 
+  it('accepts a barcode only when it belongs to the active pick list', async () => {
+    const client={query:jest.fn()
+      .mockResolvedValueOnce({rows:[{id:'item',expected_quantity:2,picked_quantity:0,status:'IN_PROGRESS',product_name:'TrexTea'}]})
+      .mockResolvedValue({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    const result=await new WarehouseService(db as never).scanPickBarcode('pick','869000000001','user');
+    expect(result).toEqual({id:'item',pickId:'pick',productName:'TrexTea',pickedQuantity:1,expectedQuantity:2});
+    expect(client.query).toHaveBeenCalledWith('UPDATE picking_items SET picked_quantity=$1 WHERE id=$2',[1,'item']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO picking_scans'),['pick','item','869000000001','user']);
+  });
+
   it('consumes the stock reservation once a package is completed', async () => {
     const client={query:jest.fn()
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
