@@ -334,16 +334,7 @@ export default function Orders() {
                           Onaya gönder
                         </Link>
                       )}
-                      {order.status === "PAID" && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void updateStatus(order.id, "PROCESSING")
-                          }
-                        >
-                          Hazırla
-                        </button>
-                      )}
+                      {order.status === "PAID" && <Link className={styles.approveLink} href="/stok">Depoda hazırla</Link>}
                       {order.status === "PROCESSING" && (
                         <button
                           type="button"

@@ -65,7 +65,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService) {
       const order=(await client.query<{status:string}>('SELECT status FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.status===dto.status) return {id,status:dto.status,replayed:true};
-      const next:Record<string,string>={PAID:'PROCESSING',PROCESSING:'SHIPPED',SHIPPED:'DELIVERED'};
+      const next:Record<string,string>={PROCESSING:'SHIPPED',SHIPPED:'DELIVERED'};
       if(next[order.status]!==dto.status) throw new ConflictException('Bu sipariş durum geçişine izin verilmiyor');
       await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);

@@ -65,6 +65,15 @@ export class WarehouseService {
     return inventory.rows[0];
   }); }
   async listPicks() { return (await this.db.query(`SELECT ps.id, ps.status, ps.created_at, o.order_number, w.name AS warehouse_name, u.email AS assigned_email, COALESCE(SUM(pi.expected_quantity),0) AS expected_items, COALESCE(SUM(pi.picked_quantity),0) AS picked_items FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id JOIN warehouses w ON w.id=ps.warehouse_id LEFT JOIN users u ON u.id=ps.assigned_to LEFT JOIN picking_items pi ON pi.picking_session_id=ps.id GROUP BY ps.id,o.order_number,w.name,u.email ORDER BY ps.created_at DESC LIMIT 50`)).rows; }
+  async listPickQueue() { return (await this.db.query(`SELECT o.id,o.order_number,w.name AS warehouse_name,COALESCE(SUM(oi.quantity),0) AS item_count
+    FROM orders o
+    JOIN stock_reservations sr ON sr.reference_type='checkout' AND sr.reference_id=o.checkout_id AND sr.status='ACTIVE'
+    JOIN warehouses w ON w.id=sr.warehouse_id
+    JOIN order_items oi ON oi.order_id=o.id
+    LEFT JOIN picking_sessions ps ON ps.order_id=o.id
+    WHERE o.status='PAID' AND ps.id IS NULL
+    GROUP BY o.id,w.name
+    ORDER BY o.created_at ASC LIMIT 100`)).rows; }
   async getPick(id:string) {
     const pick = await this.db.query<{id:string;status:string;order_number:string;warehouse_name:string}>(`SELECT ps.id,ps.status,o.order_number,w.name AS warehouse_name FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id JOIN warehouses w ON w.id=ps.warehouse_id WHERE ps.id=$1`,[id]);
     if (!pick.rows[0]) throw new NotFoundException('Toplama listesi bulunamadı');
@@ -73,6 +82,20 @@ export class WarehouseService {
   }
   async criticalStock() { return (await this.db.query(`SELECT p.id, p.name, w.name AS warehouse_name, i.physical_quantity, i.reserved_quantity, i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id WHERE i.physical_quantity-i.reserved_quantity <= 5 ORDER BY available_quantity ASC, p.name LIMIT 100`)).rows; }
   async createPick(orderId:string,warehouseId:string,userId:string) { const order=await this.db.query("SELECT id FROM orders WHERE id=$1 AND status='PAID'",[orderId]); if(!order.rowCount) throw new NotFoundException('Paid order not found'); const pick=await this.db.query<{id:string}>('INSERT INTO picking_sessions (order_id,warehouse_id,assigned_to,status) VALUES ($1,$2,$3,$4) RETURNING id',[orderId,warehouseId,userId,'IN_PROGRESS']); const items=await this.db.query<{id:string;quantity:number}>('SELECT id,quantity FROM order_items WHERE order_id=$1',[orderId]); for(const item of items.rows) await this.db.query('INSERT INTO picking_items (picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)',[pick.rows[0].id,item.id,item.quantity]); return pick.rows[0]; }
+  async startQueuedPick(orderId:string,userId:string) { return this.db.transaction(async client=>{
+    const order=await client.query<{id:string;checkout_id:string}>('SELECT id,checkout_id FROM orders WHERE id=$1 AND status=\'PAID\' FOR UPDATE',[orderId]);
+    if(!order.rowCount) throw new NotFoundException('Hazırlanacak onaylı sipariş bulunamadı');
+    const existing=await client.query<{id:string}>('SELECT id FROM picking_sessions WHERE order_id=$1',[orderId]);
+    if(existing.rows[0]) return {id:existing.rows[0].id,replayed:true};
+    const reservations=await client.query<{warehouse_id:string}>('SELECT warehouse_id FROM stock_reservations WHERE reference_type=\'checkout\' AND reference_id=$1 AND status=\'ACTIVE\' FOR UPDATE',[order.rows[0].checkout_id]);
+    const warehouseIds=[...new Set(reservations.rows.map((reservation)=>reservation.warehouse_id))];
+    if(warehouseIds.length!==1) throw new ConflictException('Sipariş için tek bir depo rezervasyonu gerekli');
+    const pick=await client.query<{id:string}>('INSERT INTO picking_sessions(order_id,warehouse_id,assigned_to,status) VALUES($1,$2,$3,\'IN_PROGRESS\') RETURNING id',[orderId,warehouseIds[0],userId]);
+    const items=await client.query<{id:string;quantity:number}>('SELECT id,quantity FROM order_items WHERE order_id=$1',[orderId]);
+    for(const item of items.rows) await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) VALUES($1,$2,$3)',[pick.rows[0].id,item.id,item.quantity]);
+    await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[userId,'warehouse.pick.started','order',orderId]);
+    return {id:pick.rows[0].id,replayed:false};
+  }); }
   async updatePickedQuantity(pickId:string,itemId:string,pickedQuantity:number,userId:string) { return this.db.transaction(async client=>{
     const item=await client.query<{id:string;expected_quantity:number;status:string}>(`SELECT pi.id,pi.expected_quantity,ps.status FROM picking_items pi JOIN picking_sessions ps ON ps.id=pi.picking_session_id WHERE pi.id=$1 AND pi.picking_session_id=$2 FOR UPDATE`,[itemId,pickId]);
     const row=item.rows[0];
