@@ -3,8 +3,9 @@ import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { editVersion } from './edit-version';
+import { CommissionsService } from '../commissions/commissions.service';
 @Injectable()
-export class OrdersService { constructor(private readonly db: DatabaseService) {} async list(channel?:string) { const normalized=channel?.trim().toUpperCase(); const allowed=['PUBLIC_WEB','ADMIN_ORDER','DEALER_PORTAL','WHOLESALE','MARKETPLACE']; if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı'); return (await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,o.shipping_cost_amount,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id WHERE ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) GROUP BY o.id,c.id,cs.id,oa.id ORDER BY o.created_at DESC LIMIT 100`,[normalized ?? null])).rows; }
+export class OrdersService { constructor(private readonly db: DatabaseService,private readonly commissions?: CommissionsService) {} async list(channel?:string) { const normalized=channel?.trim().toUpperCase(); const allowed=['PUBLIC_WEB','ADMIN_ORDER','DEALER_PORTAL','WHOLESALE','MARKETPLACE']; if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı'); return (await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,o.shipping_cost_amount,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id WHERE ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) GROUP BY o.id,c.id,cs.id,oa.id ORDER BY o.created_at DESC LIMIT 100`,[normalized ?? null])).rows; }
   async detail(id:string) {
     const result=await this.db.query<{contact_name:string|null;contact_email:string|null}>(`SELECT o.id,o.order_number,o.status,o.sales_channel,o.total_amount,o.currency,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email,cs.contact_email,cs.contact_name,
       (o.sales_channel='ADMIN_ORDER' AND o.status IN ('PENDING_PAYMENT','PROCESSING')
@@ -70,6 +71,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService) {
       await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);
+      if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id);
       return {id,status:dto.status};
     });
   }

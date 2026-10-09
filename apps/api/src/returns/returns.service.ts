@@ -2,10 +2,11 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { DatabaseService } from '../database/database.service';
 import { RequestReturnDto } from './dto/request-return.dto';
 import { InspectReturnDto, RefundReturnDto } from './dto/return-operation.dto';
+import { CommissionsService } from '../commissions/commissions.service';
 
 @Injectable()
 export class ReturnsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly commissions?: CommissionsService) {}
 
   async request(dto: RequestReturnDto) {
     return this.db.transaction(async client => {
@@ -65,7 +66,7 @@ export class ReturnsService {
   }
 
   async refund(returnId:string,dto:RefundReturnDto,actorId:string) {
-    return this.db.transaction(async client=>{
+    const result=await this.db.transaction(async client=>{
       const returned=await client.query<{order_id:string;total_amount:string;currency:string;order_number:string;checkout_id:string}>(`SELECT r.order_id,o.total_amount,o.currency,o.order_number,o.checkout_id FROM returns r JOIN orders o ON o.id=r.order_id WHERE r.id=$1 AND r.status='INSPECTED' FOR UPDATE`,[returnId]);
       if(!returned.rowCount) throw new ConflictException('Yalnızca incelenmiş iadeler için ödeme iadesi yapılabilir');
       const account=await client.query<{id:string;currency:string}>('SELECT id,currency FROM finance_accounts WHERE id=$1 AND is_active=true FOR UPDATE',[dto.accountId]);
@@ -78,7 +79,9 @@ export class ReturnsService {
       if(payment.rows[0] && Math.abs(Number(payment.rows[0].amount)-dto.amount)<0.0001) await client.query("UPDATE payments SET status='REFUNDED' WHERE id=$1",[payment.rows[0].id]);
       await client.query("UPDATE returns SET status='REFUNDED',completed_at=now() WHERE id=$1",[returnId]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.refunded','return',returnId,JSON.stringify({amount:dto.amount,accountId:dto.accountId,transactionId:transaction.rows[0].id})]);
-      return {returnId,status:'REFUNDED',financeTransactionId:transaction.rows[0].id};
+      return {returnId,status:'REFUNDED',financeTransactionId:transaction.rows[0].id,orderId:returned.rows[0].order_id};
     });
+    await this.commissions?.reverseForOrder(result.orderId,actorId,'İade finansal olarak tamamlandı');
+    return result;
   }
 }
