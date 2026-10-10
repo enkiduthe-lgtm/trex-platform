@@ -1,5 +1,5 @@
 import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Matches, Min, ValidateIf } from 'class-validator';
-export enum PriceScope { GLOBAL = 'GLOBAL', CHANNEL = 'CHANNEL', DEALER_LEVEL = 'DEALER_LEVEL', DEALER = 'DEALER' }
+export enum PriceScope { GLOBAL = 'GLOBAL', CHANNEL = 'CHANNEL', DEALER_LEVEL = 'DEALER_LEVEL', DEALER = 'DEALER', DEALER_PRICE_GROUP = 'DEALER_PRICE_GROUP' }
 export enum SalesChannel { PUBLIC_WEB = 'PUBLIC_WEB', ADMIN_ORDER = 'ADMIN_ORDER', DEALER_PORTAL = 'DEALER_PORTAL' }
 export class CreatePriceDto {
   @IsUUID() productId!: string;
@@ -12,4 +12,5 @@ export class CreatePriceDto {
   @ValidateIf((x) => x.scope === PriceScope.DEALER_LEVEL) @IsUUID() dealerLevelId?: string;
   // Dealer table lands in the dealer sprint; UUID is stored now to support its future foreign key migration.
   @ValidateIf((x) => x.scope === PriceScope.DEALER) @IsUUID() dealerId?: string;
+  @ValidateIf((x) => x.scope === PriceScope.DEALER_PRICE_GROUP) @IsUUID() dealerPriceGroupId?: string;
 }
