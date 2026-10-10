@@ -16,7 +16,7 @@ export class ProductsService {
     try { return await this.db.transaction(async client=>{
       const product=await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE',[id]);
       if(!product.rows[0]) throw new NotFoundException('Ürün bulunamadı');
-      const dependencies=await client.query('SELECT 1 FROM checkout_items WHERE product_id=$1 UNION ALL SELECT 1 FROM order_items WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_movements WHERE product_id=$1 UNION ALL SELECT 1 FROM stock_reservations WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_lots WHERE product_id=$1 UNION ALL SELECT 1 FROM commission_rules WHERE product_id=$1 LIMIT 1',[id]);
+      const dependencies=await client.query('SELECT 1 FROM checkout_items WHERE product_id=$1 UNION ALL SELECT 1 FROM order_items WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_movements WHERE product_id=$1 UNION ALL SELECT 1 FROM stock_reservations WHERE product_id=$1 UNION ALL SELECT 1 FROM inventory_lots WHERE product_id=$1 UNION ALL SELECT 1 FROM commission_rules WHERE product_id=$1 UNION ALL SELECT 1 FROM purchase_order_items WHERE product_id=$1 LIMIT 1',[id]);
       if(dependencies.rowCount) throw new ConflictException('Ürün sipariş, stok veya prim geçmişine bağlı. Stok/depo kayıtlarını önce silin. Geçmiş siparişlere bağlı ürünler arşivlenebilir, kalıcı silinemez.');
       const prices=await client.query('SELECT * FROM product_prices WHERE product_id=$1',[id]);
       const costs=await client.query('SELECT * FROM product_costs WHERE product_id=$1',[id]);
