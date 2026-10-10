@@ -6,6 +6,7 @@ import { CreateFinanceAccountDto } from './dto/create-finance-account.dto';
 import { CreateFinanceTransactionDto, CreateFinanceTransferDto } from './dto/create-finance-transaction.dto';
 import { ApproveCollectionDto } from './dto/approve-collection.dto';
 import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlement.dto';
+import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -53,6 +54,17 @@ export class FinanceService {
   async alerts() {
     const result = await this.db.query<{ code: string; title: string; detail: string; severity: string }>(`WITH movements AS (SELECT t.*,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id), balances AS (SELECT a.id,a.name,a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id) SELECT 'NEGATIVE_ACCOUNT' code,'Negatif hesap bakiyesi' title,name || ': ' || balance::text || ' ' || currency detail,'HIGH' severity FROM balances WHERE balance < 0 UNION ALL SELECT 'UNMATCHED_TRANSFER','Eşleşmemiş tahsilat','Referans veya gönderici bilgisi eksik: ' || amount::text || ' ' || currency,'MEDIUM' FROM movements WHERE kind='COLLECTION' AND (reference_number IS NULL OR counterparty_name IS NULL) UNION ALL SELECT 'OVERDUE_COLLECTION','Gecikmiş tahsilat',description || ': ' || amount::text || ' ' || currency,'HIGH' FROM movements WHERE payment_status='OVERDUE' UNION ALL SELECT 'MISSING_REFERENCE','Belgesiz masraf','Referans/dekont girilmemiş: ' || amount::text || ' ' || currency,'LOW' FROM movements WHERE kind IN ('EXPENSE','COMMISSION','PRIME_EXPENSE') AND reference_number IS NULL ORDER BY severity DESC LIMIT 50`);
     return result.rows;
+  }
+  async budgets(period?: string) {
+    const target = period ? `${period.slice(0,7)}-01` : new Date().toISOString().slice(0,7) + '-01';
+    return (await this.db.query(`SELECT b.*,COALESCE(SUM(t.amount) FILTER (WHERE t.kind='EXPENSE' AND t.expense_category=b.expense_category AND COALESCE(t.cost_center,'')=b.cost_center),0)::text actual_amount FROM finance_budgets b LEFT JOIN finance_transactions t ON t.occurred_at>=b.period_start AND t.occurred_at<(b.period_start+interval '1 month') AND t.payment_status<>'REFUNDED' GROUP BY b.id ORDER BY b.expense_category,b.cost_center`,[target])).rows;
+  }
+  async createBudget(dto: CreateFinanceBudgetDto, actor: RequestUser) {
+    try { const result=await this.db.query<{id:string}>('INSERT INTO finance_budgets(period_start,expense_category,cost_center,amount,currency,description,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[dto.periodStart,dto.expenseCategory.trim(),dto.costCenter?.trim()||'',dto.amount,dto.currency??'TRY',dto.description?.trim()||null,actor.id]); await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.budget.created','finance_budget',result.rows[0].id]); return result.rows[0]; }
+    catch(error:unknown) { if((error as {code?:string}).code==='23505') throw new BadRequestException('Bu dönem, kategori ve masraf merkezi için bütçe zaten var'); throw error; }
+  }
+  async cashFlowProjection() {
+    return (await this.db.query(`SELECT a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,COALESCE(SUM(CASE WHEN t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID','OVERDUE') THEN t.amount ELSE 0 END),0)::text pending_collections,COALESCE((SELECT SUM(amount) FROM finance_budgets b WHERE b.period_start=date_trunc('month',now())::date AND b.currency=a.currency),0)::text monthly_budget FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.currency ORDER BY a.currency`)).rows;
   }
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
     const result = await this.db.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, dto.description.trim(), dto.occurredAt ?? null, actor.id]);
