@@ -81,4 +81,10 @@ describe('WarehouseService', () => {
     const db={transaction:jest.fn((work) => work(client))};
     await expect(new WarehouseService(db as never).createInventoryCount({productId:'product',warehouseId:'warehouse',actualQuantity:3,reason:'Sayım farkı'},'user')).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('lists recent inventory movements newest first', async () => {
+    const db={query:jest.fn().mockResolvedValue({rows:[{id:'movement',movement_type:'RECEIPT'}]})};
+    await expect(new WarehouseService(db as never).listInventoryMovements()).resolves.toEqual([{id:'movement',movement_type:'RECEIPT'}]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY m.created_at DESC LIMIT 100'));
+  });
 });

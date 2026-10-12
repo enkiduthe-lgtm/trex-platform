@@ -50,6 +50,12 @@ export class WarehouseService {
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async listInventoryMovements() { return (await this.db.query(`SELECT m.id,m.movement_type,m.quantity_delta,m.reference_type,m.reference_id,m.created_at,p.name AS product_name,p.sku,w.name AS warehouse_name,u.email AS created_by_email
+    FROM inventory_movements m
+    JOIN products p ON p.id=m.product_id
+    JOIN warehouses w ON w.id=m.warehouse_id
+    LEFT JOIN users u ON u.id=m.created_by
+    ORDER BY m.created_at DESC LIMIT 100`)).rows; }
   async listInventoryCounts() { return (await this.db.query(`SELECT c.id,c.product_id,c.warehouse_id,p.name AS product_name,w.name AS warehouse_name,c.expected_quantity,c.actual_quantity,c.difference_quantity,c.reason,c.counted_at,u.email AS counted_by_email
     FROM inventory_counts c JOIN products p ON p.id=c.product_id JOIN warehouses w ON w.id=c.warehouse_id JOIN users u ON u.id=c.counted_by
     ORDER BY c.counted_at DESC LIMIT 50`)).rows; }
