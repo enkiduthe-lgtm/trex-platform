@@ -7,4 +7,11 @@ describe('ShippingService', () => {
     await expect(service.create('order')).resolves.toEqual({ shipmentId: 'shipment', trackingNumber: 'TRX1', replayed: true });
     expect(provider.createShipment).not.toHaveBeenCalled();
   });
+
+  it('lists only packed orders without an existing shipment in the shipment queue', async () => {
+    const db={query:jest.fn().mockResolvedValue({rows:[{order_id:'order',order_number:'2026-0001'}]})};
+    const service=new ShippingService(db as never,{} as never,{} as never);
+    await expect(service.readyToShip()).resolves.toEqual([{order_id:'order',order_number:'2026-0001'}]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("o.status='PROCESSING'"));
+  });
 });
