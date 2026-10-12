@@ -53,6 +53,13 @@ export default function Purchasing() {
       phone: "",
       email: "",
     }),
+    [supplierEdit, setSupplierEdit] = useState({
+      id: "",
+      name: "",
+      contactName: "",
+      phone: "",
+      email: "",
+    }),
     [form, setForm] = useState({
       supplierId: "",
       warehouseId: "",
@@ -185,6 +192,35 @@ export default function Purchasing() {
       setMessage(e instanceof Error ? e.message : "Sipariş oluşturulamadı");
     }
   }
+  function chooseSupplier(id: string) {
+    const selected = options.suppliers.find((supplier) => supplier.id === id);
+    setSupplierEdit({
+      id,
+      name: selected?.name ?? "",
+      contactName: selected?.contact_name ?? "",
+      phone: selected?.phone ?? "",
+      email: selected?.email ?? "",
+    });
+  }
+  async function updateSupplier(e: FormEvent) {
+    e.preventDefault();
+    if (!supplierEdit.id) return;
+    try {
+      await api(`/admin/purchasing/suppliers/${supplierEdit.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: supplierEdit.name,
+          contactName: supplierEdit.contactName || undefined,
+          phone: supplierEdit.phone || undefined,
+          email: supplierEdit.email || undefined,
+        }),
+      });
+      setMessage("Tedarikçi iletişim bilgileri güncellendi.");
+      void load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Tedarikçi güncellenemedi");
+    }
+  }
   async function markOrdered(id: string) {
     try {
       await api(`/admin/purchasing/orders/${id}/order`, { method: "POST" });
@@ -300,6 +336,65 @@ export default function Purchasing() {
             </label>
           </div>
           <button>Tedarikçiyi kaydet</button>
+        </form>
+        <form className="form-card" onSubmit={updateSupplier}>
+          <h2>Tedarikçi iletişim bilgilerini düzenle</h2>
+          <div className="form-grid">
+            <label>
+              Tedarikçi
+              <select
+                required
+                value={supplierEdit.id}
+                onChange={(e) => chooseSupplier(e.target.value)}
+              >
+                <option value="">Seçin</option>
+                {options.suppliers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tedarikçi adı
+              <input
+                required
+                value={supplierEdit.name}
+                onChange={(e) =>
+                  setSupplierEdit((value) => ({ ...value, name: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Yetkili kişi
+              <input
+                value={supplierEdit.contactName}
+                onChange={(e) =>
+                  setSupplierEdit((value) => ({ ...value, contactName: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Telefon
+              <input
+                value={supplierEdit.phone}
+                onChange={(e) =>
+                  setSupplierEdit((value) => ({ ...value, phone: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              E-posta
+              <input
+                type="email"
+                value={supplierEdit.email}
+                onChange={(e) =>
+                  setSupplierEdit((value) => ({ ...value, email: e.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <button>Tedarikçiyi güncelle</button>
         </form>
         <form className="form-card" onSubmit={createOrder}>
           <h2>Satın alma siparişi</h2>
