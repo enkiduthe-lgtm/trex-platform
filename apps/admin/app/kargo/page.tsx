@@ -1,10 +1,253 @@
-'use client';
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { AdminNav } from '../components/admin-nav';
-import { api } from '../lib/api';
-type Config={provider:string;ready:boolean;missing:string[]};
-type Shipment={id:string;order_id:string;order_number:string;provider:string;tracking_number:string|null;status:string;label_url:string|null;failure_reason:string|null;recipient_name:string|null;city:string|null;district:string|null;created_at:string};
-type ShippingQueue={order_id:string;order_number:string;total_amount:string;currency:string;recipient_name:string|null;city:string|null;district:string|null};
-const status:Record<string,string>={PENDING:'Bekliyor',CREATED:'Gönderi oluşturuldu',IN_TRANSIT:'Taşımada',DELIVERED:'Teslim edildi',FAILED:'Başarısız',CANCELLED:'İptal edildi'};
-export default function Shipping(){const [config,setConfig]=useState<Config|null>(null);const [shipments,setShipments]=useState<Shipment[]>([]);const [queue,setQueue]=useState<ShippingQueue[]>([]);const [message,setMessage]=useState('');const [busy,setBusy]=useState<string|null>(null);const load=()=>Promise.all([api<Config>('/admin/orders/shipping/status'),api<Shipment[]>('/admin/orders/shipping'),api<ShippingQueue[]>('/admin/orders/shipping/queue')]).then(([c,s,q])=>{setConfig(c);setShipments(s);setQueue(q)}).catch(e=>setMessage(e instanceof Error?e.message:'Kargo kayıtları yüklenemedi'));useEffect(()=>{void load()},[]);async function createShipment(orderId:string){setBusy(orderId);try{const result=await api<{trackingNumber:string}>(`/admin/orders/${orderId}/shipment`,{method:'POST'});setMessage(`Kargo kaydı oluşturuldu: ${result.trackingNumber}`);await load()}catch(e){setMessage(e instanceof Error?e.message:'Kargo kaydı oluşturulamadı')}finally{setBusy(null)}}const inTransit=shipments.filter(s=>s.status==='CREATED'||s.status==='IN_TRANSIT');const failed=shipments.filter(s=>s.status==='FAILED');const delivered=shipments.filter(s=>s.status==='DELIVERED');return <main><AdminNav/><section><p>SİPARİŞLER / KARGO</p><h1>Kargo işlemleri</h1>{message&&<p role="status">{message}</p>}<div className="cards"><article><p>KARGOYA HAZIR</p><h2>{queue.length}</h2><p>Kayıt bekleyen paket</p></article><article><p>TAŞIMADA</p><h2>{inTransit.length}</h2><p>Takip edilmesi gereken gönderi</p></article><article><p>TESLİM EDİLDİ</p><h2>{delivered.length}</h2><p>Kapanan gönderi</p></article><article><p>SORUNLU</p><h2>{failed.length}</h2><p>İşlem gerektiren gönderi</p></article></div>{config&&<article className="form-card"><h2>Aras Kargo bağlantısı</h2><p>{config.provider==='aras'?(config.ready?'Bağlantı bilgileri hazır. İlk canlı gönderiden önce Aras SetOrder şeması doğrulanmalıdır.':`Bağlantı eksik: ${config.missing.join(', ')}`):'Deneme kargo adaptörü seçili. Canlı gönderi oluşturmaz.'}</p><p>Canlı Aras gönderisi için Render ortam değişkenlerinde müşteri kodu, SetOrder kullanıcı adı/şifresi ve Aras’ın verdiği sözleşme endpoint’i bulunmalıdır.</p></article>}<h2>Kargoya hazır siparişler</h2><p>Paketlemesi tamamlanan sipariş için kargo kaydı ve takip numarası oluşturun.</p><div className="cards">{queue.length?queue.map(item=><article key={item.order_id}><p>{item.recipient_name??'Müşteri'} · {item.district??''} {item.city??''}</p><h2>{item.order_number}</h2><p>{item.total_amount} {item.currency}</p><button disabled={busy!==null} onClick={()=>void createShipment(item.order_id)}>Kargo kaydı oluştur</button></article>):<article><p>Kargo kaydı bekleyen paketlenmiş sipariş yok.</p></article>}</div>{failed.length>0&&<><h2>Sorunlu gönderiler</h2><div className="cards">{failed.map(s=><article key={s.id}><p>{s.order_number} · {s.tracking_number??'Takip numarası yok'}</p><h3>{s.recipient_name??'Müşteri'}</h3><p role="alert">{s.failure_reason??'Kargo sağlayıcısı gönderi kaydını oluşturamadı.'}</p><Link href={`/siparisler/${s.order_id}`}>Siparişi aç →</Link></article>)}</div></>}<h2>Son gönderiler</h2><div className="cards">{shipments.length?shipments.map(s=><article key={s.id}><p>{s.provider==='aras'?'Aras Kargo':s.provider} · {status[s.status]??s.status}</p><h2>{s.order_number}</h2><p>{s.tracking_number??'Takip numarası bekleniyor'}</p><p>{s.recipient_name??'—'} · {s.district??''} {s.city??''}</p>{s.label_url&&<a href={s.label_url} target="_blank">Kargo etiketini aç</a>}{s.failure_reason&&<p role="alert">{s.failure_reason}</p>}<p><Link href={`/siparisler/${s.order_id}`}>Sipariş detayı →</Link></p></article>):<article><p>Henüz oluşturulmuş kargo kaydı yok.</p></article>}</div></section></main>}
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { AdminNav } from "../components/admin-nav";
+import { api } from "../lib/api";
+type Config = { provider: string; ready: boolean; missing: string[] };
+type Shipment = {
+  id: string;
+  order_id: string;
+  order_number: string;
+  provider: string;
+  tracking_number: string | null;
+  status: string;
+  label_url: string | null;
+  failure_reason: string | null;
+  recipient_name: string | null;
+  city: string | null;
+  district: string | null;
+  created_at: string;
+};
+type ShippingQueue = {
+  order_id: string;
+  order_number: string;
+  total_amount: string;
+  currency: string;
+  recipient_name: string | null;
+  city: string | null;
+  district: string | null;
+};
+const status: Record<string, string> = {
+  PENDING: "Bekliyor",
+  CREATED: "Gönderi oluşturuldu",
+  IN_TRANSIT: "Taşımada",
+  DELIVERED: "Teslim edildi",
+  FAILED: "Başarısız",
+  CANCELLED: "İptal edildi",
+};
+export default function Shipping() {
+  const [config, setConfig] = useState<Config | null>(null);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [queue, setQueue] = useState<ShippingQueue[]>([]);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = () =>
+    Promise.all([
+      api<Config>("/admin/orders/shipping/status"),
+      api<Shipment[]>("/admin/orders/shipping"),
+      api<ShippingQueue[]>("/admin/orders/shipping/queue"),
+    ])
+      .then(([c, s, q]) => {
+        setConfig(c);
+        setShipments(s);
+        setQueue(q);
+      })
+      .catch((e) =>
+        setMessage(
+          e instanceof Error ? e.message : "Kargo kayıtları yüklenemedi",
+        ),
+      );
+  useEffect(() => {
+    void load();
+  }, []);
+  async function createShipment(orderId: string) {
+    setBusy(orderId);
+    try {
+      const result = await api<{ trackingNumber: string }>(
+        `/admin/orders/${orderId}/shipment`,
+        { method: "POST" },
+      );
+      setMessage(`Kargo kaydı oluşturuldu: ${result.trackingNumber}`);
+      await load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Kargo kaydı oluşturulamadı");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function updateShipment(
+    orderId: string,
+    statusValue: "IN_TRANSIT" | "DELIVERED" | "FAILED",
+  ) {
+    setBusy(orderId);
+    try {
+      await api(`/admin/orders/${orderId}/shipment/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: statusValue }),
+      });
+      setMessage(`Gönderi durumu güncellendi: ${status[statusValue]}`);
+      await load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Gönderi durumu güncellenemedi");
+    } finally {
+      setBusy(null);
+    }
+  }
+  const inTransit = shipments.filter(
+    (s) => s.status === "CREATED" || s.status === "IN_TRANSIT",
+  );
+  const failed = shipments.filter((s) => s.status === "FAILED");
+  const delivered = shipments.filter((s) => s.status === "DELIVERED");
+  return (
+    <main>
+      <AdminNav />
+      <section>
+        <p>SİPARİŞLER / KARGO</p>
+        <h1>Kargo işlemleri</h1>
+        {message && <p role="status">{message}</p>}
+        <div className="cards">
+          <article>
+            <p>KARGOYA HAZIR</p>
+            <h2>{queue.length}</h2>
+            <p>Kayıt bekleyen paket</p>
+          </article>
+          <article>
+            <p>TAŞIMADA</p>
+            <h2>{inTransit.length}</h2>
+            <p>Takip edilmesi gereken gönderi</p>
+          </article>
+          <article>
+            <p>TESLİM EDİLDİ</p>
+            <h2>{delivered.length}</h2>
+            <p>Kapanan gönderi</p>
+          </article>
+          <article>
+            <p>SORUNLU</p>
+            <h2>{failed.length}</h2>
+            <p>İşlem gerektiren gönderi</p>
+          </article>
+        </div>
+        {config && (
+          <article className="form-card">
+            <h2>Aras Kargo bağlantısı</h2>
+            <p>
+              {config.provider === "aras"
+                ? config.ready
+                  ? "Bağlantı bilgileri hazır. İlk canlı gönderiden önce Aras SetOrder şeması doğrulanmalıdır."
+                  : `Bağlantı eksik: ${config.missing.join(", ")}`
+                : "Deneme kargo adaptörü seçili. Canlı gönderi oluşturmaz."}
+            </p>
+            <p>
+              Canlı Aras gönderisi için Render ortam değişkenlerinde müşteri
+              kodu, SetOrder kullanıcı adı/şifresi ve Aras’ın verdiği sözleşme
+              endpoint’i bulunmalıdır.
+            </p>
+          </article>
+        )}
+        <h2>Kargoya hazır siparişler</h2>
+        <p>
+          Paketlemesi tamamlanan sipariş için kargo kaydı ve takip numarası
+          oluşturun.
+        </p>
+        <div className="cards">
+          {queue.length ? (
+            queue.map((item) => (
+              <article key={item.order_id}>
+                <p>
+                  {item.recipient_name ?? "Müşteri"} · {item.district ?? ""}{" "}
+                  {item.city ?? ""}
+                </p>
+                <h2>{item.order_number}</h2>
+                <p>
+                  {item.total_amount} {item.currency}
+                </p>
+                <button
+                  disabled={busy !== null}
+                  onClick={() => void createShipment(item.order_id)}
+                >
+                  Kargo kaydı oluştur
+                </button>
+              </article>
+            ))
+          ) : (
+            <article>
+              <p>Kargo kaydı bekleyen paketlenmiş sipariş yok.</p>
+            </article>
+          )}
+        </div>
+        {failed.length > 0 && (
+          <>
+            <h2>Sorunlu gönderiler</h2>
+            <div className="cards">
+              {failed.map((s) => (
+                <article key={s.id}>
+                  <p>
+                    {s.order_number} ·{" "}
+                    {s.tracking_number ?? "Takip numarası yok"}
+                  </p>
+                  <h3>{s.recipient_name ?? "Müşteri"}</h3>
+                  <p role="alert">
+                    {s.failure_reason ??
+                      "Kargo sağlayıcısı gönderi kaydını oluşturamadı."}
+                  </p>
+                  <Link href={`/siparisler/${s.order_id}`}>Siparişi aç →</Link>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+        <h2>Son gönderiler</h2>
+        <div className="cards">
+          {shipments.length ? (
+            shipments.map((s) => (
+              <article key={s.id}>
+                <p>
+                  {s.provider === "aras" ? "Aras Kargo" : s.provider} ·{" "}
+                  {status[s.status] ?? s.status}
+                </p>
+                <h2>{s.order_number}</h2>
+                <p>{s.tracking_number ?? "Takip numarası bekleniyor"}</p>
+                <p>
+                  {s.recipient_name ?? "—"} · {s.district ?? ""} {s.city ?? ""}
+                </p>
+                {s.status === "CREATED" && (
+                  <button
+                    disabled={busy !== null}
+                    onClick={() => void updateShipment(s.order_id, "IN_TRANSIT")}
+                  >
+                    Taşımada olarak işaretle
+                  </button>
+                )}
+                {s.status === "IN_TRANSIT" && (
+                  <>
+                    <button disabled={busy !== null} onClick={() => void updateShipment(s.order_id, "DELIVERED")}>
+                      Teslim edildi
+                    </button>
+                    <button disabled={busy !== null} onClick={() => void updateShipment(s.order_id, "FAILED")}>
+                      Teslimat sorunu
+                    </button>
+                  </>
+                )}
+                {s.label_url && (
+                  <a href={s.label_url} target="_blank">
+                    Kargo etiketini aç
+                  </a>
+                )}
+                {s.failure_reason && <p role="alert">{s.failure_reason}</p>}
+                <p>
+                  <Link href={`/siparisler/${s.order_id}`}>
+                    Sipariş detayı →
+                  </Link>
+                </p>
+              </article>
+            ))
+          ) : (
+            <article>
+              <p>Henüz oluşturulmuş kargo kaydı yok.</p>
+            </article>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
