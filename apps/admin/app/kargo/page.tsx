@@ -27,6 +27,8 @@ type ShippingQueue = {
   city: string | null;
   district: string | null;
 };
+type ShipmentEvent = { id: string; status: string; description: string | null; occurred_at: string };
+type ShipmentDetail = { order_id: string; events: ShipmentEvent[] };
 const status: Record<string, string> = {
   PENDING: "Bekliyor",
   CREATED: "Gönderi oluşturuldu",
@@ -41,6 +43,7 @@ export default function Shipping() {
   const [queue, setQueue] = useState<ShippingQueue[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, ShipmentDetail>>({});
   const load = () =>
     Promise.all([
       api<Config>("/admin/orders/shipping/status"),
@@ -89,6 +92,25 @@ export default function Shipping() {
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Gönderi durumu güncellenemedi");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function loadHistory(orderId: string) {
+    if (details[orderId]) {
+      setDetails((current) => {
+        const next = { ...current };
+        delete next[orderId];
+        return next;
+      });
+      return;
+    }
+    setBusy(orderId);
+    try {
+      const detail = await api<ShipmentDetail | null>(`/admin/orders/${orderId}/shipment`);
+      if (detail) setDetails((current) => ({ ...current, [orderId]: detail }));
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Takip geçmişi yüklenemedi");
     } finally {
       setBusy(null);
     }
@@ -227,6 +249,20 @@ export default function Shipping() {
                       Teslimat sorunu
                     </button>
                   </>
+                )}
+                <button disabled={busy !== null} onClick={() => void loadHistory(s.order_id)}>
+                  {details[s.order_id] ? "Takip geçmişini gizle" : "Takip geçmişi"}
+                </button>
+                {details[s.order_id] && (
+                  <div>
+                    <h3>Takip geçmişi</h3>
+                    {details[s.order_id].events.length ? details[s.order_id].events.map((event) => (
+                      <p key={event.id}>
+                        {new Date(event.occurred_at).toLocaleString("tr-TR")} · {status[event.status] ?? event.status}
+                        {event.description ? ` — ${event.description}` : ""}
+                      </p>
+                    )) : <p>Henüz takip olayı yok.</p>}
+                  </div>
                 )}
                 {s.label_url && (
                   <a href={s.label_url} target="_blank">
