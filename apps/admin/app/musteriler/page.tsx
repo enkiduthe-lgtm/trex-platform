@@ -17,8 +17,11 @@ type Customer = {
   total_spend: string;
   totals_by_currency: { currency: string; amount: string; order_count: number }[];
   note_count: number;
+  loyalty_points: number;
+  loyalty_tier: 'BRONZE' | 'SILVER' | 'GOLD';
 };
 type Note = { id: string; body: string; created_at: string };
+type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; movements: { id: string; points_delta: number; reason: string; created_at: string }[] };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 function CustomerAmounts({ customer }: { customer: Customer }) {
@@ -29,7 +32,10 @@ export default function Customers() {
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<Customer | null>(null),
     [notes, setNotes] = useState<Note[]>([]),
+    [loyalty, setLoyalty] = useState<Loyalty | null>(null),
     [note, setNote] = useState(""),
+    [points, setPoints] = useState(""),
+    [pointsReason, setPointsReason] = useState(""),
     [message, setMessage] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,12 +77,13 @@ export default function Customers() {
     const ticket = notesGate.current.begin();
     setSelected(customer);
     setNote("");
+    setPoints(""); setPointsReason(""); setLoyalty(null);
     setNotes([]);
     setNotesLoading(true);
     setMessage('');
     try {
-      const result = await api<Note[]>(`/admin/customers/${customer.id}/notes`);
-      if (notesGate.current.isCurrent(ticket)) setNotes(result);
+      const [result, customerLoyalty] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`)]);
+      if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); }
     } catch (e) {
       if (notesGate.current.isCurrent(ticket)) setMessage(
         e instanceof Error ? e.message : "Müşteri notları yüklenemedi.",
@@ -87,7 +94,7 @@ export default function Customers() {
   }
   function close() {
     if (saveLock.current.isLocked()) return;
-    notesGate.current.invalidate(); setSelected(null); setNotes([]); setNote(''); setNotesLoading(false);
+    notesGate.current.invalidate(); setSelected(null); setNotes([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setNotesLoading(false);
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -107,6 +114,17 @@ export default function Customers() {
     } finally {
       saveLock.current.release(); setSaving(false);
     }
+  }
+  async function adjustPoints(e: FormEvent) {
+    e.preventDefault();
+    const amount = Number(points);
+    if (!selected || notesLoading || !Number.isInteger(amount) || !amount || !pointsReason.trim() || !saveLock.current.acquire()) return;
+    setSaving(true); setMessage('');
+    try {
+      await api(`/admin/customers/${selected.id}/loyalty/adjust`, { method: 'POST', body: JSON.stringify({ points: amount, reason: pointsReason.trim() }) });
+      setPoints(''); setPointsReason(''); await readNotes(selected); void load(); setMessage('Puan hareketi kaydedildi.');
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Puan hareketi kaydedilemedi.'); }
+    finally { saveLock.current.release(); setSaving(false); }
   }
   return (
     <main>
@@ -169,6 +187,7 @@ export default function Customers() {
                 <th>Müşteri</th>
                 <th>İletişim</th>
                 <th>Sipariş</th>
+                <th>Trex puan</th>
                 <th>Sipariş tutarları</th>
                 <th>Notlar</th>
                 <th>İşlem</th>
@@ -188,6 +207,7 @@ export default function Customers() {
                     <small>{x.phone ?? "Telefon bilgisi yok"}</small>
                   </td>
                   <td>{x.order_count}</td>
+                  <td><b>{x.loyalty_points ?? 0}</b><small>{x.loyalty_tier ?? 'BRONZE'}</small></td>
                   <td><CustomerAmounts customer={x}/></td>
                   <td>{x.note_count}</td>
                   <td>
@@ -235,7 +255,18 @@ export default function Customers() {
               <span>
                 <b>{selected.note_count}</b>Not
               </span>
+              <span>
+                <b>{selected.loyalty_points ?? 0}</b>Trex puan
+              </span>
             </div>
+            <h3>Trex sadakat puanı</h3>
+            <p><strong>{loyalty?.pointsBalance ?? selected.loyalty_points ?? 0} puan</strong> · {loyalty?.tier ?? selected.loyalty_tier ?? 'BRONZE'}</p>
+            <form onSubmit={adjustPoints}>
+              <input required disabled={saving || notesLoading} value={points} onChange={(e) => setPoints(e.target.value)} inputMode="numeric" type="number" step="1" placeholder="+100 veya -100" />
+              <textarea required maxLength={500} disabled={saving || notesLoading} value={pointsReason} onChange={(e) => setPointsReason(e.target.value)} placeholder="Puan işlem nedeni" />
+              <button disabled={saving || notesLoading || !points || !pointsReason.trim()}>{saving ? 'Kaydediliyor…' : 'Puan hareketini kaydet'}</button>
+            </form>
+            {loyalty?.movements.length ? <>{loyalty.movements.slice(0,5).map((movement) => <article key={movement.id}><p><b>{movement.points_delta > 0 ? '+' : ''}{movement.points_delta} puan</b> · {movement.reason}</p><small>{new Date(movement.created_at).toLocaleString('tr-TR')}</small></article>)}</> : <p>Henüz puan hareketi yok.</p>}
             <h3>Personel notları</h3>
             <form onSubmit={save}>
               <textarea
