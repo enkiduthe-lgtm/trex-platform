@@ -230,6 +230,15 @@ export default function Purchasing() {
       setMessage(e instanceof Error ? e.message : "Onaylanamadı");
     }
   }
+  async function cancelOrder(id: string) {
+    try {
+      await api(`/admin/purchasing/orders/${id}/cancel`, { method: "POST" });
+      setMessage("Taslak satın alma siparişi iptal edildi.");
+      void load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Sipariş iptal edilemedi");
+    }
+  }
   async function receive(e: FormEvent) {
     e.preventDefault();
     try {
@@ -664,9 +673,14 @@ export default function Purchasing() {
                   </td>
                   <td>
                     {x.status === "DRAFT" && (
-                      <button onClick={() => void markOrdered(x.id)}>
-                        Onayla
-                      </button>
+                      <>
+                        <button onClick={() => void markOrdered(x.id)}>
+                          Onayla
+                        </button>{" "}
+                        <button onClick={() => void cancelOrder(x.id)}>
+                          İptal et
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
