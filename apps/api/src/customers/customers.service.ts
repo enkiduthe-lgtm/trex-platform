@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { DatabaseService } from '../database/database.service';
 
 type LoyaltyAdjustment = { points: number; reason: string };
+type CustomerRequestInput = { subject: string; body: string; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' };
+type RequestStatusInput = { status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'; resolutionNote?: string };
 
 @Injectable()
 export class CustomersService {
@@ -66,6 +68,35 @@ export class CustomersService {
       await client.query('INSERT INTO customer_loyalty_movements(customer_id,points_delta,reason,created_by) VALUES($1,$2,$3,$4)', [customerId, dto.points, reason, userId]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.loyalty.adjusted', 'customer', customerId, JSON.stringify({ points: dto.points, reason })]);
       return { pointsBalance: balance, tier };
+    });
+  }
+
+  async requests(customerId: string) {
+    return (await this.db.query(`SELECT id,subject,body,priority,status,resolution_note,created_at,updated_at,resolved_at
+      FROM customer_requests WHERE customer_id=$1 ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'IN_PROGRESS' THEN 1 WHEN 'RESOLVED' THEN 2 ELSE 3 END,created_at DESC`, [customerId])).rows;
+  }
+
+  async createRequest(customerId: string, dto: CustomerRequestInput, userId: string) {
+    const subject = dto.subject.trim(); const body = dto.body.trim();
+    if (!subject || !body) throw new BadRequestException('Talep başlığı ve açıklaması zorunludur');
+    return this.db.transaction(async client => {
+      const customer = await client.query('SELECT 1 FROM customers WHERE id=$1 FOR KEY SHARE', [customerId]);
+      if (!customer.rowCount) throw new NotFoundException('Customer not found');
+      const result = await client.query<{ id: string }>(`INSERT INTO customer_requests(customer_id,subject,body,priority,created_by)
+        VALUES($1,$2,$3,$4,$5) RETURNING id`, [customerId, subject, body, dto.priority, userId]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.request.created', 'customer_request', result.rows[0].id, JSON.stringify({ customerId, priority: dto.priority })]);
+      return result.rows[0];
+    });
+  }
+
+  async updateRequest(customerId: string, requestId: string, dto: RequestStatusInput, userId: string) {
+    return this.db.transaction(async client => {
+      const request = await client.query<{ id: string }>('SELECT id FROM customer_requests WHERE id=$1 AND customer_id=$2 FOR UPDATE', [requestId, customerId]);
+      if (!request.rowCount) throw new NotFoundException('Customer request not found');
+      const closing = dto.status === 'RESOLVED' || dto.status === 'CLOSED';
+      await client.query(`UPDATE customer_requests SET status=$1,resolution_note=$2,updated_at=now(),resolved_at=CASE WHEN $3 THEN now() ELSE NULL END,resolved_by=CASE WHEN $3 THEN $4 ELSE NULL END WHERE id=$5`, [dto.status, dto.resolutionNote?.trim() || null, closing, userId, requestId]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.request.status.updated', 'customer_request', requestId, JSON.stringify({ status: dto.status })]);
+      return { id: requestId, status: dto.status };
     });
   }
 }

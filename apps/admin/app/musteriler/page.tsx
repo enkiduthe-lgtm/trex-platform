@@ -22,6 +22,7 @@ type Customer = {
 };
 type Note = { id: string; body: string; created_at: string };
 type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; movements: { id: string; points_delta: number; reason: string; created_at: string }[] };
+type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 function CustomerAmounts({ customer }: { customer: Customer }) {
@@ -32,10 +33,12 @@ export default function Customers() {
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<Customer | null>(null),
     [notes, setNotes] = useState<Note[]>([]),
+    [requests, setRequests] = useState<CustomerRequest[]>([]),
     [loyalty, setLoyalty] = useState<Loyalty | null>(null),
     [note, setNote] = useState(""),
     [points, setPoints] = useState(""),
     [pointsReason, setPointsReason] = useState(""),
+    [requestForm, setRequestForm] = useState({subject:'',body:'',priority:'NORMAL'}),
     [message, setMessage] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -77,13 +80,13 @@ export default function Customers() {
     const ticket = notesGate.current.begin();
     setSelected(customer);
     setNote("");
-    setPoints(""); setPointsReason(""); setLoyalty(null);
+    setPoints(""); setPointsReason(""); setLoyalty(null); setRequests([]); setRequestForm({subject:'',body:'',priority:'NORMAL'});
     setNotes([]);
     setNotesLoading(true);
     setMessage('');
     try {
-      const [result, customerLoyalty] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`)]);
-      if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); }
+      const [result, customerLoyalty, customerRequests] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`),api<CustomerRequest[]>(`/admin/customers/${customer.id}/requests`)]);
+      if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); setRequests(customerRequests); }
     } catch (e) {
       if (notesGate.current.isCurrent(ticket)) setMessage(
         e instanceof Error ? e.message : "Müşteri notları yüklenemedi.",
@@ -94,7 +97,7 @@ export default function Customers() {
   }
   function close() {
     if (saveLock.current.isLocked()) return;
-    notesGate.current.invalidate(); setSelected(null); setNotes([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setNotesLoading(false);
+    notesGate.current.invalidate(); setSelected(null); setNotes([]); setRequests([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setRequestForm({subject:'',body:'',priority:'NORMAL'}); setNotesLoading(false);
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -124,6 +127,23 @@ export default function Customers() {
       await api(`/admin/customers/${selected.id}/loyalty/adjust`, { method: 'POST', body: JSON.stringify({ points: amount, reason: pointsReason.trim() }) });
       setPoints(''); setPointsReason(''); await readNotes(selected); void load(); setMessage('Puan hareketi kaydedildi.');
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Puan hareketi kaydedilemedi.'); }
+    finally { saveLock.current.release(); setSaving(false); }
+  }
+  async function createRequest(e: FormEvent) {
+    e.preventDefault();
+    if (!selected || notesLoading || !requestForm.subject.trim() || !requestForm.body.trim() || !saveLock.current.acquire()) return;
+    setSaving(true); setMessage('');
+    try {
+      await api(`/admin/customers/${selected.id}/requests`, { method:'POST', body:JSON.stringify({subject:requestForm.subject.trim(),body:requestForm.body.trim(),priority:requestForm.priority}) });
+      setRequestForm({subject:'',body:'',priority:'NORMAL'}); await readNotes(selected); setMessage('Müşteri talebi açıldı.');
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Talep açılamadı.'); }
+    finally { saveLock.current.release(); setSaving(false); }
+  }
+  async function updateRequest(item: CustomerRequest, status: CustomerRequest['status']) {
+    if (!selected || saving || !saveLock.current.acquire()) return;
+    setSaving(true); setMessage('');
+    try { await api(`/admin/customers/${selected.id}/requests/${item.id}`, { method:'PATCH', body:JSON.stringify({status}) }); await readNotes(selected); setMessage('Talep durumu güncellendi.'); }
+    catch (e) { setMessage(e instanceof Error ? e.message : 'Talep güncellenemedi.'); }
     finally { saveLock.current.release(); setSaving(false); }
   }
   return (
@@ -267,6 +287,14 @@ export default function Customers() {
               <button disabled={saving || notesLoading || !points || !pointsReason.trim()}>{saving ? 'Kaydediliyor…' : 'Puan hareketini kaydet'}</button>
             </form>
             {loyalty?.movements.length ? <>{loyalty.movements.slice(0,5).map((movement) => <article key={movement.id}><p><b>{movement.points_delta > 0 ? '+' : ''}{movement.points_delta} puan</b> · {movement.reason}</p><small>{new Date(movement.created_at).toLocaleString('tr-TR')}</small></article>)}</> : <p>Henüz puan hareketi yok.</p>}
+            <h3>Müşteri talepleri</h3>
+            <form onSubmit={createRequest}>
+              <input required maxLength={180} disabled={saving || notesLoading} value={requestForm.subject} onChange={(e) => setRequestForm(current => ({...current,subject:e.target.value}))} placeholder="Talep başlığı" />
+              <select value={requestForm.priority} disabled={saving || notesLoading} onChange={(e) => setRequestForm(current => ({...current,priority:e.target.value}))}><option value="LOW">Düşük öncelik</option><option value="NORMAL">Normal öncelik</option><option value="HIGH">Yüksek öncelik</option><option value="URGENT">Acil</option></select>
+              <textarea required maxLength={5000} disabled={saving || notesLoading} value={requestForm.body} onChange={(e) => setRequestForm(current => ({...current,body:e.target.value}))} placeholder="Talep açıklaması" />
+              <button disabled={saving || notesLoading || !requestForm.subject.trim() || !requestForm.body.trim()}>{saving ? 'Kaydediliyor…' : 'Talep aç'}</button>
+            </form>
+            {requests.length ? requests.map((item) => <article key={item.id}><p><b>{item.subject}</b> · {item.priority} · {item.status}</p><p>{item.body}</p>{item.status==='OPEN'&&<button disabled={saving} onClick={() => void updateRequest(item,'IN_PROGRESS')}>İşleme al</button>}{['OPEN','IN_PROGRESS'].includes(item.status)&&<button disabled={saving} onClick={() => void updateRequest(item,'RESOLVED')}>Çözüldü</button>}<small>{new Date(item.created_at).toLocaleString('tr-TR')}</small></article>) : <p>Henüz müşteri talebi yok.</p>}
             <h3>Personel notları</h3>
             <form onSubmit={save}>
               <textarea
