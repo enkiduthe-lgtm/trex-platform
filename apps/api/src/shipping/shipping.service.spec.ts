@@ -14,4 +14,11 @@ describe('ShippingService', () => {
     await expect(service.readyToShip()).resolves.toEqual([{order_id:'order',order_number:'2026-0001'}]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("o.status='PROCESSING'"));
   });
+  it('records a manual status transition as an event and audit entry',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED'}]}).mockResolvedValue({rows:[]});
+    const service=new ShippingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never,{} as never,{} as never);
+    await expect(service.updateStatus('order',{status:'IN_TRANSIT'} as never,'actor')).resolves.toEqual({id:'shipment',status:'IN_TRANSIT'});
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'),['order']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('shipment_events'),expect.any(Array));
+  });
 });
