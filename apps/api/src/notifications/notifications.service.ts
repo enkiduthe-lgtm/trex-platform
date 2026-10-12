@@ -14,4 +14,14 @@ export class NotificationsService {
     return { id: inserted.rows[0].id, status: 'SENT', providerReference: ref };
   }
   async list() { return (await this.db.query('SELECT id,channel,recipient,subject,body,status,sent_at,created_at FROM notifications ORDER BY created_at DESC LIMIT 100')).rows; }
+  async recordOrderStatus(recipient: string | null, orderNumber: string, status: 'SHIPPED' | 'DELIVERED') {
+    if (!recipient) return;
+    const text = status === 'SHIPPED'
+      ? `Siparişiniz kargoya verildi. Sipariş no: ${orderNumber}.`
+      : `Siparişiniz teslim edildi. Sipariş no: ${orderNumber}.`;
+    await this.db.query(
+      "INSERT INTO notifications (channel,recipient,template_code,subject,body,status,provider_reference,sent_at) VALUES ('IN_APP',$1,'ORDER_STATUS',$2,$3,'SENT',$4,now())",
+      [recipient, status === 'SHIPPED' ? 'Siparişiniz kargoya verildi' : 'Siparişiniz teslim edildi', text, `system_order_${status.toLowerCase()}_${orderNumber}`],
+    );
+  }
 }

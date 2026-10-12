@@ -4,4 +4,5 @@ import { PublicOrdersController } from './public-orders.controller';
 import { OrdersService } from './orders.service';
 import { AdminOrderService } from './admin-order.service';
 import { CommissionsModule } from '../commissions/commissions.module';
-@Module({ imports: [CommissionsModule], controllers: [OrdersController, PublicOrdersController], providers: [OrdersService, AdminOrderService] }) export class OrdersModule {}
+import { NotificationsModule } from '../notifications/notifications.module';
+@Module({ imports: [CommissionsModule, NotificationsModule], controllers: [OrdersController, PublicOrdersController], providers: [OrdersService, AdminOrderService] }) export class OrdersModule {}
