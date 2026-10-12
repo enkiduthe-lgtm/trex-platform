@@ -75,4 +75,10 @@ describe('WarehouseService', () => {
     const service=new WarehouseService({} as never);
     await expect(service.updateReorderLevel('warehouse','product',{minimumQuantity:24,targetQuantity:4},'user')).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('does not let a count lower physical stock below active reservations', async () => {
+    const client={query:jest.fn().mockResolvedValueOnce({rows:[{physical_quantity:12,reserved_quantity:4}]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    await expect(new WarehouseService(db as never).createInventoryCount({productId:'product',warehouseId:'warehouse',actualQuantity:3,reason:'Sayım farkı'},'user')).rejects.toBeInstanceOf(ConflictException);
+  });
 });

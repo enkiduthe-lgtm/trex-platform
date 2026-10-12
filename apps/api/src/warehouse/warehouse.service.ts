@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
+import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
@@ -49,6 +50,30 @@ export class WarehouseService {
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async listInventoryCounts() { return (await this.db.query(`SELECT c.id,c.product_id,c.warehouse_id,p.name AS product_name,w.name AS warehouse_name,c.expected_quantity,c.actual_quantity,c.difference_quantity,c.reason,c.counted_at,u.email AS counted_by_email
+    FROM inventory_counts c JOIN products p ON p.id=c.product_id JOIN warehouses w ON w.id=c.warehouse_id JOIN users u ON u.id=c.counted_by
+    ORDER BY c.counted_at DESC LIMIT 50`)).rows; }
+  async createInventoryCount(dto:CreateInventoryCountDto,userId:string) { return this.db.transaction(async client=>{
+    const inventory=await client.query<{physical_quantity:number;reserved_quantity:number}>(`SELECT physical_quantity,reserved_quantity FROM inventory WHERE product_id=$1 AND warehouse_id=$2 FOR UPDATE`,[dto.productId,dto.warehouseId]);
+    const row=inventory.rows[0];
+    if(!row) throw new NotFoundException('Sayım yapılacak stok kaydı bulunamadı');
+    if(dto.actualQuantity<row.reserved_quantity) throw new ConflictException(`Fiili adet, rezerve stoktan (${row.reserved_quantity}) düşük olamaz`);
+    const difference=dto.actualQuantity-row.physical_quantity;
+    if(difference<0){
+      let remaining=Math.abs(difference);
+      const lots=await client.query<{id:string;available_quantity:number}>(`SELECT id,available_quantity FROM inventory_lots WHERE product_id=$1 AND warehouse_id=$2 AND available_quantity>0 ORDER BY expiry_date DESC NULLS FIRST,created_at DESC FOR UPDATE`,[dto.productId,dto.warehouseId]);
+      for(const lot of lots.rows){if(remaining<=0)break;const deducted=Math.min(remaining,lot.available_quantity);await client.query('UPDATE inventory_lots SET available_quantity=available_quantity-$1 WHERE id=$2',[deducted,lot.id]);remaining-=deducted;}
+      if(remaining>0) throw new ConflictException('Lot stokları sayım farkını karşılamıyor; sayım kaydedilmedi');
+    } else if(difference>0) {
+      const lotCode=`COUNT-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${String(Date.now()).slice(-6)}`;
+      await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,available_quantity,location_code) VALUES($1,$2,$3,$4,$5)',[dto.productId,dto.warehouseId,lotCode,difference,'SAYIM']);
+    }
+    await client.query('UPDATE inventory SET physical_quantity=$1,updated_at=now() WHERE product_id=$2 AND warehouse_id=$3',[dto.actualQuantity,dto.productId,dto.warehouseId]);
+    const count=await client.query<{id:string}>(`INSERT INTO inventory_counts(product_id,warehouse_id,expected_quantity,actual_quantity,difference_quantity,reason,counted_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,[dto.productId,dto.warehouseId,row.physical_quantity,dto.actualQuantity,difference,dto.reason.trim(),userId]);
+    await client.query(`INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES($1,$2,'ADJUSTMENT',$3,'inventory_count',$4,$5)`,[dto.productId,dto.warehouseId,difference,count.rows[0].id,userId]);
+    await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'inventory.counted','inventory',`${dto.productId}:${dto.warehouseId}`,JSON.stringify({expectedQuantity:row.physical_quantity,actualQuantity:dto.actualQuantity,difference,reason:dto.reason.trim(),countId:count.rows[0].id})]);
+    return {id:count.rows[0].id,expectedQuantity:row.physical_quantity,actualQuantity:dto.actualQuantity,difference};
+  }); }
   async reorderSuggestions() { return (await this.db.query(`SELECT
       i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,
       i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity,
