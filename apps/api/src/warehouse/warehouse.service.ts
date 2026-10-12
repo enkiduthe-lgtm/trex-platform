@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { DatabaseService } from '../database/database.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
@@ -48,6 +49,31 @@ export class WarehouseService {
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async reorderSuggestions() { return (await this.db.query(`SELECT
+      i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,
+      i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity,
+      COALESCE(rl.minimum_quantity,5) AS minimum_quantity,
+      COALESCE(rl.target_quantity,20) AS target_quantity,
+      GREATEST(0,COALESCE(rl.target_quantity,20)-(i.physical_quantity-i.reserved_quantity)) AS suggested_quantity
+    FROM inventory i
+    JOIN products p ON p.id=i.product_id
+    JOIN warehouses w ON w.id=i.warehouse_id
+    LEFT JOIN inventory_reorder_levels rl ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id
+    WHERE i.physical_quantity-i.reserved_quantity <= COALESCE(rl.minimum_quantity,5)
+    ORDER BY available_quantity ASC,p.name,w.name`)).rows; }
+  async updateReorderLevel(warehouseId:string,productId:string,dto:UpdateReorderLevelDto,userId:string) {
+    if(dto.targetQuantity<dto.minimumQuantity) throw new ConflictException('Hedef stok, minimum stok seviyesinden düşük olamaz');
+    return this.db.transaction(async client=>{
+      const stock=await client.query('SELECT 1 FROM inventory WHERE warehouse_id=$1 AND product_id=$2 FOR UPDATE',[warehouseId,productId]);
+      if(!stock.rowCount) throw new NotFoundException('Bu ürün için depo stoku bulunamadı');
+      const level=await client.query<{product_id:string;warehouse_id:string;minimum_quantity:number;target_quantity:number}>(`INSERT INTO inventory_reorder_levels(product_id,warehouse_id,minimum_quantity,target_quantity,updated_by)
+        VALUES($1,$2,$3,$4,$5)
+        ON CONFLICT(product_id,warehouse_id) DO UPDATE SET minimum_quantity=EXCLUDED.minimum_quantity,target_quantity=EXCLUDED.target_quantity,updated_by=EXCLUDED.updated_by,updated_at=now()
+        RETURNING product_id,warehouse_id,minimum_quantity,target_quantity`,[productId,warehouseId,dto.minimumQuantity,dto.targetQuantity,userId]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'inventory.reorder_level.updated','inventory',`${productId}:${warehouseId}`,JSON.stringify(dto)]);
+      return level.rows[0];
+    });
+  }
   async createLocation(dto:CreateWarehouseDto,userId:string) {
     try {
       const row=await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('INSERT INTO warehouses(code,name,is_active) VALUES ($1,$2,$3) RETURNING id,code,name,is_active',[dto.code.trim().toUpperCase(),dto.name.trim(),dto.isActive ?? true]);

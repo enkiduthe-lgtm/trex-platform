@@ -11,6 +11,7 @@ import { RequestUser } from '../auth/auth.types';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { ScanPickItemDto } from './dto/scan-pick-item.dto';
+import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
 type UserRequest = Request & { user: RequestUser };
 
 @Controller('admin/warehouse') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
@@ -19,6 +20,9 @@ export class WarehouseController {
   @Get('dashboard') dashboard() { return this.warehouse.dashboard(); }
   @Get('locations') locations() { return this.warehouse.listLocations(); }
   @Get('stock') stock() { return this.warehouse.listStock(); }
+  @Get('reorder-suggestions') reorderSuggestions() { return this.warehouse.reorderSuggestions(); }
+  @Patch('stock/:warehouseId/:productId/reorder-level') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  updateReorderLevel(@Param('warehouseId', ParseUUIDPipe) warehouseId:string, @Param('productId', ParseUUIDPipe) productId:string, @Body() dto:UpdateReorderLevelDto, @Req() req:UserRequest) { return this.warehouse.updateReorderLevel(warehouseId,productId,dto,req.user.id); }
   @Delete('stock/:warehouseId/:productId') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   deleteStock(@Param('warehouseId', ParseUUIDPipe) warehouseId:string, @Param('productId', ParseUUIDPipe) productId:string, @Req() req:UserRequest) { return this.warehouse.deleteStock(warehouseId,productId,req.user.id); }
   @Delete('locations/:id') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

@@ -59,4 +59,20 @@ describe('WarehouseService', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_lots'),['product','warehouse','LOT-1',null,12,null]);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"),['product','warehouse',12,'stock_receipt','user']);
   });
+
+  it('saves a reorder level when target is not lower than minimum', async () => {
+    const client={query:jest.fn()
+      .mockResolvedValueOnce({rowCount:1})
+      .mockResolvedValueOnce({rows:[{product_id:'product',warehouse_id:'warehouse',minimum_quantity:4,target_quantity:24}]})
+      .mockResolvedValueOnce({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    const result=await new WarehouseService(db as never).updateReorderLevel('warehouse','product',{minimumQuantity:4,targetQuantity:24},'user');
+    expect(result).toEqual({product_id:'product',warehouse_id:'warehouse',minimum_quantity:4,target_quantity:24});
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_reorder_levels'),['product','warehouse',4,24,'user']);
+  });
+
+  it('does not allow a reorder target below its minimum', async () => {
+    const service=new WarehouseService({} as never);
+    await expect(service.updateReorderLevel('warehouse','product',{minimumQuantity:24,targetQuantity:4},'user')).rejects.toBeInstanceOf(ConflictException);
+  });
 });
