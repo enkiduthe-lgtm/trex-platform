@@ -67,16 +67,16 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
     const result = await this.db.transaction(async client=>{
       const order=(await client.query<{status:string;order_number:string;contact_email:string|null}>('SELECT o.status,o.order_number,cs.contact_email FROM orders o LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
-      if(order.status===dto.status) return {id,status:dto.status,replayed:true};
+      if(order.status===dto.status) return {id,status:dto.status,replayed:true,orderNumber:order.order_number,recipient:order.contact_email};
       const next:Record<string,string>={PROCESSING:'SHIPPED',SHIPPED:'DELIVERED'};
       if(next[order.status]!==dto.status) throw new ConflictException('Bu sipariş durum geçişine izin verilmiyor');
       await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);
       if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id);
-      return {id,status:dto.status,orderNumber:order.order_number,recipient:order.contact_email};
+      return {id,status:dto.status,replayed:false,orderNumber:order.order_number,recipient:order.contact_email};
     });
-    if ('orderNumber' in result && (result.status === 'SHIPPED' || result.status === 'DELIVERED')) await this.notifications?.recordOrderStatus(result.recipient ?? null, result.orderNumber, result.status);
+    if (!result.replayed && (result.status === 'SHIPPED' || result.status === 'DELIVERED')) await this.notifications?.recordOrderStatus(result.recipient, result.orderNumber, result.status);
     return {id,status:result.status};
   }
 }
