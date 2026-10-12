@@ -22,6 +22,7 @@ export class WarehouseController {
   @Get('locations') locations() { return this.warehouse.listLocations(); }
   @Get('stock') stock() { return this.warehouse.listStock(); }
   @Get('movements') movements() { return this.warehouse.listInventoryMovements(); }
+  @Get('expiry-alerts') expiryAlerts() { return this.warehouse.expiryAlerts(); }
   @Get('counts') counts() { return this.warehouse.listInventoryCounts(); }
   @Post('counts') createInventoryCount(@Body() dto:CreateInventoryCountDto, @Req() req:UserRequest) { return this.warehouse.createInventoryCount(dto,req.user.id); }
   @Get('reorder-suggestions') reorderSuggestions() { return this.warehouse.reorderSuggestions(); }

@@ -56,6 +56,13 @@ export class WarehouseService {
     JOIN warehouses w ON w.id=m.warehouse_id
     LEFT JOIN users u ON u.id=m.created_by
     ORDER BY m.created_at DESC LIMIT 100`)).rows; }
+  async expiryAlerts() { return (await this.db.query(`SELECT l.id,l.lot_code,l.expiry_date,l.available_quantity,l.location_code,p.name AS product_name,p.sku,w.name AS warehouse_name,
+      (l.expiry_date-current_date)::int AS days_remaining
+    FROM inventory_lots l
+    JOIN products p ON p.id=l.product_id
+    JOIN warehouses w ON w.id=l.warehouse_id
+    WHERE l.available_quantity>0 AND l.expiry_date IS NOT NULL AND l.expiry_date<=current_date+interval '60 days'
+    ORDER BY l.expiry_date ASC,p.name LIMIT 100`)).rows; }
   async listInventoryCounts() { return (await this.db.query(`SELECT c.id,c.product_id,c.warehouse_id,p.name AS product_name,w.name AS warehouse_name,c.expected_quantity,c.actual_quantity,c.difference_quantity,c.reason,c.counted_at,u.email AS counted_by_email
     FROM inventory_counts c JOIN products p ON p.id=c.product_id JOIN warehouses w ON w.id=c.warehouse_id JOIN users u ON u.id=c.counted_by
     ORDER BY c.counted_at DESC LIMIT 50`)).rows; }

@@ -87,4 +87,10 @@ describe('WarehouseService', () => {
     await expect(new WarehouseService(db as never).listInventoryMovements()).resolves.toEqual([{id:'movement',movement_type:'RECEIPT'}]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY m.created_at DESC LIMIT 100'));
   });
+
+  it('lists lots expiring within the next sixty days', async () => {
+    const db={query:jest.fn().mockResolvedValue({rows:[{lot_code:'LOT-1',days_remaining:12}]})};
+    await expect(new WarehouseService(db as never).expiryAlerts()).resolves.toEqual([{lot_code:'LOT-1',days_remaining:12}]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("interval '60 days'"));
+  });
 });
