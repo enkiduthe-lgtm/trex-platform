@@ -85,11 +85,14 @@ export class WarehouseService {
       i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity,
       COALESCE(rl.minimum_quantity,5) AS minimum_quantity,
       COALESCE(rl.target_quantity,20) AS target_quantity,
-      GREATEST(0,COALESCE(rl.target_quantity,20)-(i.physical_quantity-i.reserved_quantity)) AS suggested_quantity
+      GREATEST(0,COALESCE(rl.target_quantity,20)-(i.physical_quantity-i.reserved_quantity)) AS suggested_quantity,
+      latest_cost.amount::text AS latest_unit_cost,latest_cost.currency AS latest_cost_currency,s.name AS latest_supplier_name
     FROM inventory i
     JOIN products p ON p.id=i.product_id
     JOIN warehouses w ON w.id=i.warehouse_id
     LEFT JOIN inventory_reorder_levels rl ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id
+    LEFT JOIN LATERAL (SELECT pc.amount,pc.currency,pc.supplier_id FROM product_costs pc WHERE pc.product_id=i.product_id ORDER BY pc.starts_at DESC,pc.created_at DESC LIMIT 1) latest_cost ON true
+    LEFT JOIN suppliers s ON s.id=latest_cost.supplier_id
     WHERE i.physical_quantity-i.reserved_quantity <= COALESCE(rl.minimum_quantity,5)
     ORDER BY available_quantity ASC,p.name,w.name`)).rows; }
   async updateReorderLevel(warehouseId:string,productId:string,dto:UpdateReorderLevelDto,userId:string) {
