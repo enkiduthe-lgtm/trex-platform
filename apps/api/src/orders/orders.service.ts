@@ -76,7 +76,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id);
       return {id,status:dto.status,orderNumber:order.order_number,recipient:order.contact_email};
     });
-    if ('orderNumber' in result && (result.status === 'SHIPPED' || result.status === 'DELIVERED')) await this.notifications?.recordOrderStatus(result.recipient, result.orderNumber, result.status);
+    if ('orderNumber' in result && (result.status === 'SHIPPED' || result.status === 'DELIVERED')) await this.notifications?.recordOrderStatus(result.recipient ?? null, result.orderNumber, result.status);
     return {id,status:result.status};
   }
 }
