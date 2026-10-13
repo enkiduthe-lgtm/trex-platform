@@ -245,6 +245,18 @@ export default function Purchasing() {
       setMessage(e instanceof Error ? e.message : "Sipariş iptal edilemedi");
     }
   }
+  async function updateExpectedAt(order: Order) {
+    const current = order.expected_at ? order.expected_at.slice(0, 10) : "";
+    const expectedAt = window.prompt("Yeni beklenen teslim tarihi (YYYY-AA-GG):", current);
+    if (!expectedAt) return;
+    try {
+      await api(`/admin/purchasing/orders/${order.id}/expected-at`, { method: "PATCH", body: JSON.stringify({ expectedAt }) });
+      setMessage("Beklenen teslim tarihi güncellendi.");
+      void load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Teslim tarihi güncellenemedi");
+    }
+  }
   function exportOrders() {
     const rows = [
       ["Sipariş no", "Tedarikçi", "Depo", "Tutar", "Para birimi", "Durum", "Beklenen teslim", "Kalemler"],
@@ -698,6 +710,7 @@ export default function Purchasing() {
                     )}
                   </td>
                   <td>
+                    {["DRAFT", "ORDERED", "PARTIALLY_RECEIVED"].includes(x.status) && <button type="button" onClick={() => void updateExpectedAt(x)}>Teslim tarihini değiştir</button>}
                     {(x.status === "DRAFT" || (x.status === "ORDERED" && x.items.every((item) => item.receivedQuantity === 0))) && (
                       <>
                         {x.status === "DRAFT" && <button onClick={() => void markOrdered(x.id)}>

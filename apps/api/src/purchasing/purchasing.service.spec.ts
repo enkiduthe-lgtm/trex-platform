@@ -25,4 +25,10 @@ describe('PurchasingService safeguards',()=>{
     const service=new PurchasingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
     await expect(service.cancel('order','actor')).rejects.toBeInstanceOf(ConflictException);
   });
+  it('updates the promised delivery date only on open purchase orders',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{status:'ORDERED',expected_at:'2026-10-20'}]}).mockResolvedValueOnce({rows:[{id:'order',expected_at:'2026-10-25'}]}).mockResolvedValue({rows:[]});
+    const service=new PurchasingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
+    await expect(service.updateExpectedAt('order',{expectedAt:'2026-10-25'} as never,'actor')).resolves.toEqual({id:'order',expected_at:'2026-10-25'});
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('expected_at=$1'),['2026-10-25','order']);
+  });
 });
