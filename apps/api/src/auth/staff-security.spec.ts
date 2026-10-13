@@ -4,6 +4,7 @@ import { validateSync } from 'class-validator';
 import { ConflictException } from '@nestjs/common';
 import { AdminController } from './admin.controller';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
+import { ResetStaffPasswordDto } from './dto/reset-staff-password.dto';
 import { REQUIRED_ROLES } from './roles.decorator';
 import { Roles } from './roles';
 
@@ -15,7 +16,11 @@ describe('Staff security', () => {
   it.each(['SUPER_ADMIN', 'DEALER', 'CUSTOMER', 'UNKNOWN', null])('rejects role %s', role => {
     expect(validateSync(plainToInstance(CreateStaffUserDto, { email: 'staff@example.com', password: 'long-password-123', role })).some(error => error.property === 'role')).toBe(true);
   });
-  it.each(['staff', 'createStaff', 'updateStaff'] as const)('limits %s to the owner role', method => {
+  it('requires a sufficiently long replacement password', () => {
+    expect(validateSync(plainToInstance(ResetStaffPasswordDto, { password: 'short' })).some(error => error.property === 'password')).toBe(true);
+    expect(validateSync(plainToInstance(ResetStaffPasswordDto, { password: 'long-password-123' }))).toHaveLength(0);
+  });
+  it.each(['staff', 'createStaff', 'updateStaff', 'resetStaffPassword'] as const)('limits %s to the owner role', method => {
     expect(Reflect.getMetadata(REQUIRED_ROLES, AdminController.prototype[method])).toEqual([Roles.SUPER_ADMIN]);
   });
   function setup(query: jest.Mock) {
@@ -47,5 +52,13 @@ describe('Staff security', () => {
   it('audit failure fails the transaction instead of reporting success', async () => {
     const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'staff' }] }).mockRejectedValueOnce(new Error('audit failed'));
     await expect(setup(query).controller.updateStaff('staff', { isActive: true }, request)).rejects.toThrow('audit failed');
+  });
+  it('resets a staff password, revokes sessions, and records the action', async () => {
+    const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'staff' }] }).mockResolvedValue({ rows: [] });
+    const s = setup(query);
+    await expect(s.controller.resetStaffPassword('staff', { password: 'long-password-123' }, request)).resolves.toEqual({ id: 'staff' });
+    expect(query.mock.calls[0][0]).toContain('UPDATE users SET password_hash=$1');
+    expect(query.mock.calls[1]).toEqual(['UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', ['staff']]);
+    expect(query.mock.calls[2][1]).toEqual(['owner', 'staff.password.reset', 'user', 'staff']);
   });
 });
