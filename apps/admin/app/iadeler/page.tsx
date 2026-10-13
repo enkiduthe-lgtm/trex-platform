@@ -35,6 +35,7 @@ const labels: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function Returns() {
   const [rows, setRows] = useState<ReturnRow[]>([]),
     [warehouses, setWarehouses] = useState<Warehouse[]>([]),
@@ -82,6 +83,25 @@ export default function Returns() {
   const note = (id: string) => notes[id] ?? "";
   const setNote = (id: string, value: string) =>
     setNotes((current) => ({ ...current, [id]: value }));
+  function exportReturns() {
+    if (!shown.length) { setMessage('Dışa aktarılacak iade bulunamadı.'); return; }
+    const rows = [
+      ['Sipariş no', 'Durum', 'Neden', 'Ürünler', 'İade tutarı', 'Para birimi', 'Ödenen tutar', 'Ödeme hesabı', 'Talep tarihi'],
+      ...shown.map(row => [
+        row.order_number,
+        labels[row.status] ?? row.status,
+        row.reason,
+        row.items.map(item => `${item.product_name} × ${item.quantity}`).join(' | '),
+        row.refundable_amount,
+        row.currency,
+        row.refund_amount ?? '',
+        row.refund_account_name ?? '',
+        new Date(row.requested_at).toLocaleString('tr-TR'),
+      ]),
+    ];
+    const url = URL.createObjectURL(new Blob([`\uFEFF${rows.map(row => row.map(csv).join(';')).join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'trex-iadeler.csv'; link.click(); URL.revokeObjectURL(url);
+  }
   async function act(id: string, action: string, body: unknown = {}) {
     setBusy(`${id}:${action}`);
     setMessage("");
@@ -156,6 +176,7 @@ export default function Returns() {
               </option>
             ))}
           </select>
+          <button type="button" disabled={!shown.length} onClick={exportReturns}>CSV indir</button>
         </div>
         <div className="cards">
           {shown.length ? (
