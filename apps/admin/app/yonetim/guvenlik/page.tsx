@@ -1,0 +1,19 @@
+'use client';
+
+import { FormEvent, useEffect, useState } from 'react';
+import { AdminNav } from '../../components/admin-nav';
+import { api } from '../../lib/api';
+
+type Status = { enabled: boolean; pending: boolean };
+type Enrollment = { secret: string; otpauthUri: string; expiresInSeconds: number };
+
+export default function SecurityPage() {
+  const [status, setStatus] = useState<Status | null>(null); const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
+  const [code, setCode] = useState(''); const [password, setPassword] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const load = () => api<Status>('/auth/mfa').then(setStatus).catch(error => setMessage(error instanceof Error ? error.message : 'Güvenlik durumu alınamadı'));
+  useEffect(() => { void load(); }, []);
+  async function start() { setBusy(true); setMessage(''); try { setEnrollment(await api<Enrollment>('/auth/mfa/enroll', { method: 'POST' })); setCode(''); } catch (error) { setMessage(error instanceof Error ? error.message : 'Kurulum başlatılamadı'); } finally { setBusy(false); } }
+  async function confirm(event: FormEvent) { event.preventDefault(); setBusy(true); setMessage(''); try { await api('/auth/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) }); setEnrollment(null); setCode(''); setMessage('İki aşamalı doğrulama etkinleştirildi. Diğer oturumlar kapatıldı.'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Kod doğrulanamadı'); } finally { setBusy(false); } }
+  async function disable(event: FormEvent) { event.preventDefault(); setBusy(true); setMessage(''); try { await api('/auth/mfa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }); setPassword(''); setCode(''); setMessage('İki aşamalı doğrulama kapatıldı. Diğer oturumlar kapatıldı.'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Kapatılamadı'); } finally { setBusy(false); } }
+  return <main><AdminNav /><section><p>AYARLAR / GÜVENLİK</p><h1>İki aşamalı doğrulama</h1><p>Yönetim hesabınızı kimlik doğrulama uygulamasıyla koruyun. Kurulum kodu yalnızca 10 dakika için geçerlidir.</p>{message && <p role="status">{message}</p>}{status?.enabled ? <form className="form-card" onSubmit={disable}><h2>Etkin</h2><p>Girişte şifrenize ek olarak uygulamanızdaki altı haneli kod istenir.</p><label>Mevcut şifre<input required type="password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>Doğrulama kodu<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} /></label><button className="secondary" disabled={busy}>İki aşamalı doğrulamayı kapat</button></form> : <><div className="form-card"><h2>Henüz etkin değil</h2><p>Google Authenticator, Microsoft Authenticator veya benzeri bir uygulama kullanabilirsiniz.</p><button type="button" onClick={() => void start()} disabled={busy}>Kurulumu başlat</button></div>{enrollment && <form className="form-card" onSubmit={confirm}><h2>1. Uygulamaya ekleyin</h2><p>Uygulamanızdaki “kurulum anahtarı gir” seçeneğine bu gizli anahtarı yazın. Bu anahtar tekrar gösterilmez.</p><code style={{ display: 'block', overflowWrap: 'anywhere', padding: '1rem' }}>{enrollment.secret}</code><details><summary>Uygulama bağlantısı</summary><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{enrollment.otpauthUri}</code></details><h2>2. Altı haneli kodu doğrulayın</h2><label>Doğrulama kodu<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} /></label><button disabled={busy}>Doğrula ve etkinleştir</button></form>}</>}</section></main>;
+}

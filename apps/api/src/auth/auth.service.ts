@@ -6,22 +6,24 @@ import { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { JwtClaims } from './auth.types';
 import { Role } from './roles';
+import { MfaService } from './mfa.service';
 
-interface UserRow { id: string; email: string; password_hash: string; role: Role; is_active: boolean; }
+interface UserRow { id: string; email: string; password_hash: string; role: Role; is_active: boolean; mfa_secret_ciphertext: string | null; mfa_enabled_at: Date | null; }
 interface SessionRow { id: string; user_id: string; email: string; role: Role; }
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService) {}
+  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService, private readonly mfa: MfaService) {}
   private hashToken(token: string) { return createHash('sha256').update(token).digest('hex'); }
   private async accessToken(user: Pick<UserRow, 'id' | 'email' | 'role'>, sessionId: string) {
     return this.jwt.signAsync({ sub: user.id, email: user.email, role: user.role, sid: sessionId } satisfies JwtClaims);
   }
   private expiry() { const days = Number(process.env.SESSION_TTL_DAYS ?? 30); return new Date(Date.now() + days * 86_400_000); }
-  async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }) {
-    const result = await this.db.query<UserRow>('SELECT id, email, password_hash, role, is_active FROM users WHERE email = $1', [email.toLowerCase()]);
+  async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }, mfaCode?: string) {
+    const result = await this.db.query<UserRow>('SELECT id, email, password_hash, role, is_active, mfa_secret_ciphertext, mfa_enabled_at FROM users WHERE email = $1', [email.toLowerCase()]);
     const user = result.rows[0];
     if (!user || !user.is_active || !(await argon2.verify(user.password_hash, password))) throw new UnauthorizedException('Invalid credentials');
+    this.mfa.verifyLogin(user, mfaCode);
     return this.createSession(user, metadata);
   }
   private async createSession(user: Pick<UserRow, 'id' | 'email' | 'role'>, metadata: { ip?: string; userAgent?: string }) {

@@ -8,9 +8,10 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { AuditController } from './audit.controller';
 import { AuthThrottleService } from './auth-throttle.service';
+import { MfaService } from './mfa.service';
 @Global()
 @Module({
   imports: [ConfigModule, JwtModule.registerAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ secret: config.getOrThrow<string>('JWT_SECRET'), signOptions: { expiresIn: '15m' } }) })],
-  controllers: [AuthController, AdminController, AuditController], providers: [AuthService, AuthThrottleService, JwtAuthGuard, RolesGuard], exports: [JwtModule, JwtAuthGuard, RolesGuard],
+  controllers: [AuthController, AdminController, AuditController], providers: [AuthService, AuthThrottleService, MfaService, JwtAuthGuard, RolesGuard], exports: [JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

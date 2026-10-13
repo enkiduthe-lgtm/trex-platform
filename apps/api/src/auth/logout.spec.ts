@@ -6,7 +6,7 @@ describe('Server-side logout', () => {
   function setup() {
     const db = { query: jest.fn().mockResolvedValue({ rowCount: 1 }) };
     const jwt = { verifyAsync: jest.fn().mockResolvedValue({ sub: 'user', sid: 'session' }) };
-    return { db, jwt, service: new AuthService(db as never, jwt as never) };
+    return { db, jwt, service: new AuthService(db as never, jwt as never, {} as never) };
   }
   it('revokes signed bearer sessions even without a cross-site refresh cookie', async () => {
     const s = setup(); await s.service.logout('', 'signed-token');
@@ -37,7 +37,7 @@ describe('Server-side logout', () => {
   it('controller forwards bearer credentials and clears the matching cookie path', async () => {
     const auth = { logout: jest.fn().mockResolvedValue(undefined) };
     const response = { clearCookie: jest.fn() };
-    await new AuthController(auth as never, {} as never).logout({ headers: { authorization: 'Bearer token' }, cookies: { trex_session: 'cookie' } } as never, response as never);
+    await new AuthController(auth as never, {} as never, {} as never).logout({ headers: { authorization: 'Bearer token' }, cookies: { trex_session: 'cookie' } } as never, response as never);
     expect(auth.logout).toHaveBeenCalledWith('cookie', 'token');
     expect(response.clearCookie).toHaveBeenCalledWith('trex_session', { path: '/v1/auth' });
   });
