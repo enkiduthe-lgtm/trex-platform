@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 type Entry = { id: string; action: string; entity_type: string; entity_id: string | null; created_at: string; actor_role: string | null; actor_user_id: string | null };
 type Result = { items: Entry[]; page: number; hasMore: boolean };
 const roles: Record<string, string> = { SYSTEM: 'Sistem', SUPER_ADMIN: 'Sistem yöneticisi', ADMIN: 'Yönetici', WAREHOUSE: 'Depo', FINANCE: 'Finans', CUSTOMER: 'Müşteri', DEALER: 'Bayi' };
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function AuditPage() {
   const [filter, setFilter] = useState({ action: '', entityType: '', entityId: '' });
   const [applied, setApplied] = useState(filter);
@@ -26,6 +27,12 @@ export default function AuditPage() {
     return () => { sequence.current++; };
   }, [page, applied, refresh]);
   function search(event: FormEvent) { event.preventDefault(); setPage(1); setApplied({ ...filter }); }
+  function exportCsv() {
+    if (!result?.items.length) return;
+    const rows = [['Tarih', 'İşlem kodu', 'Kayıt türü', 'Kayıt kimliği', 'İşlemi yapan'], ...result.items.map((entry) => [new Date(entry.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }), entry.action, entry.entity_type, entry.entity_id ?? '', roles[entry.actor_role ?? ''] ?? 'Bilinmiyor'])];
+    const blob = new Blob(['\ufeff' + rows.map((row) => row.map(csv).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'trex-islem-kayitlari.csv'; link.click(); URL.revokeObjectURL(link.href);
+  }
   return <main><AdminNav /><section>
     <p>AYARLAR / DENETİM</p><h1>İşlem kayıtları</h1>
     <p>Kayıtlar salt okunurdur. İşlem kodu, kayıt türü ve kayıt kimliği tam eşleşmeyle filtrelenir. Hassas müşteri bilgileri ve şifreler bu listede gösterilmez.</p>
@@ -33,7 +40,7 @@ export default function AuditPage() {
       <label>İşlem kodu<input maxLength={120} placeholder="order.admin.updated" value={filter.action} onChange={e => setFilter(x => ({ ...x, action: e.target.value }))} /></label>
       <label>Kayıt türü<input maxLength={120} placeholder="order" value={filter.entityType} onChange={e => setFilter(x => ({ ...x, entityType: e.target.value }))} /></label>
       <label>Kayıt kimliği<input maxLength={200} value={filter.entityId} onChange={e => setFilter(x => ({ ...x, entityId: e.target.value }))} /></label>
-    </div><button disabled={loading}>Filtrele</button><button type="button" className="secondary" disabled={loading} onClick={() => setRefresh(x => x + 1)}>Yenile</button></form>
+    </div><button disabled={loading}>Filtrele</button><button type="button" className="secondary" disabled={loading} onClick={() => setRefresh(x => x + 1)}>Yenile</button><button type="button" className="secondary" disabled={!result?.items.length} onClick={exportCsv}>CSV indir</button></form>
     {loading && <p role="status">Kayıtlar yükleniyor…</p>}{error && <p role="alert">{error}</p>}
     {result && <><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Tarih</th><th>İşlem kodu</th><th>Kayıt türü</th><th>Kayıt kimliği</th><th>İşlemi yapan</th></tr></thead><tbody>{result.items.map(entry => <tr key={entry.id}>
       <td>{new Date(entry.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}</td><td>{entry.action}</td><td>{entry.entity_type}</td><td>{entry.entity_id ?? '—'}</td><td>{roles[entry.actor_role ?? ''] ?? 'Bilinmiyor'}{entry.actor_user_id && <small style={{ display: 'block' }}>{entry.actor_user_id}</small>}</td>

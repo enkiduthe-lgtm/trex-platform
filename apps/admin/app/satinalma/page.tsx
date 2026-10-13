@@ -39,6 +39,7 @@ type Options = {
 };
 const money = (n: string, c: string) =>
   Number(n || 0).toLocaleString("tr-TR", { style: "currency", currency: c });
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function Purchasing() {
   const [options, setOptions] = useState<Options>({
       suppliers: [],
@@ -238,6 +239,23 @@ export default function Purchasing() {
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Sipariş iptal edilemedi");
     }
+  }
+  function exportOrders() {
+    const rows = [
+      ["Sipariş no", "Tedarikçi", "Depo", "Tutar", "Para birimi", "Durum", "Beklenen teslim", "Kalemler"],
+      ...orders.map((order) => [
+        order.order_number,
+        order.supplier_name,
+        order.warehouse_name,
+        order.total_cost,
+        order.currency,
+        order.status,
+        order.expected_at ?? "",
+        order.items.map((item) => `${item.productName}: ${item.receivedQuantity}/${item.orderedQuantity}`).join(" | "),
+      ]),
+    ];
+    const blob = new Blob(["\ufeff" + rows.map((row) => row.map(csv).join(";")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "trex-satin-alma-siparisleri.csv"; link.click(); URL.revokeObjectURL(link.href);
   }
   async function receive(e: FormEvent) {
     e.preventDefault();
@@ -636,7 +654,7 @@ export default function Purchasing() {
           </div>
           <button>Teslim al</button>
         </form>
-        <h2>Satın alma siparişleri</h2>
+        <div className="period-toolbar"><h2>Satın alma siparişleri</h2><button type="button" disabled={!orders.length} onClick={exportOrders}>CSV indir</button></div>
         <div className="table-wrap">
           <table>
             <thead>
