@@ -37,6 +37,7 @@ type Options = {
   warehouses: Warehouse[];
   products: Product[];
 };
+type SupplierPerformance=Supplier&{order_count:string;open_order_count:string;overdue_order_count:string;received_order_count:string;last_received_at:string|null};
 const money = (n: string, c: string) =>
   Number(n || 0).toLocaleString("tr-TR", { style: "currency", currency: c });
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -47,6 +48,7 @@ export default function Purchasing() {
       products: [],
     }),
     [orders, setOrders] = useState<Order[]>([]),
+    [supplierPerformance,setSupplierPerformance]=useState<SupplierPerformance[]>([]),
     [message, setMessage] = useState(""),
     [supplier, setSupplier] = useState({
       name: "",
@@ -95,10 +97,12 @@ export default function Purchasing() {
     Promise.all([
       api<Options>("/admin/purchasing/options"),
       api<Order[]>("/admin/purchasing/orders"),
+      api<SupplierPerformance[]>("/admin/purchasing/suppliers/performance"),
     ])
-      .then(([o, p]) => {
+      .then(([o, p, performance]) => {
         setOptions(o);
         setOrders(p);
+        setSupplierPerformance(performance);
       })
       .catch((e) => setMessage(e.message));
   useEffect(() => {
@@ -423,6 +427,9 @@ export default function Purchasing() {
           </div>
           <button>Tedarikçiyi güncelle</button>
         </form>
+        <h2>Tedarikçi performansı</h2>
+        <p>Açık ve geciken satın alma siparişleri tedarikçi bazında izlenir.</p>
+        <div className="table-wrap"><table><thead><tr><th>Tedarikçi</th><th>Toplam</th><th>Açık</th><th>Geciken</th><th>Teslim alınan</th><th>Son teslim</th></tr></thead><tbody>{supplierPerformance.map(item=><tr key={item.id}><td>{item.name}<div>{item.contact_name??item.email??'İletişim bilgisi yok'}</div></td><td>{item.order_count}</td><td>{item.open_order_count}</td><td>{item.overdue_order_count}</td><td>{item.received_order_count}</td><td>{item.last_received_at?new Date(item.last_received_at).toLocaleDateString('tr-TR'):'—'}</td></tr>)}{!supplierPerformance.length&&<tr><td colSpan={6}>Henüz tedarikçi yok.</td></tr>}</tbody></table></div>
         <form className="form-card" onSubmit={createOrder}>
           <h2>Satın alma siparişi</h2>
           <div className="form-grid">
