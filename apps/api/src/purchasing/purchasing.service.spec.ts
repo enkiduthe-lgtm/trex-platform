@@ -13,4 +13,16 @@ describe('PurchasingService safeguards',()=>{
     await expect(service.receive('order',{itemId:'line',quantity:2,lotCode:'LOT'} as never,'actor')).rejects.toBeInstanceOf(ConflictException);
     expect(query.mock.calls[0][0]).toContain('FOR UPDATE');
   });
+  it('allows an ordered purchase order to be cancelled only before any receipt',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{status:'ORDERED'}]}).mockResolvedValueOnce({rowCount:0,rows:[]}).mockResolvedValue({rows:[]});
+    const service=new PurchasingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
+    await expect(service.cancel('order','actor')).resolves.toEqual({id:'order',status:'CANCELLED'});
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'),['order']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('received_quantity>0'),['order']);
+  });
+  it('does not cancel an order that has a received line',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{status:'ORDERED'}]}).mockResolvedValueOnce({rowCount:1,rows:[{}]});
+    const service=new PurchasingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
+    await expect(service.cancel('order','actor')).rejects.toBeInstanceOf(ConflictException);
+  });
 });
