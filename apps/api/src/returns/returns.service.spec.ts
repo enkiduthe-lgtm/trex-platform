@@ -15,7 +15,7 @@ describe('ReturnsService', () => {
       .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }) };
     const db = { transaction: jest.fn((work) => work(client)) };
-    await expect(new ReturnsService(db as never).inspect('return', { warehouseId: 'warehouse', disposition: 'SELLABLE', notes: 'Uygun' }, 'user')).resolves.toEqual({ returnId: 'return', status: 'INSPECTED', disposition: 'SELLABLE' });
+    await expect(new ReturnsService(db as never).inspect('return', { warehouseId: 'warehouse', disposition: 'SELLABLE', notes: 'Uygun' }, 'user')).resolves.toEqual({ returnId: 'return', status: 'INSPECTED', dispositions: [{ returnItemId: 'return-item', disposition: 'SELLABLE' }] });
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity'), ['product', 'warehouse', 1]);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"), ['product', 'warehouse', 'RECEIPT', 1, 'return', 'user']);
   });

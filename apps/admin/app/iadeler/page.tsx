@@ -42,6 +42,7 @@ export default function Returns() {
     [message, setMessage] = useState(""),
     [notes, setNotes] = useState<Record<string, string>>({}),
     [dispositions, setDispositions] = useState<Record<string, string>>({}),
+    [itemDispositions, setItemDispositions] = useState<Record<string, string>>({}),
     [warehouseIds, setWarehouseIds] = useState<Record<string, string>>({}),
     [refunds, setRefunds] = useState<Record<string, string>>({}),
     [accountIds, setAccountIds] = useState<Record<string, string>>({}),
@@ -162,6 +163,7 @@ export default function Returns() {
               const warehouseId =
                 warehouseIds[row.id] ?? warehouses[0]?.id ?? "";
               const disposition = dispositions[row.id] ?? "SELLABLE";
+              const itemDisposition = (item: Item) => itemDispositions[`${row.id}:${item.id}`] ?? disposition;
               const financeAccounts = accounts.filter(
                 (account) => account.currency === row.currency,
               );
@@ -233,6 +235,7 @@ export default function Returns() {
                         submit(event, row.id, "inspection", {
                           warehouseId,
                           disposition,
+                          items: row.items.map((item) => ({ returnItemId:item.id, disposition:itemDisposition(item) })),
                           notes: note(row.id) || undefined,
                         })
                       }
@@ -258,7 +261,7 @@ export default function Returns() {
                         </select>
                       </label>
                       <label>
-                        Stok durumu
+                        Varsayılan stok durumu
                         <select
                           value={disposition}
                           onChange={(event) =>
@@ -273,6 +276,10 @@ export default function Returns() {
                           <option value="DAMAGED">Hasarlı olarak ayır</option>
                         </select>
                       </label>
+                      <div className="wide">
+                        <p>Kalem bazında stok durumu</p>
+                        {row.items.map((item) => <label key={item.id}>{item.product_name} × {item.quantity}<select value={itemDisposition(item)} onChange={(event) => setItemDispositions((current) => ({...current,[`${row.id}:${item.id}`]:event.target.value}))}><option value="SELLABLE">Satılabilir stoğa al</option><option value="QUARANTINE">Karantinaya al</option><option value="DAMAGED">Hasarlı olarak ayır</option></select></label>)}
+                      </div>
                       <label>
                         İnceleme notu
                         <input

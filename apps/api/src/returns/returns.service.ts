@@ -50,18 +50,24 @@ export class ReturnsService {
       const warehouse=await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR UPDATE',[dto.warehouseId]);
       if(!warehouse.rowCount) throw new ConflictException('Aktif bir depo seçin');
       const items=await client.query<{return_item_id:string;product_id:string;quantity:number}>(`SELECT ri.id AS return_item_id,oi.product_id,ri.quantity FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1 ORDER BY ri.id FOR UPDATE`,[returnId]);
+      const specified = new Map((dto.items ?? []).map(item => [item.returnItemId, item.disposition]));
+      if (specified.size && (specified.size !== items.rows.length || items.rows.some(item => !specified.has(item.return_item_id)))) throw new ConflictException('Her iade kalemi için stok durumu seçin');
+      const defaultDisposition = dto.disposition;
+      if (!specified.size && !defaultDisposition) throw new ConflictException('İade stok durumu zorunludur');
       for(const item of items.rows){
-        await client.query('INSERT INTO return_item_dispositions(return_id,return_item_id,warehouse_id,disposition,quantity,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)',[returnId,item.return_item_id,dto.warehouseId,dto.disposition,item.quantity,dto.notes?.trim()||null,actorId]);
-        const movement=dto.disposition==='SELLABLE'?'RECEIPT':dto.disposition==='QUARANTINE'?'RETURN_QUARANTINE':'RETURN_DAMAGED';
-        if(dto.disposition==='SELLABLE'){
+        const disposition = specified.get(item.return_item_id) ?? defaultDisposition!;
+        await client.query('INSERT INTO return_item_dispositions(return_id,return_item_id,warehouse_id,disposition,quantity,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)',[returnId,item.return_item_id,dto.warehouseId,disposition,item.quantity,dto.notes?.trim()||null,actorId]);
+        const movement=disposition==='SELLABLE'?'RECEIPT':disposition==='QUARANTINE'?'RETURN_QUARANTINE':'RETURN_DAMAGED';
+        if(disposition==='SELLABLE'){
           await client.query(`INSERT INTO inventory(product_id,warehouse_id,physical_quantity,reserved_quantity) VALUES($1,$2,$3,0) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now()`,[item.product_id,dto.warehouseId,item.quantity]);
           await client.query(`INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,available_quantity,location_code) VALUES($1,$2,$3,$4,'RETURN') ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity`,[item.product_id,dto.warehouseId,`RETURN-${returnId}`,item.quantity]);
         }
         await client.query(`INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES($1,$2,$3,$4,'return',$5,$6)`,[item.product_id,dto.warehouseId,movement,dto.disposition==='SELLABLE'?item.quantity:0,returnId,actorId]);
       }
       await client.query('INSERT INTO return_inspections(return_id,accepted,notes,inspected_by) VALUES($1,true,$2,$3)',[returnId,dto.notes?.trim()||null,actorId]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.inspected','return',returnId,JSON.stringify({disposition:dto.disposition,warehouseId:dto.warehouseId,itemCount:items.rows.length})]);
-      return {returnId,status:'INSPECTED',disposition:dto.disposition};
+      const dispositions = items.rows.map(item => ({ returnItemId:item.return_item_id, disposition:specified.get(item.return_item_id) ?? defaultDisposition! }));
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.inspected','return',returnId,JSON.stringify({dispositions,warehouseId:dto.warehouseId,itemCount:items.rows.length})]);
+      return {returnId,status:'INSPECTED',dispositions};
     });
   }
 
