@@ -274,6 +274,15 @@ export default function Purchasing() {
     const blob = new Blob(["\ufeff" + rows.map((row) => row.map(csv).join(";")).join("\n")], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "trex-satin-alma-siparisleri.csv"; link.click(); URL.revokeObjectURL(link.href);
   }
+  function exportSupplierPerformance() {
+    if (!supplierPerformance.length) { setMessage('Dışa aktarılacak tedarikçi performansı bulunamadı.'); return; }
+    const rows = [
+      ['Tedarikçi', 'Yetkili', 'Telefon', 'E-posta', 'Toplam sipariş', 'Açık sipariş', 'Geciken sipariş', 'Teslim alınan', 'Son teslim'],
+      ...supplierPerformance.map(item => [item.name, item.contact_name ?? '', item.phone ?? '', item.email ?? '', item.order_count, item.open_order_count, item.overdue_order_count, item.received_order_count, item.last_received_at ? new Date(item.last_received_at).toLocaleDateString('tr-TR') : '']),
+    ];
+    const blob = new Blob(['\ufeff' + rows.map(row => row.map(csv).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'trex-tedarikci-performansi.csv'; link.click(); URL.revokeObjectURL(link.href);
+  }
   async function receive(e: FormEvent) {
     e.preventDefault();
     try {
@@ -440,7 +449,7 @@ export default function Purchasing() {
           </div>
           <button>Tedarikçiyi güncelle</button>
         </form>
-        <h2>Tedarikçi performansı</h2>
+        <div className="period-toolbar"><h2>Tedarikçi performansı</h2><button type="button" disabled={!supplierPerformance.length} onClick={exportSupplierPerformance}>CSV indir</button></div>
         <p>Açık ve geciken satın alma siparişleri tedarikçi bazında izlenir.</p>
         <div className="table-wrap"><table><thead><tr><th>Tedarikçi</th><th>Toplam</th><th>Açık</th><th>Geciken</th><th>Teslim alınan</th><th>Son teslim</th></tr></thead><tbody>{supplierPerformance.map(item=><tr key={item.id}><td>{item.name}<div>{item.contact_name??item.email??'İletişim bilgisi yok'}</div></td><td>{item.order_count}</td><td>{item.open_order_count}</td><td>{item.overdue_order_count}</td><td>{item.received_order_count}</td><td>{item.last_received_at?new Date(item.last_received_at).toLocaleDateString('tr-TR'):'—'}</td></tr>)}{!supplierPerformance.length&&<tr><td colSpan={6}>Henüz tedarikçi yok.</td></tr>}</tbody></table></div>
         <form className="form-card" onSubmit={createOrder}>
