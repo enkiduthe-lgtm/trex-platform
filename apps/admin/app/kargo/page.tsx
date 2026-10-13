@@ -37,6 +37,7 @@ const status: Record<string, string> = {
   FAILED: "Başarısız",
   CANCELLED: "İptal edildi",
 };
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function Shipping() {
   const [config, setConfig] = useState<Config | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -120,6 +121,15 @@ export default function Shipping() {
   );
   const failed = shipments.filter((s) => s.status === "FAILED");
   const delivered = shipments.filter((s) => s.status === "DELIVERED");
+  function exportShipments() {
+    if (!shipments.length) { setMessage('Dışa aktarılacak gönderi bulunamadı.'); return; }
+    const rows = [
+      ['Sipariş no', 'Kargo firması', 'Takip no', 'Durum', 'Alıcı', 'İlçe', 'İl', 'Sorun notu', 'Oluşturulma'],
+      ...shipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR')]),
+    ];
+    const url = URL.createObjectURL(new Blob([`\uFEFF${rows.map(row => row.map(csv).join(';')).join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'trex-kargo-gonderileri.csv'; link.click(); URL.revokeObjectURL(url);
+  }
   return (
     <main>
       <AdminNav />
@@ -218,7 +228,10 @@ export default function Shipping() {
             </div>
           </>
         )}
-        <h2>Son gönderiler</h2>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <h2>Son gönderiler</h2>
+          <button type="button" disabled={!shipments.length} onClick={exportShipments}>CSV indir</button>
+        </div>
         <div className="cards">
           {shipments.length ? (
             shipments.map((s) => (
