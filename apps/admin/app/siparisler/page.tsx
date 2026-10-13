@@ -34,6 +34,7 @@ const date = (value: string) =>
     dateStyle: "short",
     timeStyle: "short",
   });
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 export default function Orders() {
   const [canCreate, setCanCreate] = useState(false);
@@ -140,6 +141,32 @@ export default function Orders() {
       setMessage(e instanceof Error ? e.message : "Kargo kaydı oluşturulamadı");
     }
   }
+  function exportOrders() {
+    const source = selected.length
+      ? visible.filter((order) => selected.includes(order.id))
+      : visible;
+    const rows = [
+      ["Sipariş no", "Müşteri", "Tutar", "Para birimi", "Durum", "Kanal", "Tarih"],
+      ...source.map((order) => [
+        order.order_number,
+        order.customer_name ?? order.customer_email ?? "Misafir müşteri",
+        order.total_amount,
+        order.currency,
+        statusText[order.status] ?? order.status,
+        order.marketplace_name ?? order.sales_channel ?? "",
+        new Date(order.created_at).toLocaleString("tr-TR"),
+      ]),
+    ];
+    const blob = new Blob(
+      ["\ufeff" + rows.map((row) => row.map(csv).join(";")).join("\n")],
+      { type: "text/csv;charset=utf-8" },
+    );
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "trex-siparisler.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
   return (
     <main>
       <AdminNav />
@@ -182,6 +209,9 @@ export default function Orders() {
             />
           </label>
           <div className={styles.bulk}>
+            <button type="button" disabled={!visible.length} onClick={exportOrders}>
+              CSV indir{selected.length ? ` (${selected.length})` : ""}
+            </button>
             {selected.length > 0 && (
               <>
                 <strong>{selected.length} seçildi</strong>

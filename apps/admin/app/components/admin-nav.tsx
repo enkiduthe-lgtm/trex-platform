@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { FormEvent, useMemo, useRef, useState } from 'react';
 import { logout } from '../lib/api';
 
 type Entry = { label: string; href?: string };
@@ -25,7 +25,23 @@ export function AdminNav() {
   const pathname = usePathname();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [panelSearch, setPanelSearch] = useState('');
   const lock = useRef(false);
+  const searchEntries = useMemo(() => [
+    { label: 'Ana sayfa', href: '/' },
+    ...menus.flatMap((menu) => [
+      ...(menu.href ? [{ label: menu.label, href: menu.href }] : []),
+      ...(menu.groups?.flatMap((group) => group.entries.filter((entry): entry is Entry & { href: string } => Boolean(entry.href)).map((entry) => ({ label: entry.label, href: entry.href }))) ?? []),
+    ]),
+  ], []);
+  function submitPanelSearch(event: FormEvent) {
+    event.preventDefault();
+    const query = panelSearch.trim().toLocaleLowerCase('tr-TR');
+    if (!query) return;
+    const match = searchEntries.find((entry) => entry.label.toLocaleLowerCase('tr-TR').includes(query));
+    if (!match) { setError('Panel aramasında eşleşen bir bölüm bulunamadı.'); return; }
+    setError(''); setPanelSearch(''); router.push(match.href);
+  }
   async function signOut() {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError('');
@@ -33,7 +49,7 @@ export function AdminNav() {
     catch { setError('Çıkış tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.'); }
     finally { lock.current = false; setBusy(false); }
   }
-  return <header className="admin-header"><div className="header-main"><Link className="header-brand" href="/"><b>TREX</b><span>YÖNETİM</span></Link><label className="panel-search"><input aria-label="Panelde ara" placeholder="Panelde ara" /><span>⌕</span></label><div className="header-links"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Siteyi görüntüle ↗</a><Link href="/bildirimler">● Bildirimler</Link><button disabled={busy} onClick={() => void signOut()}>{busy ? 'Çıkış yapılıyor…' : 'Çıkış'}</button></div></div>
+  return <header className="admin-header"><div className="header-main"><Link className="header-brand" href="/"><b>TREX</b><span>YÖNETİM</span></Link><form className="panel-search" onSubmit={submitPanelSearch}><input aria-label="Panelde ara" value={panelSearch} onChange={(event) => setPanelSearch(event.target.value)} placeholder="Panelde ara" /><button type="submit" aria-label="Panelde ara">⌕</button></form><div className="header-links"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Siteyi görüntüle ↗</a><Link href="/bildirimler">● Bildirimler</Link><button disabled={busy} onClick={() => void signOut()}>{busy ? 'Çıkış yapılıyor…' : 'Çıkış'}</button></div></div>
     {error && <p role="alert">{error}</p>}
     <nav className="header-nav" aria-label="Yönetim menüsü"><Link className={pathname === '/' ? 'active' : ''} href="/"><i>⌂</i> ANA SAYFA</Link>{menus.map(menu => <div className={`nav-menu ${active(pathname, menu) ? 'active' : ''}`} key={menu.label}>{menu.href ? <Link href={menu.href}><i>{menu.icon}</i>{menu.label}<small>⌄</small></Link> : <button type="button"><i>{menu.icon}</i>{menu.label}<small>⌄</small></button>}<div className="nav-dropdown">{menu.groups?.map(group => <section key={group.title}><h3>{group.title}</h3>{group.entries.map(entry => entry.href ? <Link href={entry.href} key={entry.label}>{entry.label}</Link> : <span className="soon" key={entry.label}>{entry.label}<em>Yakında</em></span>)}</section>)}</div></div>)}</nav>
   </header>;
