@@ -26,6 +26,7 @@ export class CustomersController {
   @Post(':id/tags/:tagId') assignTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.assignTag(id, tagId, req.user.id); }
   @Delete(':id/tags/:tagId') removeTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.removeTag(id, tagId, req.user.id); }
   @Get(':id/notes') notes(@Param('id') id: string) { return this.customers.notes(id); }
+  @Get(':id/orders') orders(@Param('id') id: string) { return this.customers.orders(id); }
   @Post(':id/notes') add(@Param('id') id: string, @Body() dto: NoteDto, @Req() req: UserRequest) { return this.customers.addNote(id, dto.body, req.user.id); }
   @Get(':id/loyalty') loyalty(@Param('id') id: string) { return this.customers.loyalty(id); }
   @Post(':id/loyalty/adjust') adjustLoyalty(@Param('id') id: string, @Body() dto: LoyaltyAdjustmentDto, @Req() req: UserRequest) { return this.customers.adjustLoyalty(id, dto, req.user.id); }

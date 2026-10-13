@@ -96,6 +96,12 @@ export class CustomersService {
     return (await this.db.query('SELECT id,body,created_at FROM customer_notes WHERE customer_id=$1 ORDER BY created_at DESC', [customerId])).rows;
   }
 
+  async orders(customerId: string) {
+    return (await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,COALESCE(SUM(oi.quantity),0)::int AS item_count
+      FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id
+      WHERE o.customer_id=$1 GROUP BY o.id ORDER BY o.created_at DESC LIMIT 50`, [customerId])).rows;
+  }
+
   async loyalty(customerId: string) {
     const account = await this.db.query('SELECT points_balance,tier,updated_at FROM customer_loyalty_accounts WHERE customer_id=$1', [customerId]);
     const movements = await this.db.query('SELECT id,points_delta,reason,created_at FROM customer_loyalty_movements WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100', [customerId]);
