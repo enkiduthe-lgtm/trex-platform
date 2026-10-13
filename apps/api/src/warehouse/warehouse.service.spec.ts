@@ -93,4 +93,26 @@ describe('WarehouseService', () => {
     await expect(new WarehouseService(db as never).expiryAlerts()).resolves.toEqual([{lot_code:'LOT-1',days_remaining:12}]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("interval '60 days'"));
   });
+
+  it('rejects a warehouse transfer that exceeds available stock', async () => {
+    const client={query:jest.fn()
+      .mockResolvedValueOnce({rowCount:2,rows:[{id:'source'},{id:'destination'}]})
+      .mockResolvedValueOnce({rows:[{physical_quantity:10,reserved_quantity:4}]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    await expect(new WarehouseService(db as never).createInventoryTransfer({productId:'product',sourceWarehouseId:'source',destinationWarehouseId:'destination',quantity:7},'user')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('creates paired transfer movements for a valid warehouse transfer', async () => {
+    const client={query:jest.fn()
+      .mockResolvedValueOnce({rowCount:2,rows:[{id:'source'},{id:'destination'}]})
+      .mockResolvedValueOnce({rows:[{physical_quantity:10,reserved_quantity:0}]})
+      .mockResolvedValueOnce({rows:[{id:'lot',lot_code:'LOT-1',expiry_date:null,location_code:'A-1',available_quantity:10}]})
+      .mockResolvedValueOnce({rows:[]})
+      .mockResolvedValueOnce({rows:[{id:'transfer'}]})
+      .mockResolvedValue({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    const result=await new WarehouseService(db as never).createInventoryTransfer({productId:'product',sourceWarehouseId:'source',destinationWarehouseId:'destination',quantity:3,note:'Şube sevki'},'user');
+    expect(result).toEqual({id:'transfer',quantity:3,allocations:[{lotCode:'LOT-1',expiryDate:null,locationCode:'A-1',quantity:3}]});
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'TRANSFER_OUT'"),['product','source',-3,'transfer','user','destination',3]);
+  });
 });
