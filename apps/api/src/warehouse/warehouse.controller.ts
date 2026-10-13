@@ -13,6 +13,7 @@ import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { ScanPickItemDto } from './dto/scan-pick-item.dto';
 import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
+import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 type UserRequest = Request & { user: RequestUser };
 
 @Controller('admin/warehouse') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
@@ -25,6 +26,9 @@ export class WarehouseController {
   @Get('expiry-alerts') expiryAlerts() { return this.warehouse.expiryAlerts(); }
   @Get('counts') counts() { return this.warehouse.listInventoryCounts(); }
   @Post('counts') createInventoryCount(@Body() dto:CreateInventoryCountDto, @Req() req:UserRequest) { return this.warehouse.createInventoryCount(dto,req.user.id); }
+  @Get('transfers') transfers() { return this.warehouse.listInventoryTransfers(); }
+  @Post('transfers') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
+  createTransfer(@Body() dto:CreateInventoryTransferDto, @Req() req:UserRequest) { return this.warehouse.createInventoryTransfer(dto,req.user.id); }
   @Get('reorder-suggestions') reorderSuggestions() { return this.warehouse.reorderSuggestions(); }
   @Patch('stock/:warehouseId/:productId/reorder-level') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   updateReorderLevel(@Param('warehouseId', ParseUUIDPipe) warehouseId:string, @Param('productId', ParseUUIDPipe) productId:string, @Body() dto:UpdateReorderLevelDto, @Req() req:UserRequest) { return this.warehouse.updateReorderLevel(warehouseId,productId,dto,req.user.id); }

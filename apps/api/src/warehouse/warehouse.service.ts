@@ -4,6 +4,7 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
+import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
@@ -66,6 +67,30 @@ export class WarehouseService {
   async listInventoryCounts() { return (await this.db.query(`SELECT c.id,c.product_id,c.warehouse_id,p.name AS product_name,w.name AS warehouse_name,c.expected_quantity,c.actual_quantity,c.difference_quantity,c.reason,c.counted_at,u.email AS counted_by_email
     FROM inventory_counts c JOIN products p ON p.id=c.product_id JOIN warehouses w ON w.id=c.warehouse_id JOIN users u ON u.id=c.counted_by
     ORDER BY c.counted_at DESC LIMIT 50`)).rows; }
+  async listInventoryTransfers() { return (await this.db.query(`SELECT t.id,t.product_id,t.quantity,t.note,t.transferred_at,p.name AS product_name,p.sku,source.name AS source_warehouse_name,destination.name AS destination_warehouse_name,u.email AS transferred_by_email
+    FROM inventory_transfers t JOIN products p ON p.id=t.product_id JOIN warehouses source ON source.id=t.source_warehouse_id JOIN warehouses destination ON destination.id=t.destination_warehouse_id JOIN users u ON u.id=t.transferred_by
+    ORDER BY t.transferred_at DESC LIMIT 50`)).rows; }
+  async createInventoryTransfer(dto:CreateInventoryTransferDto,userId:string) {
+    if(dto.sourceWarehouseId===dto.destinationWarehouseId) throw new ConflictException('Kaynak ve hedef depo aynı olamaz');
+    return this.db.transaction(async client=>{
+      const warehouses=await client.query<{id:string}>(`SELECT id FROM warehouses WHERE id=ANY($1::uuid[]) AND is_active=true ORDER BY id FOR UPDATE`,[[dto.sourceWarehouseId,dto.destinationWarehouseId]]);
+      if(warehouses.rowCount!==2) throw new NotFoundException('Kaynak veya hedef aktif depo bulunamadı');
+      const source=await client.query<{physical_quantity:number;reserved_quantity:number}>(`SELECT physical_quantity,reserved_quantity FROM inventory WHERE product_id=$1 AND warehouse_id=$2 FOR UPDATE`,[dto.productId,dto.sourceWarehouseId]);
+      const available=(source.rows[0]?.physical_quantity??0)-(source.rows[0]?.reserved_quantity??0);
+      if(available<dto.quantity) throw new ConflictException(`Transfer için kullanılabilir stok yetersiz. Kullanılabilir adet: ${Math.max(available,0)}`);
+      const lots=await client.query<{id:string;lot_code:string;expiry_date:string|null;location_code:string|null;available_quantity:number}>(`SELECT id,lot_code,expiry_date,location_code,available_quantity FROM inventory_lots WHERE product_id=$1 AND warehouse_id=$2 AND available_quantity>0 ORDER BY expiry_date ASC NULLS LAST,created_at ASC FOR UPDATE`,[dto.productId,dto.sourceWarehouseId]);
+      let remaining=dto.quantity; const allocations:Array<{lotCode:string;expiryDate:string|null;locationCode:string|null;quantity:number}>=[];
+      for(const lot of lots.rows){if(remaining<=0) break;const quantity=Math.min(remaining,lot.available_quantity);await client.query('UPDATE inventory_lots SET available_quantity=available_quantity-$1 WHERE id=$2',[quantity,lot.id]);allocations.push({lotCode:lot.lot_code,expiryDate:lot.expiry_date,locationCode:lot.location_code,quantity});remaining-=quantity;}
+      if(remaining>0) throw new ConflictException('Lot stokları transfer adedini karşılamıyor; transfer kaydedilmedi');
+      const transfer=await client.query<{id:string}>(`INSERT INTO inventory_transfers(product_id,source_warehouse_id,destination_warehouse_id,quantity,note,transferred_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[dto.productId,dto.sourceWarehouseId,dto.destinationWarehouseId,dto.quantity,dto.note?.trim()||null,userId]);
+      await client.query('UPDATE inventory SET physical_quantity=physical_quantity-$1,updated_at=now() WHERE product_id=$2 AND warehouse_id=$3',[dto.quantity,dto.productId,dto.sourceWarehouseId]);
+      await client.query(`INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now()`,[dto.productId,dto.destinationWarehouseId,dto.quantity]);
+      for(const allocation of allocations) await client.query(`INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)`,[dto.productId,dto.destinationWarehouseId,allocation.lotCode,allocation.expiryDate,allocation.quantity,allocation.locationCode]);
+      await client.query(`INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES($1,$2,'TRANSFER_OUT',$3,'inventory_transfer',$4,$5),($1,$6,'TRANSFER_IN',$7,'inventory_transfer',$4,$5)`,[dto.productId,dto.sourceWarehouseId,-dto.quantity,transfer.rows[0].id,userId,dto.destinationWarehouseId,dto.quantity]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'inventory.transferred','inventory_transfer',transfer.rows[0].id,JSON.stringify({...dto,allocations})]);
+      return {id:transfer.rows[0].id,quantity:dto.quantity,allocations};
+    });
+  }
   async createInventoryCount(dto:CreateInventoryCountDto,userId:string) { return this.db.transaction(async client=>{
     const inventory=await client.query<{physical_quantity:number;reserved_quantity:number}>(`SELECT physical_quantity,reserved_quantity FROM inventory WHERE product_id=$1 AND warehouse_id=$2 FOR UPDATE`,[dto.productId,dto.warehouseId]);
     const row=inventory.rows[0];
