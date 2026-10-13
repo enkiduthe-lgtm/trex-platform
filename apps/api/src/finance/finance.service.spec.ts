@@ -1,4 +1,14 @@
 import { FinanceService } from './finance.service';
+import { BadRequestException } from '@nestjs/common';
+
+describe('Manual finance transaction safety', () => {
+  it('does not write to an inactive or missing account', async () => {
+    const query=jest.fn().mockResolvedValue({rowCount:0,rows:[]});
+    const service=new FinanceService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
+    await expect(service.createTransaction({accountId:'account',kind:'EXPENSE' as never,amount:10,description:'Kargo'} as never,{id:'actor'} as never)).rejects.toBeInstanceOf(BadRequestException);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('FinanceService marketplace settlements', () => {
   it.each(['EUR','USD'])('rejects %s collection against TRY order without writes',async currency=>{

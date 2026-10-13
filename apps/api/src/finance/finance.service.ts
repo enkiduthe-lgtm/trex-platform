@@ -67,8 +67,15 @@ export class FinanceService {
     return (await this.db.query(`SELECT a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,COALESCE(SUM(CASE WHEN t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID','OVERDUE') THEN t.amount ELSE 0 END),0)::text pending_collections,COALESCE((SELECT SUM(amount) FROM finance_budgets b WHERE b.period_start=date_trunc('month',now())::date AND b.currency=a.currency),0)::text monthly_budget FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.currency ORDER BY a.currency`)).rows;
   }
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
-    const result = await this.db.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, dto.description.trim(), dto.occurredAt ?? null, actor.id]);
-    return result.rows[0];
+    const description=dto.description.trim();
+    if(!description) throw new BadRequestException('İşlem açıklaması zorunludur');
+    return this.db.transaction(async client=>{
+      const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND is_active=true FOR KEY SHARE',[dto.accountId]);
+      if(!account.rowCount) throw new BadRequestException('Aktif finans hesabı bulunamadı');
+      const result = await client.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, description, dto.occurredAt ?? null, actor.id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'finance.transaction.created','finance_transaction',result.rows[0].id,JSON.stringify({kind:dto.kind,amount:dto.amount,accountId:dto.accountId})]);
+      return result.rows[0];
+    });
   }
   async createMarketplaceSettlement(dto: CreateMarketplaceSettlementDto, actor: RequestUser) {
     const commission = dto.commissionAmount ?? 0; const shipping = dto.shippingCostAmount ?? 0; const campaign = dto.campaignContributionAmount ?? 0; const refund = dto.refundAmount ?? 0;
