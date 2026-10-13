@@ -4,6 +4,7 @@ import { DatabaseService } from '../database/database.service';
 type LoyaltyAdjustment = { points: number; reason: string };
 type CustomerRequestInput = { subject: string; body: string; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' };
 type RequestStatusInput = { status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'; resolutionNote?: string };
+type CustomerTagInput = { name: string; color?: string };
 
 @Injectable()
 export class CustomersService {
@@ -23,11 +24,60 @@ export class CustomersService {
       SELECT c.id,c.email,c.first_name,c.last_name,c.phone,c.is_active,c.created_at,
         COALESCE(o.order_count,0)::int AS order_count,COALESCE(o.total_spend,'0') AS total_spend,
         COALESCE(o.totals_by_currency,'[]'::jsonb) AS totals_by_currency,COALESCE(n.note_count,0)::int AS note_count,
-        COALESCE(l.points_balance,0)::int AS loyalty_points,COALESCE(l.tier,'BRONZE') AS loyalty_tier
+        COALESCE(l.points_balance,0)::int AS loyalty_points,COALESCE(l.tier,'BRONZE') AS loyalty_tier,
+        COALESCE(t.tags,'[]'::jsonb) AS tags
       FROM customers c LEFT JOIN order_totals o ON o.customer_id=c.id
       LEFT JOIN (SELECT customer_id,COUNT(*) AS note_count FROM customer_notes GROUP BY customer_id) n ON n.customer_id=c.id
       LEFT JOIN customer_loyalty_accounts l ON l.customer_id=c.id
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object('id',ct.id,'name',ct.name,'color',ct.color) ORDER BY ct.name) AS tags
+        FROM customer_tag_assignments cta JOIN customer_tags ct ON ct.id=cta.tag_id
+        WHERE cta.customer_id=c.id
+      ) t ON true
       ORDER BY c.created_at DESC`)).rows;
+  }
+
+  async listTags() {
+    return (await this.db.query('SELECT id,name,color,created_at FROM customer_tags ORDER BY name')).rows;
+  }
+
+  async createTag(dto: CustomerTagInput, userId: string) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Etiket adı boş olamaz');
+    return this.db.transaction(async client => {
+      try {
+        const result = await client.query<{ id: string; name: string; color: string }>(
+          'INSERT INTO customer_tags(name,color) VALUES($1,$2) RETURNING id,name,color',
+          [name, dto.color ?? '#7c3aed'],
+        );
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.tag.created', 'customer_tag', result.rows[0].id, JSON.stringify({ name })]);
+        return result.rows[0];
+      } catch (error: unknown) {
+        if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu etiket zaten var');
+        throw error;
+      }
+    });
+  }
+
+  async assignTag(customerId: string, tagId: string, userId: string) {
+    return this.db.transaction(async client => {
+      const customer = await client.query('SELECT 1 FROM customers WHERE id=$1 FOR KEY SHARE', [customerId]);
+      if (!customer.rowCount) throw new NotFoundException('Customer not found');
+      const tag = await client.query<{ id: string; name: string; color: string }>('SELECT id,name,color FROM customer_tags WHERE id=$1 FOR KEY SHARE', [tagId]);
+      if (!tag.rowCount) throw new NotFoundException('Customer tag not found');
+      const inserted = await client.query('INSERT INTO customer_tag_assignments(customer_id,tag_id,assigned_by) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING tag_id', [customerId, tagId, userId]);
+      if (inserted.rowCount) await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.tag.assigned', 'customer', customerId, JSON.stringify({ tagId, tag: tag.rows[0].name })]);
+      return tag.rows[0];
+    });
+  }
+
+  async removeTag(customerId: string, tagId: string, userId: string) {
+    return this.db.transaction(async client => {
+      const removed = await client.query('DELETE FROM customer_tag_assignments WHERE customer_id=$1 AND tag_id=$2 RETURNING tag_id', [customerId, tagId]);
+      if (!removed.rowCount) throw new NotFoundException('Customer tag assignment not found');
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'customer.tag.removed', 'customer', customerId, JSON.stringify({ tagId })]);
+      return { removed: true };
+    });
   }
 
   async addNote(customerId: string, body: string, userId: string) {

@@ -19,7 +19,9 @@ type Customer = {
   note_count: number;
   loyalty_points: number;
   loyalty_tier: 'BRONZE' | 'SILVER' | 'GOLD';
+  tags: CustomerTag[];
 };
+type CustomerTag = { id: string; name: string; color: string };
 type Note = { id: string; body: string; created_at: string };
 type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; movements: { id: string; points_delta: number; reason: string; created_at: string }[] };
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
@@ -31,6 +33,10 @@ function CustomerAmounts({ customer }: { customer: Customer }) {
 export default function Customers() {
   const [rows, setRows] = useState<Customer[]>([]),
     [query, setQuery] = useState(""),
+    [tagFilter, setTagFilter] = useState(""),
+    [tags, setTags] = useState<CustomerTag[]>([]),
+    [tagName, setTagName] = useState(""),
+    [tagColor, setTagColor] = useState("#7c3aed"),
     [selected, setSelected] = useState<Customer | null>(null),
     [notes, setNotes] = useState<Note[]>([]),
     [requests, setRequests] = useState<CustomerRequest[]>([]),
@@ -45,8 +51,8 @@ export default function Customers() {
   const notesGate = useRef(createRequestGate());
   const saveLock = useRef(createActionLock());
   const load = () =>
-    api<Customer[]>("/admin/customers")
-      .then(data => { setRows(data); setSelected(current => current ? data.find(customer => customer.id === current.id) ?? current : null); })
+    Promise.all([api<Customer[]>("/admin/customers"), api<CustomerTag[]>("/admin/customers/tags")])
+      .then(([data, availableTags]) => { setRows(data); setTags(availableTags); setSelected(current => current ? data.find(customer => customer.id === current.id) ?? current : null); })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "Müşteriler yüklenemedi."),
       );
@@ -59,9 +65,10 @@ export default function Customers() {
       rows.filter((x) =>
         `${x.first_name} ${x.last_name} ${x.email} ${x.phone ?? ""}`
           .toLocaleLowerCase("tr-TR")
-          .includes(query.toLocaleLowerCase("tr-TR")),
+          .includes(query.toLocaleLowerCase("tr-TR")) &&
+        (!tagFilter || x.tags.some(tag => tag.id === tagFilter)),
       ),
-    [rows, query],
+    [rows, query, tagFilter],
   );
   const totals = useMemo(() => {
     const amounts = new Map<string, bigint>();
@@ -146,6 +153,26 @@ export default function Customers() {
     catch (e) { setMessage(e instanceof Error ? e.message : 'Talep güncellenemedi.'); }
     finally { saveLock.current.release(); setSaving(false); }
   }
+  async function createTag(e: FormEvent) {
+    e.preventDefault();
+    if (!tagName.trim() || !saveLock.current.acquire()) return;
+    setSaving(true); setMessage('');
+    try {
+      await api('/admin/customers/tags', { method:'POST', body:JSON.stringify({name:tagName.trim(),color:tagColor}) });
+      setTagName(''); await load(); setMessage('Müşteri etiketi oluşturuldu.');
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Etiket oluşturulamadı.'); }
+    finally { saveLock.current.release(); setSaving(false); }
+  }
+  async function toggleTag(tag: CustomerTag) {
+    if (!selected || !saveLock.current.acquire()) return;
+    const exists = selected.tags.some(item => item.id === tag.id);
+    setSaving(true); setMessage('');
+    try {
+      await api(`/admin/customers/${selected.id}/tags/${tag.id}`, { method: exists ? 'DELETE' : 'POST' });
+      await load(); setMessage(exists ? 'Etiket müşteriden kaldırıldı.' : 'Etiket müşteriye eklendi.');
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Etiket işlemi tamamlanamadı.'); }
+    finally { saveLock.current.release(); setSaving(false); }
+  }
   return (
     <main>
       <AdminNav />
@@ -199,7 +226,17 @@ export default function Customers() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Ad, e-posta veya telefon ara"
           />
+          <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} aria-label="Müşteri etiketi filtresi">
+            <option value="">Tüm etiketler</option>
+            {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+          </select>
         </div>
+        <form onSubmit={createTag} className={styles.toolbar} style={{marginTop:12}}>
+          <span>🏷</span>
+          <input value={tagName} maxLength={80} onChange={(e) => setTagName(e.target.value)} placeholder="Yeni müşteri etiketi" />
+          <input aria-label="Etiket rengi" value={tagColor} onChange={(e) => setTagColor(e.target.value)} type="color" style={{maxWidth:52,padding:2}} />
+          <button className={styles.rowButton} disabled={saving || !tagName.trim()}>Etiket ekle</button>
+        </form>
         <div className={styles.tableWrap}>
           <table>
             <thead>
@@ -221,6 +258,7 @@ export default function Customers() {
                       {x.first_name} {x.last_name}
                     </b>
                     <small>{x.is_active ? "● Aktif" : "● Pasif"}</small>
+                    {!!x.tags.length && <small>{x.tags.map(tag => <span key={tag.id} style={{display:'inline-block',margin:'4px 4px 0 0',padding:'2px 7px',borderRadius:99,color:'#fff',background:tag.color}}>{tag.name}</span>)}</small>}
                   </td>
                   <td>
                     {x.email}
@@ -279,6 +317,12 @@ export default function Customers() {
                 <b>{selected.loyalty_points ?? 0}</b>Trex puan
               </span>
             </div>
+            <h3>Müşteri etiketleri</h3>
+            <p>{selected.tags.length ? selected.tags.map(tag => <span key={tag.id} style={{display:'inline-block',margin:'0 6px 6px 0',padding:'3px 8px',borderRadius:99,color:'#fff',background:tag.color}}>{tag.name}</span>) : 'Henüz etiket yok.'}</p>
+            {tags.length ? <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>{tags.map(tag => {
+              const selectedTag = selected.tags.some(item => item.id === tag.id);
+              return <button type="button" key={tag.id} disabled={saving || notesLoading} onClick={() => void toggleTag(tag)} style={{border:`1px solid ${tag.color}`,background:selectedTag ? tag.color : '#fff',color:selectedTag ? '#fff' : tag.color,borderRadius:99,padding:'5px 9px',cursor:'pointer'}}>{selectedTag ? '✓ ' : '+ '}{tag.name}</button>;
+            })}</div> : <p>Önce yukarıdan bir etiket oluşturun.</p>}
             <h3>Trex sadakat puanı</h3>
             <p><strong>{loyalty?.pointsBalance ?? selected.loyalty_points ?? 0} puan</strong> · {loyalty?.tier ?? selected.loyalty_tier ?? 'BRONZE'}</p>
             <form onSubmit={adjustPoints}>
