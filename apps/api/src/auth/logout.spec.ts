@@ -37,7 +37,7 @@ describe('Server-side logout', () => {
   it('controller forwards bearer credentials and clears the matching cookie path', async () => {
     const auth = { logout: jest.fn().mockResolvedValue(undefined) };
     const response = { clearCookie: jest.fn() };
-    await new AuthController(auth as never).logout({ headers: { authorization: 'Bearer token' }, cookies: { trex_session: 'cookie' } } as never, response as never);
+    await new AuthController(auth as never, {} as never).logout({ headers: { authorization: 'Bearer token' }, cookies: { trex_session: 'cookie' } } as never, response as never);
     expect(auth.logout).toHaveBeenCalledWith('cookie', 'token');
     expect(response.clearCookie).toHaveBeenCalledWith('trex_session', { path: '/v1/auth' });
   });
