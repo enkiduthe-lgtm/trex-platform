@@ -112,6 +112,13 @@ describe('WarehouseService', () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("interval '60 days'"));
   });
 
+  it('uses configured minimum stock levels in the warehouse dashboard', async () => {
+    const db={query:jest.fn().mockResolvedValue({rows:[{critical_stock:'2'}]})};
+    await expect(new WarehouseService(db as never).dashboard()).resolves.toEqual({critical_stock:'2'});
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN inventory_reorder_levels'));
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('COALESCE(rl.minimum_quantity,5)'));
+  });
+
   it('rejects a warehouse transfer that exceeds available stock', async () => {
     const client={query:jest.fn()
       .mockResolvedValueOnce({rowCount:2,rows:[{id:'source'},{id:'destination'}]})
