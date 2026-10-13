@@ -118,7 +118,7 @@ export class WarehouseService {
       COALESCE(rl.minimum_quantity,5) AS minimum_quantity,
       COALESCE(rl.target_quantity,20) AS target_quantity,
       GREATEST(0,COALESCE(rl.target_quantity,20)-(i.physical_quantity-i.reserved_quantity)) AS suggested_quantity,
-      latest_cost.amount::text AS latest_unit_cost,latest_cost.currency AS latest_cost_currency,s.name AS latest_supplier_name
+      latest_cost.amount::text AS latest_unit_cost,latest_cost.currency AS latest_cost_currency,latest_cost.supplier_id AS latest_supplier_id,s.name AS latest_supplier_name
     FROM inventory i
     JOIN products p ON p.id=i.product_id
     JOIN warehouses w ON w.id=i.warehouse_id
