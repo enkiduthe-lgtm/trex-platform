@@ -80,7 +80,7 @@ export default function Shipping() {
   }
   async function updateShipment(
     orderId: string,
-    statusValue: "IN_TRANSIT" | "DELIVERED" | "FAILED",
+    statusValue: "IN_TRANSIT" | "DELIVERED" | "FAILED" | "CANCELLED",
   ) {
     setBusy(orderId);
     try {
@@ -233,12 +233,20 @@ export default function Shipping() {
                   {s.recipient_name ?? "—"} · {s.district ?? ""} {s.city ?? ""}
                 </p>
                 {s.status === "CREATED" && (
-                  <button
-                    disabled={busy !== null}
-                    onClick={() => void updateShipment(s.order_id, "IN_TRANSIT")}
-                  >
-                    Taşımada olarak işaretle
-                  </button>
+                  <>
+                    <button
+                      disabled={busy !== null}
+                      onClick={() => void updateShipment(s.order_id, "IN_TRANSIT")}
+                    >
+                      Taşımada olarak işaretle
+                    </button>
+                    <button
+                      disabled={busy !== null}
+                      onClick={() => void updateShipment(s.order_id, "CANCELLED")}
+                    >
+                      Gönderiyi iptal et
+                    </button>
+                  </>
                 )}
                 {s.status === "IN_TRANSIT" && (
                   <>

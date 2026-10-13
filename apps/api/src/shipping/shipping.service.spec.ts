@@ -23,4 +23,10 @@ describe('ShippingService', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('shipment_events'),expect.any(Array));
     expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-1','IN_TRANSIT');
   });
+  it('allows a newly created shipment to be cancelled before dispatch',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED',contact_email:null,order_number:'2026-1'}]}).mockResolvedValue({rows:[]});
+    const service=new ShippingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never,{} as never,{} as never);
+    await expect(service.updateStatus('order',{status:'CANCELLED',description:'Adres değişti'} as never,'actor')).resolves.toEqual({id:'shipment',status:'CANCELLED'});
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('UPDATE shipments SET status=$1'),['CANCELLED','Adres değişti','shipment']);
+  });
 });
