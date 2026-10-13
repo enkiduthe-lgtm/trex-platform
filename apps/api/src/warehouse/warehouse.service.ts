@@ -51,6 +51,15 @@ export class WarehouseService {
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async listLots() { return (await this.db.query(`SELECT l.id,l.product_id,l.warehouse_id,l.lot_code,l.expiry_date,l.available_quantity,l.location_code,l.created_at,
+      p.name AS product_name,p.sku,w.name AS warehouse_name,
+      CASE WHEN l.expiry_date IS NULL THEN NULL ELSE (l.expiry_date-current_date)::int END AS days_remaining
+    FROM inventory_lots l
+    JOIN products p ON p.id=l.product_id
+    JOIN warehouses w ON w.id=l.warehouse_id
+    WHERE l.available_quantity>0
+    ORDER BY l.expiry_date ASC NULLS LAST,p.name,w.name,l.created_at ASC
+    LIMIT 500`)).rows; }
   async listInventoryMovements() { return (await this.db.query(`SELECT m.id,m.movement_type,m.quantity_delta,m.reference_type,m.reference_id,m.created_at,p.name AS product_name,p.sku,w.name AS warehouse_name,u.email AS created_by_email
     FROM inventory_movements m
     JOIN products p ON p.id=m.product_id

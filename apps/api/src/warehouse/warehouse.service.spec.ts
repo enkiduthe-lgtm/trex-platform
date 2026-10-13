@@ -99,6 +99,13 @@ describe('WarehouseService', () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY m.created_at DESC LIMIT 100'));
   });
 
+  it('lists available lots for traceability with product, warehouse and expiry context', async () => {
+    const db={query:jest.fn().mockResolvedValue({rows:[{lot_code:'LOT-1',available_quantity:4}]})};
+    await expect(new WarehouseService(db as never).listLots()).resolves.toEqual([{lot_code:'LOT-1',available_quantity:4}]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('WHERE l.available_quantity>0'));
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LIMIT 500'));
+  });
+
   it('lists lots expiring within the next sixty days', async () => {
     const db={query:jest.fn().mockResolvedValue({rows:[{lot_code:'LOT-1',days_remaining:12}]})};
     await expect(new WarehouseService(db as never).expiryAlerts()).resolves.toEqual([{lot_code:'LOT-1',days_remaining:12}]);

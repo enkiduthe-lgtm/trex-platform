@@ -22,6 +22,7 @@ export class WarehouseController {
   @Get('dashboard') dashboard() { return this.warehouse.dashboard(); }
   @Get('locations') locations() { return this.warehouse.listLocations(); }
   @Get('stock') stock() { return this.warehouse.listStock(); }
+  @Get('lots') lots() { return this.warehouse.listLots(); }
   @Get('movements') movements() { return this.warehouse.listInventoryMovements(); }
   @Get('expiry-alerts') expiryAlerts() { return this.warehouse.expiryAlerts(); }
   @Get('counts') counts() { return this.warehouse.listInventoryCounts(); }
