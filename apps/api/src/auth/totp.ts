@@ -31,6 +31,7 @@ export function totp(secret: string, at = Date.now()) {
 export function verifyTotp(secret: string, code: string, now = Date.now()) {
   if (!/^\d{6}$/.test(code)) return false;
   return [-30_000, 0, 30_000].some(offset => {
+    if (now + offset < 0) return false;
     const expected = Buffer.from(totp(secret, now + offset)); const supplied = Buffer.from(code);
     return expected.length === supplied.length && timingSafeEqual(expected, supplied);
   });
