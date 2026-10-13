@@ -21,7 +21,7 @@ describe('ShippingService', () => {
     await expect(service.updateStatus('order',{status:'IN_TRANSIT'} as never,'actor')).resolves.toEqual({id:'shipment',status:'IN_TRANSIT'});
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'),['order']);
     expect(query).toHaveBeenCalledWith(expect.stringContaining('shipment_events'),expect.any(Array));
-    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-1','IN_TRANSIT');
+    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-1','SHIPPED');
   });
   it('allows a newly created shipment to be cancelled before dispatch',async()=>{
     const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED',contact_email:null,order_number:'2026-1'}]}).mockResolvedValue({rows:[]});
