@@ -27,6 +27,7 @@ type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; move
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
+const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 function CustomerAmounts({ customer }: { customer: Customer }) {
   return <>{customer.totals_by_currency.map(total => <span style={{display:'block'}} key={total.currency}>{money(total.amount, total.currency)} <small>{total.currency}</small></span>)}{!customer.totals_by_currency.length && money('0')}</>;
 }
@@ -79,6 +80,26 @@ export default function Customers() {
     }
     return [...amounts].sort(([a], [b]) => a.localeCompare(b)).map(([currency, cents]) => ({ currency, amount: `${cents / 100n}.${String(cents % 100n).padStart(2,'0')}` }));
   }, [rows]);
+  function exportCustomers() {
+    if (!shown.length) { setMessage('Dışa aktarılacak müşteri bulunamadı.'); return; }
+    const lines = [
+      ['Ad soyad', 'E-posta', 'Telefon', 'Durum', 'Sipariş sayısı', 'Trex puan', 'Seviye', 'Sipariş tutarları', 'Etiketler', 'Kayıt tarihi'],
+      ...shown.map(customer => [
+        `${customer.first_name} ${customer.last_name}`,
+        customer.email,
+        customer.phone ?? '',
+        customer.is_active ? 'Aktif' : 'Pasif',
+        String(customer.order_count ?? 0),
+        String(customer.loyalty_points ?? 0),
+        customer.loyalty_tier ?? 'BRONZE',
+        customer.totals_by_currency.map(total => `${total.amount} ${total.currency}`).join(' | '),
+        customer.tags.map(tag => tag.name).join(' | '),
+        new Date(customer.created_at).toLocaleString('tr-TR'),
+      ]),
+    ].map(row => row.map(csv).join(';')).join('\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'trex-musteriler.csv'; link.click(); URL.revokeObjectURL(url);
+  }
   async function open(customer: Customer) {
     if (saveLock.current.isLocked()) return;
     await readNotes(customer);
@@ -230,6 +251,7 @@ export default function Customers() {
             <option value="">Tüm etiketler</option>
             {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
           </select>
+          <button type="button" className={styles.rowButton} onClick={exportCustomers} disabled={!shown.length}>CSV indir</button>
         </div>
         <form onSubmit={createTag} className={styles.toolbar} style={{marginTop:12}}>
           <span>🏷</span>
