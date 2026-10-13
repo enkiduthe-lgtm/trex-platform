@@ -1,4 +1,4 @@
-import { IsIn, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class CreateCurrentAccountEntryDto {
   @IsIn(['DEALER','CUSTOMER']) partyType!: 'DEALER' | 'CUSTOMER';
@@ -10,4 +10,5 @@ export class CreateCurrentAccountEntryDto {
   @IsString() @MaxLength(80) sourceType!: string;
   @IsOptional() @IsUUID() sourceId?: string;
   @IsString() @MaxLength(500) description!: string;
+  @IsOptional() @IsISO8601() dueAt?: string;
 }
