@@ -29,4 +29,11 @@ describe('ShippingService', () => {
     await expect(service.updateStatus('order',{status:'CANCELLED',description:'Adres değişti'} as never,'actor')).resolves.toEqual({id:'shipment',status:'CANCELLED'});
     expect(query).toHaveBeenCalledWith(expect.stringContaining('UPDATE shipments SET status=$1'),['CANCELLED','Adres değişti','shipment']);
   });
+  it('records a customer notification when delivery fails',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'IN_TRANSIT',contact_email:'buyer@example.com',order_number:'2026-2'}]}).mockResolvedValue({rows:[]});
+    const notifications={recordOrderStatus:jest.fn()};
+    const service=new ShippingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never,{} as never,{} as never,notifications as never);
+    await service.updateStatus('order',{status:'FAILED'} as never,'actor');
+    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-2','DELIVERY_EXCEPTION');
+  });
 });
