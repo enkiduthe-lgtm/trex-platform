@@ -81,6 +81,17 @@ describe('WarehouseService', () => {
     const db={transaction:jest.fn((work) => work(client))};
     await expect(new WarehouseService(db as never).createInventoryCount({productId:'product',warehouseId:'warehouse',actualQuantity:3,reason:'Sayım farkı'},'user')).rejects.toBeInstanceOf(ConflictException);
   });
+  it('does not complete packing when lot records cannot cover the reservation', async () => {
+    const query=jest.fn()
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rows:[{id:'reservation',product_id:'product',warehouse_id:'warehouse',quantity:2}]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{physical_quantity:8}]})
+      .mockResolvedValueOnce({rows:[{id:'lot',available_quantity:1}]})
+      .mockResolvedValueOnce({rows:[]});
+    const db={transaction:async(work:(client:unknown)=>unknown)=>work({query})};
+    await expect(new WarehouseService(db as never).completePacking('pick','user')).rejects.toBeInstanceOf(ConflictException);
+    expect(query).not.toHaveBeenCalledWith(expect.stringContaining("status='CONSUMED'"),expect.anything());
+  });
 
   it('lists recent inventory movements newest first', async () => {
     const db={query:jest.fn().mockResolvedValue({rows:[{id:'movement',movement_type:'RECEIPT'}]})};
