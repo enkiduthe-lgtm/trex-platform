@@ -8,6 +8,7 @@ import { validateEnvironment } from './config/environment';
 async function bootstrap() {
   validateEnvironment(process.env);
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   (app.getHttpAdapter().getInstance() as { set(name: string, value: unknown): void }).set('trust proxy', 1);
   app.setGlobalPrefix('v1');
   app.use(helmet());
