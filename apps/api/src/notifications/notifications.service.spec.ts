@@ -16,4 +16,18 @@ describe('NotificationsService', () => {
     await expect(service.sendMock({ channel: 'SMS' as never, recipient: '5550000000', body: 'Test' })).rejects.toThrow('disabled in production');
     expect(db.query).not.toHaveBeenCalled();
   });
+  it('queues a retry only for failed notifications', async () => {
+    const queue = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const db = { query: jest.fn().mockResolvedValueOnce({ rows: [{ id: 'notification' }] }) };
+    const service = new NotificationsService(db as never, queue as never);
+    await expect(service.retry('notification')).resolves.toEqual({ id: 'notification', status: 'PENDING' });
+    expect(queue.enqueue).toHaveBeenCalledWith('notification.dispatch', { notificationId: 'notification' });
+  });
+  it('does not queue a notification that was not failed', async () => {
+    const queue = { enqueue: jest.fn() };
+    const db = { query: jest.fn().mockResolvedValue({ rows: [] }) };
+    const service = new NotificationsService(db as never, queue as never);
+    await expect(service.retry('missing')).resolves.toBeNull();
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
 });
