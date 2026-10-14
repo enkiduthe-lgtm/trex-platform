@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { DatabaseService } from '../database/database.service';
 import { CreatePageDto } from './dto/create-page.dto';
 import { CreatePageRevisionDto } from './dto/create-page-revision.dto';
+import { AcceptLegalDocumentDto } from './dto/accept-legal-document.dto';
 @Injectable()
 export class ContentService {
   constructor(private readonly db: DatabaseService) {}
@@ -22,4 +23,19 @@ export class ContentService {
   }
   async publish(pageId: string) { const page = await this.db.query("UPDATE cms_pages SET status='PUBLISHED',published_at=now(),updated_at=now(),published_revision_id=(SELECT id FROM cms_page_revisions WHERE page_id=cms_pages.id ORDER BY version DESC LIMIT 1) WHERE id=$1 AND status IN ('DRAFT','REVIEW','APPROVED','PUBLISHED') AND EXISTS (SELECT 1 FROM cms_page_revisions WHERE page_id=cms_pages.id) RETURNING id,published_revision_id", [pageId]); if (!page.rowCount) throw new NotFoundException('Publishable page not found'); return page.rows[0]; }
   async getPublic(slug: string) { const page = await this.db.query<{ id: string; title: string; content: Record<string, unknown> }>("SELECT p.id,p.title,r.content FROM cms_pages p JOIN cms_page_revisions r ON r.id=p.published_revision_id WHERE p.slug=$1 AND p.status='PUBLISHED' LIMIT 1", [slug]); if (!page.rows[0]) throw new NotFoundException('Page not found'); return page.rows[0]; }
+  async listPublicLegal() {
+    return (await this.db.query<{ code: string; version: string; title: string; body: string; published_at: string }>("SELECT code,version,title,body,published_at FROM legal_documents WHERE is_active=true AND published_at IS NOT NULL ORDER BY code, published_at DESC")).rows;
+  }
+  async listAdminLegal() {
+    return (await this.db.query<{ id: string; code: string; version: string; title: string; is_active: boolean; published_at: string | null; acceptance_count: string }>("SELECT d.id,d.code,d.version,d.title,d.is_active,d.published_at,COUNT(a.id)::text AS acceptance_count FROM legal_documents d LEFT JOIN legal_acceptances a ON a.document_id=d.id GROUP BY d.id ORDER BY d.code,d.published_at DESC NULLS LAST,d.created_at DESC")).rows;
+  }
+  async acceptLegal(code: string, dto: AcceptLegalDocumentDto, userId: string, ip?: string) {
+    return this.db.transaction(async (client) => {
+      const document = await client.query<{ id: string; code: string; version: string }>("SELECT id,code,version FROM legal_documents WHERE code=$1 AND version=$2 AND is_active=true AND published_at IS NOT NULL LIMIT 1", [code, dto.version]);
+      if (!document.rowCount) throw new NotFoundException('Yayınlanmış yasal doküman bulunamadı');
+      await client.query('INSERT INTO legal_acceptances (user_id,document_id,ip) VALUES ($1,$2,$3) ON CONFLICT (user_id,document_id) DO UPDATE SET accepted_at=now(),ip=EXCLUDED.ip', [userId, document.rows[0].id, ip ?? null]);
+      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [userId, 'legal.accepted', 'legal_document', document.rows[0].id]);
+      return { code: document.rows[0].code, version: document.rows[0].version, accepted: true };
+    });
+  }
 }

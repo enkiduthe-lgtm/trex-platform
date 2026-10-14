@@ -20,4 +20,9 @@ describe('HealthController', () => {
     await expect(controller.reconciliation()).resolves.toEqual({ status: 'ok', checks: { paymentsWithoutOrders: 0, paidOrdersWithoutPayments: 0, invalidInventory: 0, cancelledReservations: 0, unlinkedCollections: 0 } });
     expect(db.query).toHaveBeenCalledTimes(5);
   });
+  it('shows release blockers without exposing any secret', async () => {
+    const db = { query: jest.fn().mockResolvedValue({ rows: [{ count: '0' }] }) };
+    const controller = new HealthController(db as never, { waitUntilReady: jest.fn().mockResolvedValue(undefined) } as never);
+    await expect(controller.releaseReadiness()).resolves.toMatchObject({ status: 'attention', checks: { legalDocumentCount: 0 } });
+  });
 });

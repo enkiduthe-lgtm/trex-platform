@@ -58,4 +58,31 @@ export class HealthController {
       return { status: Object.values(checks).every(value => value === 0) ? 'ok' : 'attention', checks };
     } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Uzlaştırma kontrolü çalıştırılamadı' }); }
   }
+  @Get('integrity/release-readiness') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  async releaseReadiness() {
+    try {
+      const [legal] = await Promise.all([
+        this.db.query<{ count: string }>("SELECT count(*)::text count FROM legal_documents WHERE is_active=true AND published_at IS NOT NULL"),
+        this.queue.waitUntilReady(),
+      ]);
+      const origin = process.env.CORS_ORIGIN ?? '';
+      const siteUrl = process.env.PUBLIC_WEB_URL ?? '';
+      const checks = {
+        productionEnvironment: process.env.NODE_ENV === 'production',
+        publicSiteDomain: siteUrl === 'https://www.trextea.com.tr',
+        corsIncludesPublicDomain: origin.split(',').map(value => value.trim()).includes('https://www.trextea.com.tr'),
+        legalDocumentCount: Number(legal.rows[0]?.count ?? 0),
+        paymentConfigured: Boolean(process.env.PAYMENT_PROVIDER && process.env.PAYMENT_PROVIDER !== 'mock'),
+        shippingConfigured: Boolean(process.env.SHIPPING_PROVIDER && process.env.SHIPPING_PROVIDER !== 'mock'),
+      };
+      const blockers = [
+        !checks.productionEnvironment && 'Üretim ortamı etkin değil',
+        !checks.publicSiteDomain && 'Ana site adresi trextea.com.tr değil',
+        !checks.corsIncludesPublicDomain && 'Ana site için CORS tanımı eksik',
+        checks.legalDocumentCount === 0 && 'Yayınlanmış yasal doküman yok',
+        !checks.paymentConfigured && 'Canlı ödeme sağlayıcısı yapılandırılmamış',
+      ].filter(Boolean);
+      return { status: blockers.length ? 'attention' : 'ready', checks, blockers };
+    } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Yayın hazırlık kontrolü çalıştırılamadı' }); }
+  }
 }
