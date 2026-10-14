@@ -8,6 +8,13 @@ describe('Manual finance transaction safety', () => {
     await expect(service.createTransaction({accountId:'account',kind:'EXPENSE' as never,amount:10,description:'Kargo'} as never,{id:'actor'} as never)).rejects.toBeInstanceOf(BadRequestException);
     expect(query).toHaveBeenCalledTimes(1);
   });
+
+  it('writes an audit entry when an account is created', async () => {
+    const query = jest.fn().mockResolvedValueOnce({ rows: [{ id: 'account' }] }).mockResolvedValueOnce({ rows: [] });
+    const service = new FinanceService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never);
+    await expect(service.createAccount({ name: 'Ana kasa', accountType: 'CASH', currency: 'TRY' } as never, { id: 'admin' } as never)).resolves.toEqual({ id: 'account' });
+    expect(query.mock.calls[1][1]).toEqual(['admin', 'finance.account.created', 'finance_account', 'account', expect.any(String)]);
+  });
 });
 
 describe('FinanceService marketplace settlements', () => {
@@ -26,6 +33,15 @@ describe('FinanceService marketplace settlements', () => {
     const query=jest.fn().mockResolvedValue({rows:[{id:'from',currency:'EUR'},{id:'to',currency:'TRY'}]});
     await expect(new FinanceService({transaction:async(work:any)=>work({query})} as never).createTransfer({fromAccountId:'from',toAccountId:'to',amount:100,description:'Test'},{} as never)).rejects.toThrow('aynı para biriminde');
     expect(query).toHaveBeenCalledTimes(1);
+  });
+  it('writes an audit entry for a completed transfer', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'from', currency: 'TRY' }, { id: 'to', currency: 'TRY' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'transfer-group' }] })
+      .mockResolvedValue({ rows: [] });
+    const service = new FinanceService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never);
+    await expect(service.createTransfer({ fromAccountId: 'from', toAccountId: 'to', amount: 10, description: 'Kasalar arası' }, { id: 'admin' } as never)).resolves.toEqual({ transferGroupId: 'transfer-group' });
+    expect(query.mock.calls.at(-1)?.[1]).toEqual(['admin', 'finance.transfer.created', 'finance_transfer', 'transfer-group', expect.any(String)]);
   });
   it.each(['EUR','USD'])('accepts partial collection in the matching %s account',async currency=>{
     const query=jest.fn().mockResolvedValue({rowCount:1,rows:[]})

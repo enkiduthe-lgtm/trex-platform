@@ -35,8 +35,11 @@ export class FinanceService {
     return (await this.db.query(`SELECT a.*, COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) AS balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`)).rows;
   }
   async createAccount(dto: CreateFinanceAccountDto, actor: RequestUser) {
-    const result = await this.db.query<{ id: string }>('INSERT INTO finance_accounts(name,account_type,created_by,currency) VALUES ($1,$2,$3,$4) RETURNING id', [dto.name.trim(), dto.accountType, actor.id, dto.currency ?? 'TRY']);
-    return result.rows[0];
+    return this.db.transaction(async client => {
+      const result = await client.query<{ id: string }>('INSERT INTO finance_accounts(name,account_type,created_by,currency) VALUES ($1,$2,$3,$4) RETURNING id', [dto.name.trim(), dto.accountType, actor.id, dto.currency ?? 'TRY']);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'finance.account.created', 'finance_account', result.rows[0].id, JSON.stringify({ name: dto.name.trim(), accountType: dto.accountType, currency: dto.currency ?? 'TRY' })]);
+      return result.rows[0];
+    });
   }
   async listTransactions() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
@@ -100,6 +103,7 @@ export class FinanceService {
       const values = (accountId: string) => [accountId, dto.amount, dto.description.trim(), transferGroupId, actor.id];
       await client.query('INSERT INTO finance_transactions(account_id,kind,amount,description,transfer_group_id,created_by) VALUES ($1,\'TRANSFER_OUT\',$2,$3,$4,$5)', values(dto.fromAccountId));
       await client.query('INSERT INTO finance_transactions(account_id,kind,amount,description,transfer_group_id,created_by) VALUES ($1,\'TRANSFER_IN\',$2,$3,$4,$5)', values(dto.toAccountId));
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'finance.transfer.created', 'finance_transfer', transferGroupId, JSON.stringify({ fromAccountId: dto.fromAccountId, toAccountId: dto.toAccountId, amount: dto.amount })]);
       return { transferGroupId };
     });
   }
