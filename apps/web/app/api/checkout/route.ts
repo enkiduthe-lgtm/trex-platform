@@ -11,6 +11,7 @@ type CheckoutRequest = {
   addressLine?: string;
   couponCode?: string;
   paymentMethod?: 'CARD' | 'TRANSFER' | 'COD' | 'CASH';
+  legalAcceptances?: Array<{ code: string; version: string }>;
 };
 
 function message(data: unknown, fallback: string) {
@@ -44,7 +45,8 @@ export async function POST(request: Request) {
     const fulfillment = await fulfillmentResponse.json() as { id?: string };
     if (!fulfillmentResponse.ok || !fulfillment.id) return NextResponse.json({ message: 'Aktif teslimat deposu bulunamadı.' }, { status: 409 });
     const couponCode = typeof body.couponCode === 'string' ? body.couponCode.trim().toUpperCase() : undefined;
-    const checkout = await fetch(`${api}/v1/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ cartId: guest.id, guestKey: guest.guestKey, warehouseId: fulfillment.id, recipientName: body.recipientName, contactEmail: body.contactEmail, phone: body.phone, city: body.city, district: body.district, addressLine: body.addressLine, couponCode: couponCode || undefined, reservationMinutes: 20 }), cache: 'no-store' });
+    const legalAcceptances = Array.isArray(body.legalAcceptances) ? body.legalAcceptances.filter(item => typeof item?.code === 'string' && typeof item.version === 'string') : undefined;
+    const checkout = await fetch(`${api}/v1/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ cartId: guest.id, guestKey: guest.guestKey, warehouseId: fulfillment.id, recipientName: body.recipientName, contactEmail: body.contactEmail, phone: body.phone, city: body.city, district: body.district, addressLine: body.addressLine, couponCode: couponCode || undefined, legalAcceptances, reservationMinutes: 20 }), cache: 'no-store' });
     const checkoutData = await checkout.json() as { checkoutId?: string };
     if (!checkout.ok || !checkoutData.checkoutId) return NextResponse.json({ message: message(checkoutData, 'Stok veya sipariş bilgisi doğrulanamadı.') }, { status: checkout.status });
     const paymentMethod = body.paymentMethod ?? 'CARD';
