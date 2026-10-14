@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Inject, Injectable, OnModuleDestroy, Optiona
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
+import { normalizeRedisUrl } from '../config/environment';
 
 export type AuthThrottleRedis = Pick<Redis, 'incr' | 'pexpire' | 'quit'>;
 
@@ -19,7 +20,7 @@ export class AuthThrottleService implements OnModuleDestroy {
     config: ConfigService,
     @Optional() @Inject('AUTH_THROTTLE_REDIS') redis?: AuthThrottleRedis,
   ) {
-    this.redis = redis ?? new Redis(config.getOrThrow<string>('REDIS_URL'), { maxRetriesPerRequest: 1 });
+    this.redis = redis ?? new Redis(normalizeRedisUrl(config.getOrThrow<string>('REDIS_URL')), { maxRetriesPerRequest: 1 });
   }
 
   private async consume(scope: string, subject: string, limit: number, windowMs: number) {
