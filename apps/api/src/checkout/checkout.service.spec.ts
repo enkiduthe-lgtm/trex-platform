@@ -12,7 +12,7 @@ describe('CheckoutService', () => {
       if(sql.startsWith('SELECT id FROM warehouses')) return {rows:warehouse?[{id:dto.warehouseId}]:[]};
       if(sql.startsWith('SELECT physical_quantity')) return {rows:[{physical_quantity:10,reserved_quantity:0}]};
       if(sql.startsWith('INSERT INTO checkout_sessions')) return {rows:[{id:'checkout'}]};
-      if(sql.startsWith('SELECT id FROM legal_documents')) return {rows:[{id:'legal'}]};
+      if(sql.startsWith('SELECT id,code,version FROM legal_documents')) return {rows:[]};
       if(sql.startsWith('INSERT INTO stock_reservations')) return {rows:[{id:'reservation'}]};
       return {rows:[],rowCount:1};
     });
@@ -42,9 +42,34 @@ describe('CheckoutService', () => {
   });
   it('records an active legal document version with a checkout when supplied', async () => {
     const { service, query } = checkoutSetup();
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT request_hash')) return { rows: [] };
+      if (sql.startsWith('SELECT id FROM carts')) return { rows: [{ id: dto.cartId }], rowCount: 1 };
+      if (sql.startsWith('SELECT ci.product_id')) return { rows: [activeItem] };
+      if (sql.startsWith('SELECT id FROM warehouses')) return { rows: [{ id: dto.warehouseId }] };
+      if (sql.startsWith('SELECT physical_quantity')) return { rows: [{ physical_quantity: 10, reserved_quantity: 0 }] };
+      if (sql.startsWith('INSERT INTO checkout_sessions')) return { rows: [{ id: 'checkout' }] };
+      if (sql.startsWith('SELECT id,code,version FROM legal_documents')) return { rows: [{ id: 'legal', code: 'kvkk', version: '2026-10' }] };
+      if (sql.startsWith('INSERT INTO stock_reservations')) return { rows: [{ id: 'reservation' }] };
+      return { rows: [], rowCount: 1 };
+    });
     await service.create({ ...dto, legalAcceptances: [{ code: 'kvkk', version: '2026-10' }] }, 'legal-key');
     const calls = query.mock.calls as unknown as [string, unknown[]][];
     expect(calls.find(([sql]) => sql.startsWith('INSERT INTO checkout_legal_acceptances'))![1]).toEqual(['checkout', 'legal', 'kvkk', '2026-10']);
+  });
+  it('requires every current legal version when there are active documents', async () => {
+    const { service, query } = checkoutSetup();
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT request_hash')) return { rows: [] };
+      if (sql.startsWith('SELECT id FROM carts')) return { rows: [{ id: dto.cartId }], rowCount: 1 };
+      if (sql.startsWith('SELECT ci.product_id')) return { rows: [activeItem] };
+      if (sql.startsWith('SELECT id FROM warehouses')) return { rows: [{ id: dto.warehouseId }] };
+      if (sql.startsWith('SELECT physical_quantity')) return { rows: [{ physical_quantity: 10, reserved_quantity: 0 }] };
+      if (sql.startsWith('INSERT INTO checkout_sessions')) return { rows: [{ id: 'checkout' }] };
+      if (sql.startsWith('SELECT id,code,version FROM legal_documents')) return { rows: [{ id: 'legal', code: 'kvkk', version: '2026-10' }] };
+      return { rows: [], rowCount: 1 };
+    });
+    await expect(service.create(dto, 'missing-legal-key')).rejects.toThrow('güncel yasal metinleri');
   });
   it.each(['EUR','USD',null])('rejects unavailable or %s pricing before stock and payment writes', async currency => {
     const query = jest.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{product_id:'p',quantity:1,name:'Tea',sku:'tea',status:'ACTIVE'}]});
