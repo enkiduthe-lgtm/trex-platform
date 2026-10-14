@@ -1,4 +1,9 @@
-import { IsEmail, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsEmail, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+export class CheckoutLegalAcceptanceDto {
+  @IsString() @MaxLength(80) code!: string;
+  @IsString() @MaxLength(80) version!: string;
+}
 export class CreateCheckoutDto {
   @IsUUID() cartId!: string;
   @IsString() @MaxLength(128) guestKey!: string;
@@ -12,4 +17,6 @@ export class CreateCheckoutDto {
   @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
   @IsInt() @Min(1) reservationMinutes!: number;
   @IsOptional() @IsString() @MaxLength(64) couponCode?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutLegalAcceptanceDto)
+  legalAcceptances?: CheckoutLegalAcceptanceDto[];
 }

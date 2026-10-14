@@ -45,6 +45,11 @@ export class CheckoutService {
         await client.query('UPDATE inventory SET reserved_quantity=reserved_quantity+$1, updated_at=now() WHERE product_id=$2 AND warehouse_id=$3', [item.quantity, item.product_id, dto.warehouseId]);
       }
       const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions (cart_id,total_amount,coupon_id,discount_amount,contact_email,contact_name,expires_at) VALUES ($1,$2,$3,$4,$5,$6,now() + ($7 * interval '1 minute')) RETURNING id", [dto.cartId, total, couponId, discount, dto.contactEmail.trim().toLowerCase(), dto.recipientName.trim(), dto.reservationMinutes]);
+      for (const acceptance of dto.legalAcceptances ?? []) {
+        const document = await client.query<{ id: string }>("SELECT id FROM legal_documents WHERE code=$1 AND version=$2 AND is_active=true AND published_at IS NOT NULL", [acceptance.code, acceptance.version]);
+        if (!document.rows[0]) throw new ConflictException('Yasal metin sürümü güncel değil. Sayfayı yenileyip tekrar deneyin.');
+        await client.query('INSERT INTO checkout_legal_acceptances (checkout_id,document_id,document_code,document_version) VALUES ($1,$2,$3,$4)', [checkout.rows[0].id, document.rows[0].id, acceptance.code, acceptance.version]);
+      }
       await client.query('INSERT INTO checkout_addresses (checkout_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkout.rows[0].id, dto.recipientName, dto.phone, dto.city, dto.district, dto.addressLine, dto.postalCode ?? null]);
       for (const item of priced) {
         await client.query('INSERT INTO checkout_items (checkout_id,product_id,product_name,sku,quantity,unit_amount,currency) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkout.rows[0].id, item.product_id, item.name, item.sku, item.quantity, item.price!.amount, item.price!.currency]);
