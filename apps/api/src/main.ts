@@ -13,7 +13,8 @@ async function bootstrap() {
   app.setGlobalPrefix('v1');
   app.use(helmet());
   app.use(cookieParser());
-  app.enableCors({ origin: process.env.CORS_ORIGIN?.split(',') ?? false, credentials: true });
+  const corsOrigins = process.env.CORS_ORIGIN?.split(',').map(origin => origin.trim()).filter(Boolean) ?? [];
+  app.enableCors({ origin: corsOrigins.length ? corsOrigins : false, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   await app.listen(Number(process.env.PORT ?? 3000));
 }
