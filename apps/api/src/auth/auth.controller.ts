@@ -24,6 +24,7 @@ export class AuthController {
   }
   @Get('me') @UseGuards(JwtAuthGuard) me(@Req() req: UserRequest) { return { user: req.user }; }
   @Get('sessions') @UseGuards(JwtAuthGuard) sessions(@Req() req: UserRequest) { return this.auth.listSessions({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }); }
+  @Post('sessions/revoke-others') @UseGuards(JwtAuthGuard) revokeOtherSessions(@Req() req: UserRequest) { return this.auth.revokeOtherSessions({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }); }
   @Delete('sessions/:id') @UseGuards(JwtAuthGuard) revokeSession(@Param('id') id: string, @Req() req: UserRequest) { return this.auth.revokeSession({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }, id); }
   @Get('mfa') @UseGuards(JwtAuthGuard) mfaStatus(@Req() req: UserRequest) { return this.mfa.status(req.user.id); }
   @Post('mfa/enroll') @UseGuards(JwtAuthGuard) enrollMfa(@Req() req: UserRequest) { return this.mfa.enroll(req.user); }

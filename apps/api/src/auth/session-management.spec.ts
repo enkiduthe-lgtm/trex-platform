@@ -38,6 +38,16 @@ describe('Session management', () => {
     expect(s.db.transaction).not.toHaveBeenCalled();
   });
 
+  it('keeps the current session while closing every other active session', async () => {
+    const s = setup();
+    s.client.query.mockResolvedValueOnce({ rowCount: 2, rows: [{ id: 'other-1' }, { id: 'other-2' }] }).mockResolvedValueOnce({ rowCount: 1 });
+
+    await expect(s.service.revokeOtherSessions(user)).resolves.toEqual({ revokedCount: 2 });
+    expect(s.client.query.mock.calls[0][1]).toEqual(['user-1', 'current-session']);
+    expect(s.client.query.mock.calls[0][0]).toContain('id<>$2');
+    expect(s.client.query.mock.calls[1][1]).toEqual(['user-1', 'session.others_revoked', 'session', 'current-session', JSON.stringify({ revokedCount: 2 })]);
+  });
+
   it('reports a missing, expired, or already closed device session', async () => {
     const s = setup();
     s.client.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });

@@ -70,4 +70,11 @@ export class AuthService {
       return { id: sessionId, revoked: true };
     });
   }
+  async revokeOtherSessions(user: JwtClaims) {
+    return this.db.transaction(async client => {
+      const revoked = await client.query<{ id: string }>('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL AND expires_at>now() RETURNING id', [user.sub, user.sid]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [user.sub, 'session.others_revoked', 'session', user.sid, JSON.stringify({ revokedCount: revoked.rowCount ?? 0 })]);
+      return { revokedCount: revoked.rowCount ?? 0 };
+    });
+  }
 }
