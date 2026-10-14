@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
@@ -56,5 +56,18 @@ export class AuthService {
     await this.db.query(`UPDATE sessions SET revoked_at=now()
       WHERE revoked_at IS NULL AND (token_hash=$1 OR (id=$2 AND user_id=$3))`,
       [refreshToken ? this.hashToken(refreshToken) : null, claims?.sid ?? null, claims?.sub ?? null]);
+  }
+  async listSessions(user: JwtClaims) {
+    const result = await this.db.query<{ id: string; created_at: string; expires_at: string; ip: string | null; user_agent: string | null }>('SELECT id,created_at,expires_at,ip::text,user_agent FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC', [user.sub]);
+    return result.rows.map(session => ({ ...session, current: session.id === user.sid }));
+  }
+  async revokeSession(user: JwtClaims, sessionId: string) {
+    if (sessionId === user.sid) throw new ConflictException('Bu cihazdaki oturumu çıkış düğmesinden kapatın');
+    return this.db.transaction(async client => {
+      const revoked = await client.query<{ id: string }>('UPDATE sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now() RETURNING id', [sessionId, user.sub]);
+      if (!revoked.rowCount) throw new NotFoundException('Açık oturum bulunamadı');
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)', [user.sub, 'session.revoked', 'session', sessionId]);
+      return { id: sessionId, revoked: true };
+    });
   }
 }
