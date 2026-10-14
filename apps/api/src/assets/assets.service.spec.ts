@@ -1,5 +1,8 @@
 import { AssetsService } from './assets.service';
 describe('AssetsService',()=>{
+  const originalNodeEnv=process.env.NODE_ENV;
+  afterEach(()=>{if(originalNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=originalNodeEnv;});
   it('rejects unsupported image types',async()=>{const s=new AssetsService({query:jest.fn()}as never,{}as never);await expect(s.createMock({filename:'x.gif',mimeType:'image/gif',byteSize:1,placement:'PRODUCT',userId:'u'})).rejects.toThrow('Unsupported image format')});
+  it('does not create placeholder asset records in production',async()=>{process.env.NODE_ENV='production';const query=jest.fn();const s=new AssetsService({query}as never,{}as never);await expect(s.createMock({filename:'tea.png',mimeType:'image/png',byteSize:1,placement:'PRODUCT',userId:'u'})).rejects.toThrow('disabled in production');expect(query).not.toHaveBeenCalled();});
   it('marks an uploaded image ready only after R2 accepts it',async()=>{const query=jest.fn().mockResolvedValueOnce({rows:[{id:'asset'}]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]});const storage={put:jest.fn().mockResolvedValue('https://media.trextea.com.tr/assets/test.webp')};const s=new AssetsService({query}as never,storage as never);await expect(s.upload({filename:'tea.webp',mimeType:'image/webp',buffer:Buffer.from('image'),placement:'PRODUCT_MAIN',userId:'admin'})).resolves.toMatchObject({assetId:'asset',status:'READY',publicUrl:'https://media.trextea.com.tr/assets/test.webp'});expect(storage.put).toHaveBeenCalledTimes(1);expect(query.mock.calls[1][0]).toContain("status='READY'");});
 });
