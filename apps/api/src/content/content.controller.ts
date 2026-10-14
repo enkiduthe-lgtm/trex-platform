@@ -9,6 +9,7 @@ import { CreatePageDto } from './dto/create-page.dto';
 import { CreatePageRevisionDto } from './dto/create-page-revision.dto';
 import { ContentService } from './content.service';
 import { AcceptLegalDocumentDto } from './dto/accept-legal-document.dto';
+import { CreateLegalDocumentDto } from './dto/create-legal-document.dto';
 type UserRequest = Request & { user: RequestUser };
 @Controller()
 export class ContentController {
@@ -22,6 +23,10 @@ export class ContentController {
   }
   @Get('admin/legal-documents') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   listLegal() { return this.content.listAdminLegal(); }
+  @Post('admin/legal-documents') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  createLegal(@Body() dto: CreateLegalDocumentDto, @Req() req: UserRequest) { return this.content.createLegal(dto, req.user.id); }
+  @Post('admin/legal-documents/:id/publish') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  publishLegal(@Param('id') id: string, @Req() req: UserRequest) { return this.content.publishLegal(id, req.user.id); }
   @Get('admin/pages') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) list() { return this.content.listAdmin(); }
   @Get('admin/pages/:id') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) detail(@Param('id') id: string) { return this.content.getAdminPage(id); }
   @Post('admin/pages') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreatePageDto, @Req() req: UserRequest) { return this.content.createPage(dto, req.user.id); }

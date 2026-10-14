@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { CreatePageDto } from './dto/create-page.dto';
 import { CreatePageRevisionDto } from './dto/create-page-revision.dto';
 import { AcceptLegalDocumentDto } from './dto/accept-legal-document.dto';
+import { CreateLegalDocumentDto } from './dto/create-legal-document.dto';
 @Injectable()
 export class ContentService {
   constructor(private readonly db: DatabaseService) {}
@@ -28,6 +29,23 @@ export class ContentService {
   }
   async listAdminLegal() {
     return (await this.db.query<{ id: string; code: string; version: string; title: string; is_active: boolean; published_at: string | null; acceptance_count: string }>("SELECT d.id,d.code,d.version,d.title,d.is_active,d.published_at,COUNT(a.id)::text AS acceptance_count FROM legal_documents d LEFT JOIN legal_acceptances a ON a.document_id=d.id GROUP BY d.id ORDER BY d.code,d.published_at DESC NULLS LAST,d.created_at DESC")).rows;
+  }
+  async createLegal(dto: CreateLegalDocumentDto, actorId: string) {
+    try {
+      const created = await this.db.query<{ id: string; code: string; version: string }>('INSERT INTO legal_documents (code,version,title,body) VALUES ($1,$2,$3,$4) RETURNING id,code,version', [dto.code, dto.version, dto.title, dto.body]);
+      await this.db.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actorId, 'legal.draft.created', 'legal_document', created.rows[0].id]);
+      return created.rows[0];
+    } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu kod ve sürüm zaten var'); throw error; }
+  }
+  async publishLegal(documentId: string, actorId: string) {
+    return this.db.transaction(async (client) => {
+      const document = await client.query<{ id: string; code: string }>('SELECT id,code FROM legal_documents WHERE id=$1 FOR UPDATE', [documentId]);
+      if (!document.rowCount) throw new NotFoundException('Yasal doküman bulunamadı');
+      await client.query('UPDATE legal_documents SET is_active=false WHERE code=$1 AND is_active=true', [document.rows[0].code]);
+      const published = await client.query<{ id: string; code: string; version: string }>('UPDATE legal_documents SET is_active=true,published_at=now() WHERE id=$1 RETURNING id,code,version', [documentId]);
+      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actorId, 'legal.published', 'legal_document', documentId]);
+      return published.rows[0];
+    });
   }
   async acceptLegal(code: string, dto: AcceptLegalDocumentDto, userId: string, ip?: string) {
     return this.db.transaction(async (client) => {
