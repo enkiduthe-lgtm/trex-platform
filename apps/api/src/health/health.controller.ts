@@ -38,4 +38,24 @@ export class HealthController {
       };
     } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Çalışma zamanı bütünlüğü doğrulanamadı' }); }
   }
+  @Get('integrity/reconciliation') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
+  async reconciliation() {
+    try {
+      const [paymentsWithoutOrders, paidOrdersWithoutPayments, invalidInventory, cancelledReservations, unlinkedCollections] = await Promise.all([
+        this.db.query<{ count: string }>("SELECT count(*)::text count FROM payments p LEFT JOIN orders o ON o.checkout_id=p.checkout_id WHERE p.status='SUCCEEDED' AND o.id IS NULL"),
+        this.db.query<{ count: string }>("SELECT count(*)::text count FROM orders o WHERE o.status='PAID' AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.checkout_id=o.checkout_id AND p.status='SUCCEEDED')"),
+        this.db.query<{ count: string }>('SELECT count(*)::text count FROM inventory WHERE physical_quantity<0 OR reserved_quantity<0 OR reserved_quantity>physical_quantity'),
+        this.db.query<{ count: string }>("SELECT count(*)::text count FROM stock_reservations r JOIN orders o ON o.checkout_id=r.reference_id WHERE r.reference_type='checkout' AND r.status='ACTIVE' AND o.status='CANCELLED'"),
+        this.db.query<{ count: string }>("SELECT count(*)::text count FROM finance_transactions WHERE kind='COLLECTION' AND payment_status='PAID' AND approved_at IS NOT NULL AND order_id IS NULL"),
+      ]);
+      const checks = {
+        paymentsWithoutOrders: Number(paymentsWithoutOrders.rows[0]?.count ?? 0),
+        paidOrdersWithoutPayments: Number(paidOrdersWithoutPayments.rows[0]?.count ?? 0),
+        invalidInventory: Number(invalidInventory.rows[0]?.count ?? 0),
+        cancelledReservations: Number(cancelledReservations.rows[0]?.count ?? 0),
+        unlinkedCollections: Number(unlinkedCollections.rows[0]?.count ?? 0),
+      };
+      return { status: Object.values(checks).every(value => value === 0) ? 'ok' : 'attention', checks };
+    } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Uzlaştırma kontrolü çalıştırılamadı' }); }
+  }
 }

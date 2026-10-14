@@ -14,4 +14,10 @@ describe('HealthController', () => {
     const controller = new HealthController(db as never, queue as never);
     await expect(controller.integrity()).resolves.toMatchObject({ status: 'ok', migration: { name: '052_notification_outbox.sql' }, dependencies: { database: 'up', queue: 'up' } });
   });
+  it('summarizes reconciliation discrepancies without changing records', async () => {
+    const db = { query: jest.fn().mockResolvedValue({ rows: [{ count: '0' }] }) };
+    const controller = new HealthController(db as never, {} as never);
+    await expect(controller.reconciliation()).resolves.toEqual({ status: 'ok', checks: { paymentsWithoutOrders: 0, paidOrdersWithoutPayments: 0, invalidInventory: 0, cancelledReservations: 0, unlinkedCollections: 0 } });
+    expect(db.query).toHaveBeenCalledTimes(5);
+  });
 });
