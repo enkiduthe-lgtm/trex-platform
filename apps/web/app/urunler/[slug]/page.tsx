@@ -3,6 +3,14 @@ import { notFound } from 'next/navigation';
 import { getStorefrontProduct } from '../../../lib/products';
 import { AddToCartButton } from './add-to-cart-button';
 import { CartLink } from '../../cart-link';
+import type { Metadata } from 'next';
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const product = await getStorefrontProduct(slug);
+  if (!product) return { title: 'Ürün bulunamadı | Trex Tea', robots: { index: false, follow: false } };
+  return { title: `${product.name} | Trex Tea`, description: product.description, alternates: { canonical: `/urunler/${encodeURIComponent(product.slug)}` }, openGraph: { title: `${product.name} | Trex Tea`, description: product.description, type: 'website' } };
+}
 
 export default async function Product({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
