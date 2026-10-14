@@ -29,5 +29,6 @@ describe('Payment to order snapshot and reservation safety',()=>{
     expect(calls.find(([sql])=>sql.startsWith('INSERT INTO order_addresses'))![1]).toEqual(['order','Original customer','555','City','District','Original address',null]);
     expect(calls.some(([sql])=>sql.includes('product_prices'))).toBe(false);
     expect(calls.find(([sql])=>sql.startsWith('SELECT product_id,warehouse_id'))![0]).toContain("status='ACTIVE'");
+    expect(calls.find(([sql])=>sql.includes('INSERT INTO audit_logs'))![1]).toEqual(['payment.completed','order','order',expect.any(String)]);
   });
 });

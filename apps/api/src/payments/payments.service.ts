@@ -117,6 +117,7 @@ export class PaymentsService {
       }
       if (options.markPaymentSucceeded !== false) { await client.query("UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE id=$1", [paymentId]); await client.query("UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id=$1", [paymentId]); }
       await client.query("UPDATE checkout_sessions SET status='COMPLETED',completed_at=now() WHERE id=$1", [payment.checkout_id]); await client.query('INSERT INTO order_status_history (order_id,status) VALUES ($1,$2)', [order.rows[0].id, orderStatus]);
+      await client.query('INSERT INTO audit_logs(action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4)', [options.markPaymentSucceeded === false ? 'order.created.pending_payment' : 'payment.completed', 'order', order.rows[0].id, JSON.stringify({ paymentId, checkoutId: payment.checkout_id, orderStatus, totalAmount: checkout.rows[0].total_amount, currency: checkout.rows[0].currency })]);
       return { status: options.markPaymentSucceeded === false ? 'PENDING' : 'SUCCEEDED', orderId: order.rows[0].id, orderNumber: order.rows[0].order_number, replayed: false };
   }
 }
