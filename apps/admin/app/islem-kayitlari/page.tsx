@@ -8,7 +8,7 @@ type Result = { items: Entry[]; page: number; hasMore: boolean };
 const roles: Record<string, string> = { SYSTEM: 'Sistem', SUPER_ADMIN: 'Sistem yöneticisi', ADMIN: 'Yönetici', WAREHOUSE: 'Depo', FINANCE: 'Finans', CUSTOMER: 'Müşteri', DEALER: 'Bayi' };
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function AuditPage() {
-  const [filter, setFilter] = useState({ action: '', entityType: '', entityId: '' });
+  const [filter, setFilter] = useState({ action: '', entityType: '', entityId: '', from: '', to: '' });
   const [applied, setApplied] = useState(filter);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<Result | null>(null);
@@ -40,6 +40,8 @@ export default function AuditPage() {
       <label>İşlem kodu<input maxLength={120} placeholder="order.admin.updated" value={filter.action} onChange={e => setFilter(x => ({ ...x, action: e.target.value }))} /></label>
       <label>Kayıt türü<input maxLength={120} placeholder="order" value={filter.entityType} onChange={e => setFilter(x => ({ ...x, entityType: e.target.value }))} /></label>
       <label>Kayıt kimliği<input maxLength={200} value={filter.entityId} onChange={e => setFilter(x => ({ ...x, entityId: e.target.value }))} /></label>
+      <label>Başlangıç<input type="datetime-local" value={filter.from ? filter.from.slice(0, 16) : ''} onChange={e => setFilter(x => ({ ...x, from: e.target.value ? new Date(e.target.value).toISOString() : '' }))} /></label>
+      <label>Bitiş<input type="datetime-local" value={filter.to ? filter.to.slice(0, 16) : ''} onChange={e => setFilter(x => ({ ...x, to: e.target.value ? new Date(e.target.value).toISOString() : '' }))} /></label>
     </div><button disabled={loading}>Filtrele</button><button type="button" className="secondary" disabled={loading} onClick={() => setRefresh(x => x + 1)}>Yenile</button><button type="button" className="secondary" disabled={!result?.items.length} onClick={exportCsv}>CSV indir</button></form>
     {loading && <p role="status">Kayıtlar yükleniyor…</p>}{error && <p role="alert">{error}</p>}
     {result && <><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Tarih</th><th>İşlem kodu</th><th>Kayıt türü</th><th>Kayıt kimliği</th><th>İşlemi yapan</th></tr></thead><tbody>{result.items.map(entry => <tr key={entry.id}>

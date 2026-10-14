@@ -23,8 +23,10 @@ export class AuditController {
       WHERE ($1::text IS NULL OR a.action=$1)
         AND ($2::text IS NULL OR a.entity_type=$2)
         AND ($3::text IS NULL OR a.entity_id=$3)
-      ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $4`,
-      [filter.action?.trim() || null, filter.entityType?.trim() || null, filter.entityId?.trim() || null, (page - 1) * 50]);
+        AND ($4::timestamptz IS NULL OR a.created_at >= $4)
+        AND ($5::timestamptz IS NULL OR a.created_at < $5)
+      ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $6`,
+      [filter.action?.trim() || null, filter.entityType?.trim() || null, filter.entityId?.trim() || null, filter.from ?? null, filter.to ?? null, (page - 1) * 50]);
     // Metadata can contain delivery/contact details; never expose it in the summary view.
     return { items: result.rows.slice(0, 50), page, hasMore: page < 2000 && result.rows.length > 50 };
   }

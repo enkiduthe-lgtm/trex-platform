@@ -30,11 +30,14 @@ describe('Read-only audit API', () => {
     const filter = plainToInstance(ListAuditDto, { page: '2', action: "' OR true --", entityType: ' order ', entityId: ' key ' });
     const result = await new AuditController({ query } as never).list(filter);
     expect(result).toEqual({ page: 2, hasMore: true, items: rows.slice(0, 50) });
-    expect(query.mock.calls[0][1]).toEqual(["' OR true --", 'order', 'key', 50]);
-    expect(query.mock.calls[0][0]).toContain('ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $4');
+    expect(query.mock.calls[0][1]).toEqual(["' OR true --", 'order', 'key', null, null, 50]);
+    expect(query.mock.calls[0][0]).toContain('ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $6');
     expect(query.mock.calls[0][0]).not.toContain('a.metadata');
     expect(query.mock.calls[0][0]).not.toContain('u.email');
     expect(query.mock.calls[0][0]).not.toContain("' OR true --");
+  });
+  it('accepts bounded ISO date filters as query parameters', () => {
+    expect(validateSync(plainToInstance(ListAuditDto, { from: '2026-10-14T08:00:00.000Z', to: '2026-10-15T08:00:00.000Z' }))).toHaveLength(0);
   });
   it('handles empty results and stops at the page cap', async () => {
     const query = jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: Array(51).fill({ id: 'x' }) });
