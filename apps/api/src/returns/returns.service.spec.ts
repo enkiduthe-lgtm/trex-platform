@@ -1,6 +1,11 @@
 import { ReturnsService } from './returns.service';
 
 describe('ReturnsService', () => {
+  it('shows the latest audited operation with each return in the admin queue', async () => {
+    const query=jest.fn().mockResolvedValue({rows:[{id:'return-1',last_action:'return.received'}]});
+    await expect(new ReturnsService({query} as never).listAdmin()).resolves.toEqual([{id:'return-1',last_action:'return.received'}]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("entity_type='return'"));
+  });
   it('rejects a return whose quantity exceeds the ordered quantity', async () => {
     const client = { query: jest.fn().mockResolvedValueOnce({ rowCount: 1 }).mockResolvedValueOnce({ rows: [{ quantity: 1 }] }) };
     const db = { transaction: jest.fn((work) => work(client)) };

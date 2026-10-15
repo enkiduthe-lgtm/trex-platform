@@ -16,6 +16,8 @@ type ReturnRow = {
   refund_amount: string | null;
   refund_currency: string | null;
   refund_account_name: string | null;
+  last_action: string | null;
+  last_action_at: string | null;
 };
 type Warehouse = { id: string; name: string; code: string; is_active: boolean };
 type Account = {
@@ -204,6 +206,7 @@ export default function Returns() {
                       .join(", ") || `${row.item_count} ürün`}
                   </p>
                   <p>Neden: {row.reason}</p>
+                  {row.last_action && <p>Son işlem: {row.last_action} · {row.last_action_at ? new Date(row.last_action_at).toLocaleString("tr-TR") : "—"}</p>}
                   {row.status === "REQUESTED" && (
                     <form
                       onSubmit={(event) =>
