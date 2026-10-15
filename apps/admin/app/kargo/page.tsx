@@ -47,6 +47,7 @@ export default function Shipping() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, ShipmentDetail>>({});
+  const [shipmentFilter, setShipmentFilter] = useState<"ALL" | "ACTIVE" | "DELIVERED" | "FAILED" | "CANCELLED">("ALL");
   const load = () =>
     Promise.all([
       api<Config>("/admin/orders/shipping/status"),
@@ -123,11 +124,12 @@ export default function Shipping() {
   );
   const failed = shipments.filter((s) => s.status === "FAILED");
   const delivered = shipments.filter((s) => s.status === "DELIVERED");
+  const visibleShipments = shipments.filter((shipment) => shipmentFilter === "ALL" || (shipmentFilter === "ACTIVE" && (shipment.status === "CREATED" || shipment.status === "IN_TRANSIT")) || shipment.status === shipmentFilter);
   function exportShipments() {
-    if (!shipments.length) { setMessage('Dışa aktarılacak gönderi bulunamadı.'); return; }
+    if (!visibleShipments.length) { setMessage('Bu filtrede dışa aktarılacak gönderi bulunamadı.'); return; }
     const rows = [
       ['Sipariş no', 'Kargo firması', 'Takip no', 'Durum', 'Alıcı', 'İlçe', 'İl', 'Sorun notu', 'Oluşturulma'],
-      ...shipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR')]),
+      ...visibleShipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR')]),
     ];
     const url = URL.createObjectURL(new Blob([`\uFEFF${rows.map(row => row.map(csv).join(';')).join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
     const link = document.createElement('a'); link.href = url; link.download = 'trex-kargo-gonderileri.csv'; link.click(); URL.revokeObjectURL(url);
@@ -233,11 +235,12 @@ export default function Shipping() {
         )}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <h2>Son gönderiler</h2>
-          <button type="button" disabled={!shipments.length} onClick={exportShipments}>CSV indir</button>
+          <label>Durum <select value={shipmentFilter} onChange={(event) => setShipmentFilter(event.target.value as typeof shipmentFilter)}><option value="ALL">Tümü</option><option value="ACTIVE">Aktif gönderiler</option><option value="DELIVERED">Teslim edildi</option><option value="FAILED">Sorunlu</option><option value="CANCELLED">İptal edildi</option></select></label>
+          <button type="button" disabled={!visibleShipments.length} onClick={exportShipments}>CSV indir</button>
         </div>
         <div className="cards">
-          {shipments.length ? (
-            shipments.map((s) => (
+          {visibleShipments.length ? (
+            visibleShipments.map((s) => (
               <article key={s.id}>
                 <p>
                   {s.provider === "aras" ? "Aras Kargo" : s.provider} ·{" "}
@@ -304,7 +307,7 @@ export default function Shipping() {
             ))
           ) : (
             <article>
-              <p>Henüz oluşturulmuş kargo kaydı yok.</p>
+              <p>Bu duruma ait kargo kaydı yok.</p>
             </article>
           )}
         </div>
