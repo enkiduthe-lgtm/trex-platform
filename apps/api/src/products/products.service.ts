@@ -68,6 +68,15 @@ export class ProductsService {
       });
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Imported list contains an existing SKU, barcode, or slug'); throw error; }
   }
+  async bulkStatus(ids: string[], status: ProductStatus, actor: RequestUser) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) throw new ConflictException('En az bir ürün seçilmelidir');
+    return this.db.transaction(async client => {
+      const updated = await client.query<{ id: string }>('UPDATE products SET status=$1,version=version+1,updated_at=now() WHERE id=ANY($2::uuid[]) AND status<>$1 RETURNING id', [status, uniqueIds]);
+      for (const product of updated.rows) await this.audit(client, actor, 'product.status.bulk_updated', product.id);
+      return { updated: updated.rowCount ?? 0, status };
+    });
+  }
   async update(id: string, dto: UpdateProductDto, actor: RequestUser) {
     try {
       return await this.db.transaction(async client => {

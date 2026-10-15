@@ -10,6 +10,7 @@ import { ImportProductsDto } from './dto/import-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 import { CreateProductCostDto } from './dto/create-product-cost.dto';
+import { BulkProductStatusDto } from './dto/bulk-product-status.dto';
 type UserRequest = Request & { user: RequestUser };
 @Controller()
 export class ProductsController {
@@ -24,5 +25,6 @@ export class ProductsController {
   @Post('admin/product-costs') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE) createCost(@Body() dto: CreateProductCostDto, @Req() req: UserRequest) { return this.products.createCost(dto, req.user); }
   @Post('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreateProductDto, @Req() req: UserRequest) { return this.products.create(dto, req.user); }
   @Post('admin/products/import') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) importMany(@Body() dto: ImportProductsDto, @Req() req: UserRequest) { return this.products.importMany(dto.products, req.user); }
+  @Post('admin/products/bulk-status') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) bulkStatus(@Body() dto: BulkProductStatusDto, @Req() req: UserRequest) { return this.products.bulkStatus(dto.ids, dto.status, req.user); }
   @Patch('admin/products/:id') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) update(@Param('id') id: string, @Body() dto: UpdateProductDto, @Req() req: UserRequest) { return this.products.update(id, dto, req.user); }
 }

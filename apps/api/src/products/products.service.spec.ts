@@ -50,4 +50,13 @@ describe('ProductsService', () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(client.query).toHaveBeenCalledTimes(4);
   });
+  it('changes selected product statuses atomically and audits every changed product', async () => {
+    const client = { query: jest.fn() };
+    const db = { transaction: jest.fn((work: (value: typeof client) => unknown) => work(client)) };
+    const service = new ProductsService(db as never);
+    client.query.mockResolvedValueOnce({ rowCount: 2, rows: [{ id: '11111111-1111-4111-8111-111111111111' }, { id: '22222222-2222-4222-8222-222222222222' }] }).mockResolvedValue({ rowCount: 1, rows: [] });
+    await expect(service.bulkStatus(['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'], 'ACTIVE', { id: 'staff' } as never)).resolves.toEqual({ updated: 2, status: 'ACTIVE' });
+    expect(client.query.mock.calls[0][1]).toEqual(['ACTIVE', ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']]);
+    expect(client.query.mock.calls.slice(1).every(call => call[1]?.[1] === 'product.status.bulk_updated')).toBe(true);
+  });
 });
