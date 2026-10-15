@@ -26,7 +26,8 @@ export class SupportService {
     const ticket = await this.db.query<Ticket & { assigned_to: string | null; customer_id: string | null; order_id: string | null; resolved_at: string | null }>(`SELECT t.*,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE t.id=$1`, [id]);
     if (!ticket.rowCount) throw new NotFoundException('Destek talebi bulunamadı');
     const messages = await this.db.query<{ id: string; body: string; is_internal: boolean; created_at: string; created_by_email: string | null }>('SELECT m.id,m.body,m.is_internal,m.created_at,u.email AS created_by_email FROM support_ticket_messages m LEFT JOIN users u ON u.id=m.created_by WHERE m.ticket_id=$1 ORDER BY m.created_at', [id]);
-    return { ...ticket.rows[0], messages: messages.rows };
+    const activity = await this.db.query<{ id: string; action: string; created_at: string; actor_email: string | null }>('SELECT a.id,a.action,a.created_at,u.email AS actor_email FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.entity_type=$1 AND a.entity_id=$2 ORDER BY a.created_at DESC LIMIT 100', ['support_ticket', id]);
+    return { ...ticket.rows[0], messages: messages.rows, activity: activity.rows };
   }
   async create(dto: CreateSupportTicketDto, actorId: string) {
     return this.db.transaction(async client => {

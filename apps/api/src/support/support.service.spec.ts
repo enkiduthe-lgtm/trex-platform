@@ -33,4 +33,10 @@ describe('SupportService', () => {
     await expect(s.service.assignees()).resolves.toEqual([{ id: 'staff-1', email: 'staff@trextea.com.tr', role: 'ADMIN' }]);
     expect(s.db.query.mock.calls[0][0]).toContain('is_active=true');
   });
+  it('loads ticket messages and audit activity together for one case view', async () => {
+    const s = setup();
+    s.db.query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'ticket-1' }] }).mockResolvedValueOnce({ rows: [{ id: 'message-1' }] }).mockResolvedValueOnce({ rows: [{ id: 'activity-1', action: 'support_ticket.created' }] });
+    await expect(s.service.detail('ticket-1')).resolves.toEqual(expect.objectContaining({ messages: [{ id: 'message-1' }], activity: [{ id: 'activity-1', action: 'support_ticket.created' }] }));
+    expect(s.db.query.mock.calls[2][1]).toEqual(['support_ticket', 'ticket-1']);
+  });
 });
