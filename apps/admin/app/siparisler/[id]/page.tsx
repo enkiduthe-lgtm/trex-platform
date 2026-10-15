@@ -65,6 +65,11 @@ type Detail = {
     requested_at: string;
     completed_at: string | null;
   }[];
+  activity: {
+    action: string;
+    created_at: string;
+    actor_email: string | null;
+  }[];
 };
 const paymentStatus: Record<string, string> = {
   SUCCEEDED: "Ödendi",
@@ -357,6 +362,18 @@ export default function OrderDetail() {
               </div>
             ) : (
               <p>Bu sipariş için iade kaydı yok.</p>
+            )}
+            <h2>İşlem geçmişi</h2>
+            {data.activity.length ? (
+              data.activity.map((item, index) => (
+                <p key={`${item.action}-${item.created_at}-${index}`}>
+                  <strong>{item.action}</strong> ·{" "}
+                  {item.actor_email ?? "Sistem"} ·{" "}
+                  {new Date(item.created_at).toLocaleString("tr-TR")}
+                </p>
+              ))
+            ) : (
+              <p>Ek işlem kaydı yok.</p>
             )}
             <h2>Bağlı destek talepleri</h2>
             <Link className={styles.financeLink} href={`/destek?order=${id}`}>
