@@ -16,6 +16,7 @@ type Shipment = {
   recipient_name: string | null;
   city: string | null;
   district: string | null;
+  package_barcode: string | null;
   created_at: string;
 };
 type ShippingQueue = {
@@ -244,6 +245,7 @@ export default function Shipping() {
                 </p>
                 <h2>{s.order_number}</h2>
                 <p>{s.tracking_number ?? "Takip numarası bekleniyor"}</p>
+                <p>Paket barkodu: {s.package_barcode ?? "—"}</p>
                 <p>
                   {s.recipient_name ?? "—"} · {s.district ?? ""} {s.city ?? ""}
                 </p>
