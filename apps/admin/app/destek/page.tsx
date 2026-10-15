@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 
@@ -74,6 +75,7 @@ const empty = {
 };
 
 export default function SupportPage() {
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Ticket[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<OrderOption[]>([]);
@@ -109,6 +111,12 @@ export default function SupportPage() {
   useEffect(() => {
     void load();
   }, [status]);
+  useEffect(() => {
+    const orderId = searchParams.get("order");
+    if (orderId && orders.some((order) => order.id === orderId)) {
+      setForm((value) => ({ ...value, orderId }));
+    }
+  }, [orders, searchParams]);
   async function open(id: string) {
     setBusy(true);
     try {
@@ -237,13 +245,17 @@ export default function SupportPage() {
               <select
                 value={form.orderId}
                 onChange={(event) =>
-                  setForm((value) => ({ ...value, orderId: event.target.value }))
+                  setForm((value) => ({
+                    ...value,
+                    orderId: event.target.value,
+                  }))
                 }
               >
                 <option value="">Siparişe bağlı değil</option>
                 {orders.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.order_number} · {item.customer_name ?? 'Misafir müşteri'} · {item.status}
+                    {item.order_number} ·{" "}
+                    {item.customer_name ?? "Misafir müşteri"} · {item.status}
                   </option>
                 ))}
               </select>

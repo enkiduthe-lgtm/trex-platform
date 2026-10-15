@@ -40,7 +40,14 @@ type Detail = {
     created_at: string;
     verified_at: string | null;
   }[];
-  supportTickets: { id: string; ticket_number: string; subject: string; status: string; priority: string; created_at: string }[];
+  supportTickets: {
+    id: string;
+    ticket_number: string;
+    subject: string;
+    status: string;
+    priority: string;
+    created_at: string;
+  }[];
 };
 const paymentStatus: Record<string, string> = {
   SUCCEEDED: "Ödendi",
@@ -263,15 +270,40 @@ export default function OrderDetail() {
               </table>
               {data.payments.length === 0 && <p>Ödeme kaydı bulunamadı.</p>}
             </div>
-      <h2>Bağlı destek talepleri</h2>
-      {data.supportTickets.length ? (
-        <div className={styles.tableWrap}>
-          <table>
-            <thead><tr><th>Talep</th><th>Konu</th><th>Durum</th><th>Öncelik</th></tr></thead>
-            <tbody>{data.supportTickets.map((ticket) => <tr key={ticket.id}><td><Link href={`/destek?ticket=${ticket.id}`}>{ticket.ticket_number}</Link></td><td>{ticket.subject}</td><td>{ticket.status}</td><td>{ticket.priority}</td></tr>)}</tbody>
-          </table>
-        </div>
-      ) : <p>Bu siparişe bağlı destek talebi yok.</p>}
+            <h2>Bağlı destek talepleri</h2>
+            <Link className={styles.financeLink} href={`/destek?order=${id}`}>
+              Bu sipariş için destek talebi aç
+            </Link>
+            {data.supportTickets.length ? (
+              <div className={styles.tableWrap}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Talep</th>
+                      <th>Konu</th>
+                      <th>Durum</th>
+                      <th>Öncelik</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.supportTickets.map((ticket) => (
+                      <tr key={ticket.id}>
+                        <td>
+                          <Link href={`/destek?ticket=${ticket.id}`}>
+                            {ticket.ticket_number}
+                          </Link>
+                        </td>
+                        <td>{ticket.subject}</td>
+                        <td>{ticket.status}</td>
+                        <td>{ticket.priority}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>Bu siparişe bağlı destek talebi yok.</p>
+            )}
           </>
         )}
       </section>
