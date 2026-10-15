@@ -27,6 +27,10 @@ export default function AuditPage() {
     return () => { sequence.current++; };
   }, [page, applied, refresh]);
   function search(event: FormEvent) { event.preventDefault(); setPage(1); setApplied({ ...filter }); }
+  function applyPreset(entityType: string) {
+    const next = { ...filter, action: '', entityType, entityId: '' };
+    setFilter(next); setApplied(next); setPage(1);
+  }
   function exportCsv() {
     if (!result?.items.length) return;
     const rows = [['Tarih', 'İşlem kodu', 'Kayıt türü', 'Kayıt kimliği', 'İşlemi yapan'], ...result.items.map((entry) => [new Date(entry.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }), entry.action, entry.entity_type, entry.entity_id ?? '', roles[entry.actor_role ?? ''] ?? 'Bilinmiyor'])];
@@ -36,6 +40,7 @@ export default function AuditPage() {
   return <main><AdminNav /><section>
     <p>AYARLAR / DENETİM</p><h1>İşlem kayıtları</h1>
     <p>Kayıtlar salt okunurdur. İşlem kodu, kayıt türü ve kayıt kimliği tam eşleşmeyle filtrelenir. Hassas müşteri bilgileri ve şifreler bu listede gösterilmez.</p>
+    <div className="button-row"><span>Hızlı görünüm:</span><button type="button" onClick={() => applyPreset('order')}>Siparişler</button><button type="button" onClick={() => applyPreset('payment')}>Ödemeler</button><button type="button" onClick={() => applyPreset('inventory')}>Stok</button><button type="button" onClick={() => applyPreset('return')}>İadeler</button><button type="button" onClick={() => applyPreset('shipment')}>Kargo</button></div>
     <form className="form-card" onSubmit={search}><div className="form-grid">
       <label>İşlem kodu<input maxLength={120} placeholder="order.admin.updated" value={filter.action} onChange={e => setFilter(x => ({ ...x, action: e.target.value }))} /></label>
       <label>Kayıt türü<input maxLength={120} placeholder="order" value={filter.entityType} onChange={e => setFilter(x => ({ ...x, entityType: e.target.value }))} /></label>
