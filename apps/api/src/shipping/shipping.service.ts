@@ -17,9 +17,11 @@ export class ShippingService {
   }
   async status() { const provider = process.env.SHIPPING_PROVIDER === 'aras' ? 'aras' : 'mock'; const fields = ['ARAS_CUSTOMER_CODE','ARAS_SET_ORDER_USERNAME','ARAS_SET_ORDER_PASSWORD','ARAS_SET_ORDER_ENDPOINT']; return { provider, ready: provider === 'aras' && fields.every(field=>Boolean(process.env[field])), missing: provider === 'aras' ? fields.filter(field=>!process.env[field]) : [] }; }
   async list() { return (await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN order_addresses oa ON oa.order_id=o.id ORDER BY s.created_at DESC LIMIT 100`)).rows; }
-  async readyToShip() { return (await this.db.query(`SELECT o.id AS order_id,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district
+  async readyToShip() { return (await this.db.query(`SELECT o.id AS order_id,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district,pk.package_barcode
     FROM orders o
     LEFT JOIN order_addresses oa ON oa.order_id=o.id
+    LEFT JOIN picking_sessions ps ON ps.order_id=o.id
+    LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
     LEFT JOIN shipments s ON s.order_id=o.id
     WHERE o.status='PROCESSING' AND s.id IS NULL
     ORDER BY o.created_at ASC LIMIT 100`)).rows; }

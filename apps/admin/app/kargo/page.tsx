@@ -26,6 +26,7 @@ type ShippingQueue = {
   recipient_name: string | null;
   city: string | null;
   district: string | null;
+  package_barcode: string | null;
 };
 type ShipmentEvent = { id: string; status: string; description: string | null; occurred_at: string };
 type ShipmentDetail = { order_id: string; events: ShipmentEvent[] };
@@ -193,6 +194,7 @@ export default function Shipping() {
                 <p>
                   {item.total_amount} {item.currency}
                 </p>
+                <p>Paket barkodu: {item.package_barcode ?? "Paket barkodu yok"}</p>
                 <button
                   disabled={busy !== null}
                   onClick={() => void createShipment(item.order_id)}
