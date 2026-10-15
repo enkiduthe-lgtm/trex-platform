@@ -39,6 +39,7 @@ export class ShippingService {
       return { shipmentId: shipment.rows[0].id, trackingNumber: created.trackingNumber, labelUrl:created.labelUrl, replayed: false };
     } catch (error) {
       await this.db.query("INSERT INTO shipments (order_id,provider,status,failure_reason) VALUES ($1,$2,'FAILED',$3) ON CONFLICT (order_id) DO UPDATE SET provider=EXCLUDED.provider,status='FAILED',failure_reason=EXCLUDED.failure_reason,updated_at=now()", [orderId,configured.name,error instanceof Error ? error.message : 'Bilinmeyen kargo sağlayıcı hatası']);
+      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId??null,'shipment.creation_failed','order',orderId,JSON.stringify({provider:configured.name,error:error instanceof Error ? error.message : 'Bilinmeyen kargo sağlayıcı hatası'})]);
       throw error;
     }
   }
