@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
@@ -92,6 +92,7 @@ function SupportPageContent() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const openedTicketId = useRef<string | null>(null);
   async function load() {
     try {
       const [tickets, customerRows, orderRows, staffRows, workloadRows] =
@@ -134,6 +135,18 @@ function SupportPageContent() {
       setBusy(false);
     }
   }
+  useEffect(() => {
+    const ticketId = searchParams.get("ticket");
+    if (
+      !ticketId ||
+      openedTicketId.current === ticketId ||
+      !rows.some((ticket) => ticket.id === ticketId)
+    ) {
+      return;
+    }
+    openedTicketId.current = ticketId;
+    void open(ticketId);
+  }, [rows, searchParams]);
   async function create(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
