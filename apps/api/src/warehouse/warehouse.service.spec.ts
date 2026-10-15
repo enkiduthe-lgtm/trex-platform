@@ -3,10 +3,11 @@ import { WarehouseService } from './warehouse.service';
 
 describe('WarehouseService', () => {
   it('creates pick items from a paid order', async () => {
-    const db={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{id:'pick'}]}).mockResolvedValueOnce({rows:[{id:'item',quantity:2}]}).mockResolvedValueOnce({rows:[]})};
+    const client={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[{id:'pick'}]}).mockResolvedValueOnce({rows:[{id:'item',quantity:2}]}).mockResolvedValue({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
     const result=await new WarehouseService(db as never).createPick('order','warehouse','user');
-    expect(result).toEqual({id:'pick'});
-    expect(db.query).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({id:'pick',replayed:false});
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.pick.started'),['user','warehouse.pick.started','picking_session','pick',JSON.stringify({orderId:'order',warehouseId:'warehouse',source:'manual'})]);
   });
 
   it('does not allow a picker to exceed the ordered quantity', async () => {
