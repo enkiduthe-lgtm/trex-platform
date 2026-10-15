@@ -1,12 +1,15 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
 import { Roles } from '../auth/roles';
 import { RolesGuard } from '../auth/roles.guard';
-import { UserRequest } from '../auth/auth.types';
+import { RequestUser } from '../auth/auth.types';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
 import { AddSupportMessageDto, UpdateSupportTicketDto } from './dto/update-support-ticket.dto';
 import { SupportService } from './support.service';
+
+type UserRequest = Request & { user: RequestUser };
 
 @Controller('admin/support-tickets') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
 export class SupportController {

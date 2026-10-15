@@ -9,6 +9,7 @@ import { DatabaseService } from '../database/database.service';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 import { UpdateStaffUserDto } from './dto/update-staff-user.dto';
 import { ResetStaffPasswordDto } from './dto/reset-staff-password.dto';
+import { ChangeStaffRoleDto } from './dto/change-staff-role.dto';
 import { RequestUser } from './auth.types';
 type UserRequest = Request & { user: RequestUser };
 @Controller('admin') @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,6 +33,16 @@ export class AdminController {
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
       if (!dto.isActive) await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, dto.isActive ? 'staff.activated' : 'staff.deactivated', 'user', id]);
+      return changed.rows[0];
+    });
+  }
+  @Patch('staff/:id/role') @RequireRoles(Roles.SUPER_ADMIN) async changeStaffRole(@Param('id') id: string, @Body() dto: ChangeStaffRoleDto, @Req() req: UserRequest) {
+    if (id === req.user.id) throw new ConflictException('Kendi yetkinizi bu ekrandan değiştiremezsiniz');
+    return this.db.transaction(async client => {
+      const changed = await client.query<{ id: string; role: string }>('UPDATE users SET role=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id,role', [dto.role, id]);
+      if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
+      await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [req.user.id, 'staff.role.changed', 'user', id, JSON.stringify({ role: dto.role })]);
       return changed.rows[0];
     });
   }
