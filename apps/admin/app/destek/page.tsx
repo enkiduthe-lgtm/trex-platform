@@ -86,6 +86,8 @@ export default function SupportPage() {
   const [internal, setInternal] = useState(false);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   async function load() {
@@ -204,11 +206,20 @@ export default function SupportPage() {
       contactPhone: customer?.phone ?? value.contactPhone,
     }));
   }
-  const shown = rows.filter((row) =>
-    `${row.ticket_number} ${row.contact_name} ${row.contact_email ?? ""} ${row.contact_phone ?? ""} ${row.subject}`
-      .toLocaleLowerCase("tr-TR")
-      .includes(query.toLocaleLowerCase("tr-TR")),
-  );
+  const shown = rows.filter((row) => {
+    const matchesQuery =
+      `${row.ticket_number} ${row.contact_name} ${row.contact_email ?? ""} ${row.contact_phone ?? ""} ${row.subject}`
+        .toLocaleLowerCase("tr-TR")
+        .includes(query.toLocaleLowerCase("tr-TR"));
+    const isOverdue =
+      !["RESOLVED", "CLOSED"].includes(row.status) &&
+      new Date(row.due_at).getTime() < Date.now();
+    return (
+      matchesQuery &&
+      (!priorityFilter || row.priority === priorityFilter) &&
+      (!overdueOnly || isOverdue)
+    );
+  });
   const deadline = (ticket: Ticket) => {
     const overdue =
       !["RESOLVED", "CLOSED"].includes(ticket.status) &&
@@ -364,6 +375,28 @@ export default function SupportPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label>
+                Öncelik
+                <select
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                >
+                  <option value="">Tümü</option>
+                  {Object.entries(priorities).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={overdueOnly}
+                  onChange={(event) => setOverdueOnly(event.target.checked)}
+                />{" "}
+                Yalnız gecikenler
               </label>
             </div>
             <div className="cards">
