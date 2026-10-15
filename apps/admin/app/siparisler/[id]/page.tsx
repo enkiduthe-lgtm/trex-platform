@@ -48,6 +48,14 @@ type Detail = {
     priority: string;
     created_at: string;
   }[];
+  shipments: {
+    id: string;
+    status: string;
+    tracking_number: string | null;
+    provider: string;
+    created_at: string;
+    package_barcode: string | null;
+  }[];
 };
 const paymentStatus: Record<string, string> = {
   SUCCEEDED: "Ödendi",
@@ -270,6 +278,35 @@ export default function OrderDetail() {
               </table>
               {data.payments.length === 0 && <p>Ödeme kaydı bulunamadı.</p>}
             </div>
+            <h2>Kargo ve paket</h2>
+            {data.shipments.length ? (
+              <div className={styles.tableWrap}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Firma</th>
+                      <th>Durum</th>
+                      <th>Takip no</th>
+                      <th>Paket barkodu</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.shipments.map((shipment) => (
+                      <tr key={shipment.id}>
+                        <td>{shipment.provider}</td>
+                        <td>{shipment.status}</td>
+                        <td>{shipment.tracking_number ?? "Henüz yok"}</td>
+                        <td>
+                          {shipment.package_barcode ?? "Henüz paketlenmedi"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>Bu sipariş için henüz kargo kaydı yok.</p>
+            )}
             <h2>Bağlı destek talepleri</h2>
             <Link className={styles.financeLink} href={`/destek?order=${id}`}>
               Bu sipariş için destek talebi aç
