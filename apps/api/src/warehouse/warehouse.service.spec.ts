@@ -45,6 +45,14 @@ describe('WarehouseService', () => {
     await expect(new WarehouseService(db as never).completePacking('pick','user')).resolves.toEqual({pickId:'pick',status:'READY_FOR_SHIPMENT'});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE stock_reservations SET status='CONSUMED'"),['reservation']);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'FULFILLMENT'"),['product','warehouse',-2,'order','user']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.package.completed'),expect.arrayContaining(['user','packing']));
+  });
+
+  it('records who completed a fully picked list', async () => {
+    const client={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rowCount:0}).mockResolvedValue({rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    await expect(new WarehouseService(db as never).completePick('pick','user')).resolves.toEqual({id:'pick',status:'COMPLETED'});
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.pick.completed'),['user','warehouse.pick.completed','picking_session','pick']);
   });
 
   it('receives stock by creating inventory, a lot, movement and audit entry', async () => {
