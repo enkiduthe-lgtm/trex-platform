@@ -68,11 +68,14 @@ export default function Returns() {
   useEffect(() => {
     void load();
   }, []);
+  const requiresAttention = (row: ReturnRow) =>
+    !["REFUNDED", "REJECTED", "CANCELLED"].includes(row.status) &&
+    Date.now() - new Date(row.requested_at).getTime() >= 24 * 60 * 60 * 1000;
   const shown = useMemo(
     () =>
       rows.filter(
         (row) =>
-          (status === "ALL" || row.status === status) &&
+          (status === "ALL" || (status === "ATTENTION" && requiresAttention(row)) || row.status === status) &&
           [row.order_number, row.reason, labels[row.status]]
             .join(" ")
             .toLocaleLowerCase("tr-TR")
@@ -161,6 +164,11 @@ export default function Returns() {
             <p>ÖDENEN TL İADE</p>
             <h2>{money(String(total), "TRY")}</h2>
           </article>
+          <article>
+            <p>24 SAATİ AŞAN</p>
+            <h2>{rows.filter(requiresAttention).length}</h2>
+            <p>Öncelikli işlem</p>
+          </article>
         </div>
         <div className="period-toolbar">
           <input
@@ -173,6 +181,7 @@ export default function Returns() {
             onChange={(event) => setStatus(event.target.value)}
           >
             <option value="ALL">Tüm durumlar</option>
+            <option value="ATTENTION">24 saati aşan açık iadeler</option>
             {Object.entries(labels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
