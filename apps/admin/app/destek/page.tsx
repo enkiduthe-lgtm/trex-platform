@@ -50,6 +50,7 @@ type OrderOption = {
   status: string;
 };
 type Assignee = { id: string; email: string; role: string };
+type Workload = { email: string; open_count: number; overdue_count: number };
 const statuses: Record<string, string> = {
   OPEN: "Açık",
   IN_PROGRESS: "İşlemde",
@@ -80,6 +81,7 @@ export default function SupportPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<OrderOption[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
+  const [workload, setWorkload] = useState<Workload[]>([]);
   const [selected, setSelected] = useState<Detail | null>(null);
   const [form, setForm] = useState(empty);
   const [reply, setReply] = useState("");
@@ -92,18 +94,21 @@ export default function SupportPage() {
   const [busy, setBusy] = useState(false);
   async function load() {
     try {
-      const [tickets, customerRows, orderRows, staffRows] = await Promise.all([
-        api<Ticket[]>(
-          `/admin/support-tickets${status ? `?status=${encodeURIComponent(status)}` : ""}`,
-        ),
-        api<Customer[]>("/admin/customers"),
-        api<OrderOption[]>("/admin/orders"),
-        api<Assignee[]>("/admin/support-tickets/assignees"),
-      ]);
+      const [tickets, customerRows, orderRows, staffRows, workloadRows] =
+        await Promise.all([
+          api<Ticket[]>(
+            `/admin/support-tickets${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+          ),
+          api<Customer[]>("/admin/customers"),
+          api<OrderOption[]>("/admin/orders"),
+          api<Assignee[]>("/admin/support-tickets/assignees"),
+          api<Workload[]>("/admin/support-tickets/workload"),
+        ]);
       setRows(tickets);
       setCustomers(customerRows);
       setOrders(orderRows);
       setAssignees(staffRows);
+      setWorkload(workloadRows);
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Talepler yüklenemedi.",
@@ -234,6 +239,21 @@ export default function SupportPage() {
         <h1>Müşteri talepleri</h1>
         <p>Talep, mesaj, sorumlu ve yanıt hedefini tek ekrandan yönetin.</p>
         {message && <p role="status">{message}</p>}
+        {workload.length > 0 && (
+          <div className="cards">
+            {workload.map((item) => (
+              <article key={item.email}>
+                <p>{item.email}</p>
+                <h2>{item.open_count}</h2>
+                <p>
+                  {item.overdue_count
+                    ? `${item.overdue_count} geciken talep`
+                    : "Gecikme yok"}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
         <div className="two-columns">
           <form className="form-card" onSubmit={create}>
             <h2>Yeni destek talebi</h2>
