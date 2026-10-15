@@ -91,6 +91,7 @@ function SupportPageContent() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -237,6 +238,10 @@ function SupportPageContent() {
     return (
       matchesQuery &&
       (!priorityFilter || row.priority === priorityFilter) &&
+      (!assigneeFilter ||
+        (assigneeFilter === "UNASSIGNED"
+          ? !row.assigned_email
+          : row.assigned_email === assigneeFilter)) &&
       (!overdueOnly || isOverdue)
     );
   });
@@ -469,6 +474,21 @@ function SupportPageContent() {
                       {label}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label>
+                Sorumlu
+                <select
+                  value={assigneeFilter}
+                  onChange={(event) => setAssigneeFilter(event.target.value)}
+                >
+                  <option value="">Tümü</option>
+                  {assignees.map((item) => (
+                    <option key={item.id} value={item.email}>
+                      {item.email}
+                    </option>
+                  ))}
+                  <option value="UNASSIGNED">Atanmamış</option>
                 </select>
               </label>
               <label>
