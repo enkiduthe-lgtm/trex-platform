@@ -539,6 +539,16 @@ function SupportPageContent() {
                     <p>
                       {row.contact_name} · {statuses[row.status]}
                     </p>
+                    <p>
+                      {row.assigned_email
+                        ? `Sorumlu: ${row.assigned_email}`
+                        : "Sorumlu atanmamış"}
+                      {row.contact_phone
+                        ? ` · ${row.contact_phone}`
+                        : row.contact_email
+                          ? ` · ${row.contact_email}`
+                          : ""}
+                    </p>
                     {row.order_number && <p>Sipariş: {row.order_number}</p>}
                     <p>{deadline(row)}</p>
                   </button>
