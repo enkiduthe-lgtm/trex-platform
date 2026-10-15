@@ -53,6 +53,7 @@ type OrderOption = {
 };
 type Assignee = { id: string; email: string; role: string };
 type Workload = { email: string; open_count: number; overdue_count: number };
+type Summary = { open_count: string; urgent_count: string; overdue_count: string };
 const statuses: Record<string, string> = {
   OPEN: "Açık",
   IN_PROGRESS: "İşlemde",
@@ -84,6 +85,7 @@ function SupportPageContent() {
   const [orders, setOrders] = useState<OrderOption[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [workload, setWorkload] = useState<Workload[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [selected, setSelected] = useState<Detail | null>(null);
   const [form, setForm] = useState(empty);
   const [reply, setReply] = useState("");
@@ -98,7 +100,7 @@ function SupportPageContent() {
   const openedTicketId = useRef<string | null>(null);
   async function load() {
     try {
-      const [tickets, customerRows, orderRows, staffRows, workloadRows] =
+      const [tickets, customerRows, orderRows, staffRows, workloadRows, summaryRow] =
         await Promise.all([
           api<Ticket[]>(
             `/admin/support-tickets${status ? `?status=${encodeURIComponent(status)}` : ""}`,
@@ -107,12 +109,14 @@ function SupportPageContent() {
           api<OrderOption[]>("/admin/orders"),
           api<Assignee[]>("/admin/support-tickets/assignees"),
           api<Workload[]>("/admin/support-tickets/workload"),
+          api<Summary>("/admin/support-tickets/summary"),
         ]);
       setRows(tickets);
       setCustomers(customerRows);
       setOrders(orderRows);
       setAssignees(staffRows);
       setWorkload(workloadRows);
+      setSummary(summaryRow);
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Talepler yüklenemedi.",
@@ -305,6 +309,22 @@ function SupportPageContent() {
         <h1>Müşteri talepleri</h1>
         <p>Talep, mesaj, sorumlu ve yanıt hedefini tek ekrandan yönetin.</p>
         {message && <p role="status">{message}</p>}
+        {summary && (
+          <div className="cards">
+            <article>
+              <p>Açık talep</p>
+              <h2>{summary.open_count}</h2>
+            </article>
+            <article>
+              <p>Yüksek / acil</p>
+              <h2>{summary.urgent_count}</h2>
+            </article>
+            <article>
+              <p>Geciken</p>
+              <h2>{summary.overdue_count}</h2>
+            </article>
+          </div>
+        )}
         {workload.length > 0 && (
           <div className="cards">
             {workload.map((item) => (
