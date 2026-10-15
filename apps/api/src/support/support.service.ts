@@ -3,19 +3,19 @@ import { DatabaseService } from '../database/database.service';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
 import { AddSupportMessageDto, UpdateSupportTicketDto } from './dto/update-support-ticket.dto';
 
-type Ticket = { id: string; ticket_number: string; status: string; priority: string; contact_name: string; contact_email: string | null; contact_phone: string | null; subject: string; order_number: string | null; assigned_email: string | null; created_at: string; updated_at: string; };
+type Ticket = { id: string; ticket_number: string; status: string; priority: string; contact_name: string; contact_email: string | null; contact_phone: string | null; subject: string; order_number: string | null; assigned_email: string | null; created_at: string; updated_at: string; due_at: string; };
 
 @Injectable()
 export class SupportService {
   constructor(private readonly db: DatabaseService) {}
   async list(status?: string) {
-    return (await this.db.query<Ticket>(`SELECT t.id,t.ticket_number,t.status,t.priority,t.contact_name,t.contact_email,t.contact_phone,t.subject,t.created_at,t.updated_at,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE ($1::text IS NULL OR t.status=$1) ORDER BY CASE t.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END,t.updated_at DESC`, [status ?? null])).rows;
+    return (await this.db.query<Ticket>(`SELECT t.id,t.ticket_number,t.status,t.priority,t.contact_name,t.contact_email,t.contact_phone,t.subject,t.created_at,t.updated_at,t.due_at,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE ($1::text IS NULL OR t.status=$1) ORDER BY CASE WHEN t.status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND t.due_at<now() THEN 0 ELSE 1 END,CASE t.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END,t.due_at ASC`, [status ?? null])).rows;
   }
   async summary() {
     const result = await this.db.query<{ open_count: string; urgent_count: string; overdue_count: string }>(`SELECT
       count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER'))::text AS open_count,
       count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND priority IN ('HIGH','URGENT'))::text AS urgent_count,
-      count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS') AND updated_at < now()-interval '24 hours')::text AS overdue_count
+      count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND due_at < now())::text AS overdue_count
       FROM support_tickets`);
     return result.rows[0] ?? { open_count: '0', urgent_count: '0', overdue_count: '0' };
   }
@@ -33,9 +33,10 @@ export class SupportService {
     return this.db.transaction(async client => {
       const sequence = await client.query<{ value: number }>("SELECT nextval('support_ticket_number_seq')::int AS value");
       const year = new Date().getFullYear(); const ticketNumber = `DST-${year}-${String(sequence.rows[0].value).padStart(6, '0')}`;
-      const ticket = await client.query<{ id: string; ticket_number: string }>('INSERT INTO support_tickets(ticket_number,customer_id,order_id,contact_name,contact_email,contact_phone,subject,priority) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,ticket_number', [ticketNumber, dto.customerId ?? null, dto.orderId ?? null, dto.contactName.trim(), dto.contactEmail?.toLowerCase() ?? null, dto.contactPhone?.trim() ?? null, dto.subject.trim(), dto.priority ?? 'NORMAL']);
+      const priority=dto.priority ?? 'NORMAL';
+      const ticket = await client.query<{ id: string; ticket_number: string; due_at: string }>(`INSERT INTO support_tickets(ticket_number,customer_id,order_id,contact_name,contact_email,contact_phone,subject,priority,due_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+CASE $8 WHEN 'URGENT' THEN interval '2 hours' WHEN 'HIGH' THEN interval '8 hours' WHEN 'NORMAL' THEN interval '24 hours' ELSE interval '72 hours' END) RETURNING id,ticket_number,due_at`, [ticketNumber, dto.customerId ?? null, dto.orderId ?? null, dto.contactName.trim(), dto.contactEmail?.toLowerCase() ?? null, dto.contactPhone?.trim() ?? null, dto.subject.trim(), priority]);
       await client.query('INSERT INTO support_ticket_messages(ticket_id,body,is_internal,created_by) VALUES($1,$2,false,$3)', [ticket.rows[0].id, dto.message.trim(), actorId]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actorId, 'support_ticket.created', 'support_ticket', ticket.rows[0].id, JSON.stringify({ ticketNumber })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actorId, 'support_ticket.created', 'support_ticket', ticket.rows[0].id, JSON.stringify({ ticketNumber,priority,dueAt:ticket.rows[0].due_at })]);
       return ticket.rows[0];
     });
   }

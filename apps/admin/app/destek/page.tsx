@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 
-type Ticket = { id: string; ticket_number: string; status: string; priority: string; contact_name: string; contact_email: string | null; contact_phone: string | null; subject: string; order_number: string | null; assigned_email: string | null; created_at: string; updated_at: string; };
+type Ticket = { id: string; ticket_number: string; status: string; priority: string; contact_name: string; contact_email: string | null; contact_phone: string | null; subject: string; order_number: string | null; assigned_email: string | null; created_at: string; updated_at: string; due_at: string; };
 type Detail = Ticket & { assigned_to: string | null; messages: { id: string; body: string; is_internal: boolean; created_at: string; created_by_email: string | null }[]; activity: { id: string; action: string; created_at: string; actor_email: string | null }[] };
 type Customer = { id: string; first_name: string; last_name: string; email: string; phone: string | null };
 type Assignee = { id: string; email: string; role: string };
