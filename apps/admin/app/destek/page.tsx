@@ -127,6 +127,9 @@ function SupportPageContent() {
     void load();
   }, [status]);
   useEffect(() => {
+    if (searchParams.get("overdue") === "true") setOverdueOnly(true);
+  }, [searchParams]);
+  useEffect(() => {
     const orderId = searchParams.get("order");
     if (orderId && orders.some((order) => order.id === orderId)) {
       setForm((value) => ({ ...value, orderId }));

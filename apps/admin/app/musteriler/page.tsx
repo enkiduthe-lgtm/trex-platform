@@ -37,6 +37,7 @@ export default function Customers() {
   const [rows, setRows] = useState<Customer[]>([]),
     [query, setQuery] = useState(""),
     [tagFilter, setTagFilter] = useState(""),
+    [tierFilter, setTierFilter] = useState(""),
     [tags, setTags] = useState<CustomerTag[]>([]),
     [tagName, setTagName] = useState(""),
     [tagColor, setTagColor] = useState("#7c3aed"),
@@ -71,9 +72,10 @@ export default function Customers() {
         `${x.first_name} ${x.last_name} ${x.email} ${x.phone ?? ""}`
           .toLocaleLowerCase("tr-TR")
           .includes(query.toLocaleLowerCase("tr-TR")) &&
-        (!tagFilter || x.tags.some(tag => tag.id === tagFilter)),
+        (!tagFilter || x.tags.some(tag => tag.id === tagFilter)) &&
+        (!tierFilter || x.loyalty_tier === tierFilter),
       ),
-    [rows, query, tagFilter],
+    [rows, query, tagFilter, tierFilter],
   );
   const totals = useMemo(() => {
     const amounts = new Map<string, bigint>();
@@ -254,6 +256,12 @@ export default function Customers() {
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} aria-label="Müşteri etiketi filtresi">
             <option value="">Tüm etiketler</option>
             {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+          </select>
+          <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} aria-label="Sadakat seviyesi filtresi">
+            <option value="">Tüm sadakat seviyeleri</option>
+            <option value="BRONZE">Bronz</option>
+            <option value="SILVER">Gümüş</option>
+            <option value="GOLD">Altın</option>
           </select>
           <button type="button" className={styles.rowButton} onClick={exportCustomers} disabled={!shown.length}>CSV indir</button>
         </div>
