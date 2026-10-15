@@ -246,6 +246,52 @@ function SupportPageContent() {
       new Date(ticket.due_at).getTime() < Date.now();
     return `${overdue ? "GECİKTİ · " : "Yanıt hedefi: "}${new Date(ticket.due_at).toLocaleString("tr-TR")}`;
   };
+  function exportTickets() {
+    const quote = (value: string | null | undefined) =>
+      `"${(value ?? "").replaceAll('"', '""')}"`;
+    const rows = shown.map((ticket) =>
+      [
+        ticket.ticket_number,
+        ticket.contact_name,
+        ticket.contact_email,
+        ticket.contact_phone,
+        ticket.subject,
+        statuses[ticket.status] ?? ticket.status,
+        priorities[ticket.priority] ?? ticket.priority,
+        ticket.order_number,
+        ticket.assigned_email,
+        new Date(ticket.created_at).toLocaleString("tr-TR"),
+        new Date(ticket.due_at).toLocaleString("tr-TR"),
+      ]
+        .map(quote)
+        .join(";"),
+    );
+    const csv = [
+      [
+        "Talep no",
+        "Müşteri",
+        "E-posta",
+        "Telefon",
+        "Konu",
+        "Durum",
+        "Öncelik",
+        "Sipariş",
+        "Sorumlu",
+        "Oluşturulma",
+        "Yanıt hedefi",
+      ]
+        .map(quote)
+        .join(";"),
+      ...rows,
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `destek-talepleri-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   return (
     <main>
       <AdminNav />
@@ -433,6 +479,9 @@ function SupportPageContent() {
                 />{" "}
                 Yalnız gecikenler
               </label>
+              <button type="button" className="secondary" onClick={exportTickets}>
+                CSV indir
+              </button>
             </div>
             <div className="cards">
               {shown.length ? (
