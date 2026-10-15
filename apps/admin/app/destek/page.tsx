@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
@@ -21,6 +22,7 @@ type Ticket = {
   due_at: string;
 };
 type Detail = Ticket & {
+  order_id: string | null;
   assigned_to: string | null;
   messages: {
     id: string;
@@ -478,6 +480,13 @@ function SupportPageContent() {
                 selected.contact_phone ??
                 "İletişim bilgisi yok"}
             </p>
+            {selected.order_id && (
+              <p>
+                <Link href={`/siparisler/${selected.order_id}`}>
+                  İlgili siparişi aç
+                </Link>
+              </p>
+            )}
             <p>
               <strong>{deadline(selected)}</strong>
             </p>
