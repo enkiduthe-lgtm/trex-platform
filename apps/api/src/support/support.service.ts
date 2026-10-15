@@ -11,6 +11,14 @@ export class SupportService {
   async list(status?: string) {
     return (await this.db.query<Ticket>(`SELECT t.id,t.ticket_number,t.status,t.priority,t.contact_name,t.contact_email,t.contact_phone,t.subject,t.created_at,t.updated_at,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE ($1::text IS NULL OR t.status=$1) ORDER BY CASE t.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END,t.updated_at DESC`, [status ?? null])).rows;
   }
+  async summary() {
+    const result = await this.db.query<{ open_count: string; urgent_count: string; overdue_count: string }>(`SELECT
+      count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER'))::text AS open_count,
+      count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND priority IN ('HIGH','URGENT'))::text AS urgent_count,
+      count(*) FILTER (WHERE status IN ('OPEN','IN_PROGRESS') AND updated_at < now()-interval '24 hours')::text AS overdue_count
+      FROM support_tickets`);
+    return result.rows[0] ?? { open_count: '0', urgent_count: '0', overdue_count: '0' };
+  }
   async detail(id: string) {
     const ticket = await this.db.query<Ticket & { assigned_to: string | null; customer_id: string | null; order_id: string | null; resolved_at: string | null }>(`SELECT t.*,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE t.id=$1`, [id]);
     if (!ticket.rowCount) throw new NotFoundException('Destek talebi bulunamadı');

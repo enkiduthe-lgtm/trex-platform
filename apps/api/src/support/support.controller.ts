@@ -11,6 +11,7 @@ import { SupportService } from './support.service';
 @Controller('admin/support-tickets') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
 export class SupportController {
   constructor(private readonly support: SupportService) {}
+  @Get('summary') summary() { return this.support.summary(); }
   @Get() list(@Query('status') status?: string) { return this.support.list(status); }
   @Get(':id') detail(@Param('id') id: string) { return this.support.detail(id); }
   @Post() create(@Body() dto: CreateSupportTicketDto, @Req() req: UserRequest) { return this.support.create(dto, req.user.id); }
