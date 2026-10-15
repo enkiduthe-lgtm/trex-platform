@@ -29,13 +29,18 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       this.db.query<{id:string;quantity:number;unit_amount:string}>('SELECT id,product_name,sku,quantity,unit_amount,currency FROM order_items WHERE order_id=$1 ORDER BY id',[id]),
       this.db.query('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
       this.db.query('SELECT id,ticket_number,subject,status,priority,created_at FROM support_tickets WHERE order_id=$1 ORDER BY created_at DESC',[id]),
-      this.db.query(`SELECT s.id,s.status,s.tracking_number,s.provider,s.created_at,pk.package_barcode
+      this.db.query(`SELECT s.id,s.status,s.tracking_number,s.provider,s.created_at,pk.package_barcode,
+        se.description AS last_event_description,se.occurred_at AS last_event_at
         FROM shipments s
         LEFT JOIN LATERAL (
           SELECT pk.package_barcode FROM packing_sessions pk
           JOIN picking_sessions ps ON ps.id=pk.picking_session_id
           WHERE ps.order_id=s.order_id ORDER BY pk.packed_at DESC NULLS LAST LIMIT 1
         ) pk ON true
+        LEFT JOIN LATERAL (
+          SELECT description,occurred_at FROM shipment_events
+          WHERE shipment_id=s.id ORDER BY occurred_at DESC LIMIT 1
+        ) se ON true
         WHERE s.order_id=$1 ORDER BY s.created_at DESC`,[id]),
     ]);
     return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows,supportTickets:supportTickets.rows,shipments:shipments.rows,edit_version:editVersion(result.rows[0],address.rows[0]??null,items.rows)};

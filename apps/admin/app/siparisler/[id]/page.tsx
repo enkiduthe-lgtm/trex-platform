@@ -55,6 +55,8 @@ type Detail = {
     provider: string;
     created_at: string;
     package_barcode: string | null;
+    last_event_description: string | null;
+    last_event_at: string | null;
   }[];
 };
 const paymentStatus: Record<string, string> = {
@@ -288,6 +290,7 @@ export default function OrderDetail() {
                       <th>Durum</th>
                       <th>Takip no</th>
                       <th>Paket barkodu</th>
+                      <th>Son hareket</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -298,6 +301,12 @@ export default function OrderDetail() {
                         <td>{shipment.tracking_number ?? "Henüz yok"}</td>
                         <td>
                           {shipment.package_barcode ?? "Henüz paketlenmedi"}
+                        </td>
+                        <td>
+                          {shipment.last_event_description ?? "Hareket yok"}
+                          {shipment.last_event_at
+                            ? ` · ${new Date(shipment.last_event_at).toLocaleString("tr-TR")}`
+                            : ""}
                         </td>
                       </tr>
                     ))}
