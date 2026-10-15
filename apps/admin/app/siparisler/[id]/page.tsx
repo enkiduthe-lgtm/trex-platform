@@ -58,6 +58,13 @@ type Detail = {
     last_event_description: string | null;
     last_event_at: string | null;
   }[];
+  returns: {
+    id: string;
+    status: string;
+    reason: string;
+    requested_at: string;
+    completed_at: string | null;
+  }[];
 };
 const paymentStatus: Record<string, string> = {
   SUCCEEDED: "Ödendi",
@@ -315,6 +322,41 @@ export default function OrderDetail() {
               </div>
             ) : (
               <p>Bu sipariş için henüz kargo kaydı yok.</p>
+            )}
+            <h2>İade kayıtları</h2>
+            {data.returns.length ? (
+              <div className={styles.tableWrap}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Durum</th>
+                      <th>Neden</th>
+                      <th>Talep tarihi</th>
+                      <th>Tamamlandı</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.returns.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.status}</td>
+                        <td>{item.reason}</td>
+                        <td>
+                          {new Date(item.requested_at).toLocaleString("tr-TR")}
+                        </td>
+                        <td>
+                          {item.completed_at
+                            ? new Date(item.completed_at).toLocaleString(
+                                "tr-TR",
+                              )
+                            : "Devam ediyor"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>Bu sipariş için iade kaydı yok.</p>
             )}
             <h2>Bağlı destek talepleri</h2>
             <Link className={styles.financeLink} href={`/destek?order=${id}`}>
