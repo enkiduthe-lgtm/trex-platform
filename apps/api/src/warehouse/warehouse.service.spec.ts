@@ -3,11 +3,17 @@ import { WarehouseService } from './warehouse.service';
 
 describe('WarehouseService', () => {
   it('creates pick items from a paid order', async () => {
-    const client={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[{id:'pick'}]}).mockResolvedValueOnce({rows:[{id:'item',quantity:2}]}).mockResolvedValue({rows:[]})};
+    const client={query:jest.fn().mockResolvedValueOnce({rowCount:1,rows:[{checkout_id:'checkout'}]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{id:'pick'}]}).mockResolvedValueOnce({rows:[{id:'item',quantity:2}]}).mockResolvedValue({rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
     const result=await new WarehouseService(db as never).createPick('order','warehouse','user');
     expect(result).toEqual({id:'pick',replayed:false});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.pick.started'),['user','warehouse.pick.started','picking_session','pick',JSON.stringify({orderId:'order',warehouseId:'warehouse',source:'manual'})]);
+  });
+
+  it('rejects manual picking from a warehouse without the order reservation', async () => {
+    const client={query:jest.fn().mockResolvedValueOnce({rowCount:1,rows:[{checkout_id:'checkout'}]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rowCount:0,rows:[]})};
+    const db={transaction:jest.fn((work) => work(client))};
+    await expect(new WarehouseService(db as never).createPick('order','wrong-warehouse','user')).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('does not allow a picker to exceed the ordered quantity', async () => {
