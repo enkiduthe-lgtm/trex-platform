@@ -231,6 +231,12 @@ function SupportPageContent() {
       contactPhone: customer?.phone ?? value.contactPhone,
     }));
   }
+  useEffect(() => {
+    const customerId = searchParams.get("customer");
+    if (customerId && customers.some((customer) => customer.id === customerId)) {
+      chooseCustomer(customerId);
+    }
+  }, [customers, searchParams]);
   const shown = rows.filter((row) => {
     const matchesQuery =
       `${row.ticket_number} ${row.contact_name} ${row.contact_email ?? ""} ${row.contact_phone ?? ""} ${row.subject}`
