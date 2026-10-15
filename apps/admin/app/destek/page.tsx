@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
@@ -75,7 +75,7 @@ const empty = {
   priority: "NORMAL",
 };
 
-export default function SupportPage() {
+function SupportPageContent() {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Ticket[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -565,5 +565,13 @@ export default function SupportPage() {
         )}
       </section>
     </main>
+  );
+}
+
+export default function SupportPage() {
+  return (
+    <Suspense fallback={<main><AdminNav /><p>Destek ekranı yükleniyor...</p></main>}>
+      <SupportPageContent />
+    </Suspense>
   );
 }
