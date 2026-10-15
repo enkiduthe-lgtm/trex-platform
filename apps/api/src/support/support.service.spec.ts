@@ -23,6 +23,12 @@ describe('SupportService', () => {
     expect(s.db.transaction).not.toHaveBeenCalled();
   });
 
+  it('allows an assigned ticket to return to the unassigned queue', async () => {
+    const s = setup(); s.db.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'ticket-1', assigned_to: null }] });
+    await expect(s.service.update('ticket-1', { assignedTo: null }, 'staff-1')).resolves.toEqual({ id: 'ticket-1', assigned_to: null });
+    expect(s.db.query.mock.calls[0][1]).toEqual(['ticket-1', null, null, null, true]);
+  });
+
   it('returns queue totals for open, priority, and overdue support work', async () => {
     const s = setup(); s.db.query.mockResolvedValue({ rows: [{ open_count: '4', urgent_count: '1', overdue_count: '2' }] });
     await expect(s.service.summary()).resolves.toEqual({ open_count: '4', urgent_count: '1', overdue_count: '2' });
