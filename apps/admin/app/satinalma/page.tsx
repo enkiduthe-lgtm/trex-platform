@@ -79,6 +79,7 @@ export default function Purchasing() {
       expiryDate: "",
       locationCode: "",
     });
+  const [orderFilter, setOrderFilter] = useState<"ALL" | "OPEN" | "OVERDUE" | "RECEIVED" | "CANCELLED">("ALL");
   const overdueOrders = useMemo(
     () =>
       orders.filter(
@@ -93,6 +94,7 @@ export default function Purchasing() {
       ),
     [orders],
   );
+  const visibleOrders = orders.filter((order) => orderFilter === "ALL" || (orderFilter === "OPEN" && ["DRAFT", "ORDERED", "PARTIALLY_RECEIVED"].includes(order.status)) || (orderFilter === "OVERDUE" && overdueOrders.some((overdue) => overdue.id === order.id)) || order.status === orderFilter);
   const load = () =>
     Promise.all([
       api<Options>("/admin/purchasing/options"),
@@ -260,7 +262,7 @@ export default function Purchasing() {
   function exportOrders() {
     const rows = [
       ["Sipariş no", "Tedarikçi", "Depo", "Tutar", "Para birimi", "Durum", "Beklenen teslim", "Kalemler"],
-      ...orders.map((order) => [
+      ...visibleOrders.map((order) => [
         order.order_number,
         order.supplier_name,
         order.warehouse_name,
@@ -683,7 +685,7 @@ export default function Purchasing() {
           </div>
           <button>Teslim al</button>
         </form>
-        <div className="period-toolbar"><h2>Satın alma siparişleri</h2><button type="button" disabled={!orders.length} onClick={exportOrders}>CSV indir</button></div>
+        <div className="period-toolbar"><h2>Satın alma siparişleri</h2><label>Durum <select value={orderFilter} onChange={(event) => setOrderFilter(event.target.value as typeof orderFilter)}><option value="ALL">Tümü</option><option value="OPEN">Açık siparişler</option><option value="OVERDUE">Geciken teslimatlar</option><option value="RECEIVED">Teslim alınanlar</option><option value="CANCELLED">İptal edilenler</option></select></label><button type="button" disabled={!visibleOrders.length} onClick={exportOrders}>CSV indir</button></div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -698,7 +700,7 @@ export default function Purchasing() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((x) => (
+              {visibleOrders.map((x) => (
                 <tr key={x.id}>
                   <td>{x.order_number}</td>
                   <td>{x.supplier_name}</td>
@@ -733,9 +735,9 @@ export default function Purchasing() {
                   </td>
                 </tr>
               ))}
-              {!orders.length && (
+              {!visibleOrders.length && (
                 <tr>
-                  <td colSpan={7}>Henüz satın alma siparişi yok.</td>
+                  <td colSpan={7}>Bu duruma ait satın alma siparişi yok.</td>
                 </tr>
               )}
             </tbody>
