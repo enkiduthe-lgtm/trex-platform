@@ -28,4 +28,9 @@ describe('SupportService', () => {
     await expect(s.service.summary()).resolves.toEqual({ open_count: '4', urgent_count: '1', overdue_count: '2' });
     expect(s.db.query.mock.calls[0][0]).toContain("interval '24 hours'");
   });
+  it('lists only active staff for assignment', async () => {
+    const s = setup(); s.db.query.mockResolvedValue({ rows: [{ id: 'staff-1', email: 'staff@trextea.com.tr', role: 'ADMIN' }] });
+    await expect(s.service.assignees()).resolves.toEqual([{ id: 'staff-1', email: 'staff@trextea.com.tr', role: 'ADMIN' }]);
+    expect(s.db.query.mock.calls[0][0]).toContain('is_active=true');
+  });
 });

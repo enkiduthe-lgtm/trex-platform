@@ -15,6 +15,7 @@ type UserRequest = Request & { user: RequestUser };
 export class SupportController {
   constructor(private readonly support: SupportService) {}
   @Get('summary') summary() { return this.support.summary(); }
+  @Get('assignees') assignees() { return this.support.assignees(); }
   @Get() list(@Query('status') status?: string) { return this.support.list(status); }
   @Get(':id') detail(@Param('id') id: string) { return this.support.detail(id); }
   @Post() create(@Body() dto: CreateSupportTicketDto, @Req() req: UserRequest) { return this.support.create(dto, req.user.id); }

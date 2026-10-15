@@ -19,6 +19,9 @@ export class SupportService {
       FROM support_tickets`);
     return result.rows[0] ?? { open_count: '0', urgent_count: '0', overdue_count: '0' };
   }
+  async assignees() {
+    return (await this.db.query<{ id: string; email: string; role: string }>("SELECT id,email,role FROM users WHERE is_active=true AND role IN ('SUPER_ADMIN','ADMIN','WAREHOUSE','FINANCE') ORDER BY email")).rows;
+  }
   async detail(id: string) {
     const ticket = await this.db.query<Ticket & { assigned_to: string | null; customer_id: string | null; order_id: string | null; resolved_at: string | null }>(`SELECT t.*,o.order_number,u.email AS assigned_email FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.assigned_to WHERE t.id=$1`, [id]);
     if (!ticket.rowCount) throw new NotFoundException('Destek talebi bulunamadı');
