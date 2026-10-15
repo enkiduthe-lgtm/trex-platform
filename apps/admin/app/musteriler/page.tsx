@@ -26,6 +26,7 @@ type Note = { id: string; body: string; created_at: string };
 type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; movements: { id: string; points_delta: number; reason: string; created_at: string }[] };
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
 type CustomerOrder = { id: string; order_number: string; status: string; total_amount: string; currency: string; created_at: string; item_count: number };
+type CustomerSupportTicket = { id: string; ticket_number: string; subject: string; status: string; priority: string; due_at: string; created_at: string; order_number: string | null };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -43,6 +44,7 @@ export default function Customers() {
     [notes, setNotes] = useState<Note[]>([]),
     [requests, setRequests] = useState<CustomerRequest[]>([]),
     [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]),
+    [supportTickets, setSupportTickets] = useState<CustomerSupportTicket[]>([]),
     [loyalty, setLoyalty] = useState<Loyalty | null>(null),
     [note, setNote] = useState(""),
     [points, setPoints] = useState(""),
@@ -110,13 +112,13 @@ export default function Customers() {
     const ticket = notesGate.current.begin();
     setSelected(customer);
     setNote("");
-    setPoints(""); setPointsReason(""); setLoyalty(null); setRequests([]); setCustomerOrders([]); setRequestForm({subject:'',body:'',priority:'NORMAL'});
+    setPoints(""); setPointsReason(""); setLoyalty(null); setRequests([]); setCustomerOrders([]); setSupportTickets([]); setRequestForm({subject:'',body:'',priority:'NORMAL'});
     setNotes([]);
     setNotesLoading(true);
     setMessage('');
     try {
-      const [result, customerLoyalty, customerRequests, orders] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`),api<CustomerRequest[]>(`/admin/customers/${customer.id}/requests`),api<CustomerOrder[]>(`/admin/customers/${customer.id}/orders`)]);
-      if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); setRequests(customerRequests); setCustomerOrders(orders); }
+      const [result, customerLoyalty, customerRequests, orders, tickets] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`),api<CustomerRequest[]>(`/admin/customers/${customer.id}/requests`),api<CustomerOrder[]>(`/admin/customers/${customer.id}/orders`),api<CustomerSupportTicket[]>(`/admin/customers/${customer.id}/support-tickets`)]);
+      if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); setRequests(customerRequests); setCustomerOrders(orders); setSupportTickets(tickets); }
     } catch (e) {
       if (notesGate.current.isCurrent(ticket)) setMessage(
         e instanceof Error ? e.message : "Müşteri notları yüklenemedi.",
@@ -127,7 +129,7 @@ export default function Customers() {
   }
   function close() {
     if (saveLock.current.isLocked()) return;
-    notesGate.current.invalidate(); setSelected(null); setNotes([]); setRequests([]); setCustomerOrders([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setRequestForm({subject:'',body:'',priority:'NORMAL'}); setNotesLoading(false);
+    notesGate.current.invalidate(); setSelected(null); setNotes([]); setRequests([]); setCustomerOrders([]); setSupportTickets([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setRequestForm({subject:'',body:'',priority:'NORMAL'}); setNotesLoading(false);
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -343,6 +345,8 @@ export default function Customers() {
             </div>
             <h3>Son siparişler</h3>
             {customerOrders.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{customerOrders.slice(0,5).map(order => <Link key={order.id} href={`/siparisler/${order.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{order.order_number}</b><small style={{display:'block'}}>{order.item_count} ürün · {money(order.total_amount,order.currency)} · {order.status} · {new Date(order.created_at).toLocaleDateString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı sipariş bulunmuyor.</p>}
+            <h3>Destek talepleri</h3>
+            {supportTickets.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{supportTickets.slice(0,5).map(ticket => <Link key={ticket.id} href={`/destek?ticket=${ticket.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{ticket.ticket_number} · {ticket.subject}</b><small style={{display:'block'}}>{ticket.status} · {ticket.priority}{ticket.order_number ? ` · ${ticket.order_number}` : ''} · Yanıt hedefi: {new Date(ticket.due_at).toLocaleString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı destek talebi bulunmuyor.</p>}
             <h3>Müşteri etiketleri</h3>
             <p>{selected.tags.length ? selected.tags.map(tag => <span key={tag.id} style={{display:'inline-block',margin:'0 6px 6px 0',padding:'3px 8px',borderRadius:99,color:'#fff',background:tag.color}}>{tag.name}</span>) : 'Henüz etiket yok.'}</p>
             {tags.length ? <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>{tags.map(tag => {

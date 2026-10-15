@@ -102,6 +102,20 @@ export class CustomersService {
       WHERE o.customer_id=$1 GROUP BY o.id ORDER BY o.created_at DESC LIMIT 50`, [customerId])).rows;
   }
 
+  async supportTickets(customerId: string) {
+    return (
+      await this.db.query(
+        `SELECT t.id,t.ticket_number,t.subject,t.status,t.priority,t.due_at,t.created_at,o.order_number
+         FROM support_tickets t
+         LEFT JOIN orders o ON o.id=t.order_id
+         WHERE t.customer_id=$1
+         ORDER BY CASE WHEN t.status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND t.due_at<now() THEN 0 ELSE 1 END,t.created_at DESC
+         LIMIT 50`,
+        [customerId],
+      )
+    ).rows;
+  }
+
   async loyalty(customerId: string) {
     const account = await this.db.query('SELECT points_balance,tier,updated_at FROM customer_loyalty_accounts WHERE customer_id=$1', [customerId]);
     const movements = await this.db.query('SELECT id,points_delta,reason,created_at FROM customer_loyalty_movements WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100', [customerId]);
