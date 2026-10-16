@@ -2,9 +2,10 @@ import { NotFoundException } from '@nestjs/common';
 import { SupportService } from './support.service';
 
 describe('SupportService', () => {
+  type TransactionClient = { query: jest.Mock };
   function setup() {
-    const client = { query: jest.fn() };
-    const db = { query: jest.fn(), transaction: jest.fn(async (work: (client: typeof client) => unknown) => work(client)) };
+    const client: TransactionClient = { query: jest.fn() };
+    const db = { query: jest.fn(), transaction: jest.fn(async (work: (transactionClient: TransactionClient) => unknown) => work(client)) };
     return { db, client, service: new SupportService(db as never) };
   }
 
