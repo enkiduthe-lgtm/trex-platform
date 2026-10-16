@@ -16,7 +16,7 @@ const menus: Menu[] = [
   {
     label: "ETİKETLER",
     href: "/etiketler",
-    icon: "▤",
+    icon: "🏷️",
     groups: [
       {
         title: "Barkod ve yazdırma",
@@ -31,7 +31,7 @@ const menus: Menu[] = [
   {
     label: "FİNANS",
     href: "/finans",
-    icon: "₺",
+    icon: "💳",
     groups: [
       {
         title: "Finans operasyonu",
@@ -49,7 +49,7 @@ const menus: Menu[] = [
   {
     label: "STOK / DEPO",
     href: "/stok",
-    icon: "▦",
+    icon: "🏭",
     groups: [
       {
         title: "Yönetim",
@@ -67,7 +67,7 @@ const menus: Menu[] = [
   {
     label: "SİPARİŞLER",
     href: "/siparisler",
-    icon: "▤",
+    icon: "📦",
     groups: [
       {
         title: "Sipariş durumları",
@@ -90,7 +90,7 @@ const menus: Menu[] = [
   {
     label: "ÜRÜNLER",
     href: "/urunler",
-    icon: "◇",
+    icon: "🍵",
     groups: [
       {
         title: "Katalog",
@@ -118,7 +118,7 @@ const menus: Menu[] = [
   {
     label: "PAZARYERİ",
     href: "/pazaryeri",
-    icon: "◫",
+    icon: "🛍️",
     groups: [
       {
         title: "Kanallar",
@@ -143,7 +143,7 @@ const menus: Menu[] = [
   {
     label: "KAMPANYALAR",
     href: "/kampanyalar",
-    icon: "✦",
+    icon: "🎁",
     groups: [
       {
         title: "Fiyatlandırma",
@@ -166,7 +166,7 @@ const menus: Menu[] = [
   {
     label: "MÜŞTERİLER",
     href: "/musteriler",
-    icon: "♙",
+    icon: "👥",
     groups: [
       {
         title: "Müşteri yönetimi",
@@ -189,7 +189,7 @@ const menus: Menu[] = [
   {
     label: "TASARIM",
     href: "/yonetim/tasarim",
-    icon: "◈",
+    icon: "🎨",
     groups: [
       {
         title: "Mağaza",
@@ -214,7 +214,7 @@ const menus: Menu[] = [
   {
     label: "RAPORLAR",
     href: "/raporlar",
-    icon: "▥",
+    icon: "📊",
     groups: [
       {
         title: "Analiz",
@@ -231,7 +231,7 @@ const menus: Menu[] = [
   {
     label: "ARAÇLAR",
     href: "/yonetim/araclar",
-    icon: "⚙",
+    icon: "🧰",
     groups: [
       {
         title: "Entegrasyonlar",
@@ -255,7 +255,7 @@ const menus: Menu[] = [
   {
     label: "AYARLAR",
     href: "/yonetim/ayarlar",
-    icon: "⚿",
+    icon: "⚙️",
     groups: [
       {
         title: "Yönetim",
@@ -392,7 +392,7 @@ export function AdminNav() {
       {error && <p role="alert">{error}</p>}
       <nav className="header-nav" aria-label="Yönetim menüsü">
         <Link className={pathname === "/" ? "active" : ""} href="/">
-          <i>⌂</i> ANA SAYFA
+          <i>🏠</i> ANA SAYFA
         </Link>
         {menus.map((menu) => (
           <div
