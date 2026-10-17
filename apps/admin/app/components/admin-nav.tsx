@@ -42,6 +42,7 @@ const menus: Menu[] = [
           { label: "Masraflar", href: "/finans/masraflar" },
           { label: "Bütçe ve nakit akışı", href: "/finans/butce" },
           { label: "PayTR kasası", href: "/finans/paytr" },
+          { label: "Prim yönetimi", href: "/primler" },
         ],
       },
     ],
@@ -230,7 +231,6 @@ const menus: Menu[] = [
         entries: [
           { label: "Rapor merkezi", href: "/raporlar" },
           { label: "Kârlılık raporu", href: "/karlilik" },
-          { label: "Prim yönetimi", href: "/primler" },
           { label: "Satış performansı", href: "/raporlar" },
           { label: "Stok raporları", href: "/stok" },
         ],
