@@ -265,6 +265,24 @@ main {
   position: relative;
   display: flex;
 }
+@media (min-width: 651px) {
+  .header-nav {
+    justify-content: center;
+  }
+  .header-nav > a,
+  .nav-menu {
+    flex: 0 0 118px;
+  }
+  .header-nav > a,
+  .nav-menu > a,
+  .nav-menu > button {
+    justify-content: center;
+  }
+  .nav-menu > a,
+  .nav-menu > button {
+    width: 100%;
+  }
+}
 .nav-dropdown {
   position: absolute;
   left: 0;
