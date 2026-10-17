@@ -27,6 +27,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { CurrentAccountsModule } from './current-accounts/current-accounts.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
 import { SupportModule } from './support/support.module';
+import { SettingsModule } from './settings/settings.module';
 
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, CatalogModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule, FinanceModule, OrdersModule, SearchModule, CurrentAccountsModule, PurchasingModule, SupportModule] })
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, JobsModule, HealthModule, AuthModule, ProductsModule, CatalogModule, PricingModule, InventoryModule, CartModule, CheckoutModule, PaymentsModule, ShippingModule, DealersModule, ReturnsModule, CommissionsModule, NotificationsModule, ContentModule, WarehouseModule, AssetsModule, CustomersModule, CampaignsModule, FinanceModule, OrdersModule, SearchModule, CurrentAccountsModule, PurchasingModule, SupportModule, SettingsModule] })
 export class AppModule {}

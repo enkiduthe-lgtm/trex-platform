@@ -269,7 +269,14 @@ const menus: Menu[] = [
       {
         title: "Yönetim",
         entries: [
-          { label: "Ayarlar merkezi", href: "/yonetim/ayarlar" },
+          { label: "Genel ayarlar", href: "/yonetim/ayarlar?tab=genel" },
+          { label: "Sipariş ayarları", href: "/yonetim/ayarlar?tab=siparis" },
+          { label: "İade ayarları", href: "/yonetim/ayarlar?tab=iade" },
+          { label: "Ürün ayarları", href: "/yonetim/ayarlar?tab=urun" },
+          { label: "Müşteri ayarları", href: "/yonetim/ayarlar?tab=musteri" },
+          { label: "Bayi ayarları", href: "/yonetim/ayarlar?tab=bayi" },
+          { label: "Bayi XML ayarları", href: "/yonetim/ayarlar?tab=xml" },
+          { label: "Bayi API ayarları", href: "/yonetim/ayarlar?tab=api" },
           { label: "Personeller ve yetkiler", href: "/personel" },
           {
             label: "Güvenlik ve iki aşamalı doğrulama",
@@ -278,14 +285,14 @@ const menus: Menu[] = [
           { label: "Sistem bütünlüğü", href: "/yonetim/sistem-durumu" },
           { label: "İşlem kayıtları", href: "/islem-kayitlari" },
           { label: "Bildirim ayarları", href: "/bildirimler" },
-          { label: "Mağaza ayarları", href: "/yonetim/ayarlar" },
+          { label: "Bakım modu", href: "/yonetim/ayarlar?tab=bakim" },
         ],
       },
       {
         title: "Ticari",
         entries: [
-          { label: "Vergiler", href: "/yonetim/ayarlar" },
-          { label: "Para birimleri", href: "/yonetim/ayarlar" },
+          { label: "Mağaza ayarları", href: "/yonetim/ayarlar?tab=genel" },
+          { label: "Para birimleri", href: "/yonetim/ayarlar?tab=genel" },
           { label: "Yazdırma etiketleri", href: "/yonetim/ayarlar" },
         ],
       },

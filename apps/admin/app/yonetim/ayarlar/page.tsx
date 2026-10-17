@@ -1,84 +1,20 @@
-import Link from "next/link";
+"use client";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../../components/admin-nav";
-
-const areas = [
-  {
-    icon: "🛡️",
-    title: "Güvenlik ayarları",
-    description:
-      "İki aşamalı doğrulama, açık oturumlar ve yönetici hesabı güvenliği.",
-    href: "/yonetim/guvenlik",
-    action: "Güvenliği yönet",
-  },
-  {
-    icon: "👥",
-    title: "Personeller ve yetkiler",
-    description:
-      "Yönetici, depo ve finans ekiplerinin hesapları ile erişim rolleri.",
-    href: "/personel",
-    action: "Personelleri yönet",
-  },
-  {
-    icon: "🔔",
-    title: "Bildirim merkezi",
-    description:
-      "Sistem, sipariş ve operasyon bildirimlerini tek ekrandan takip edin.",
-    href: "/bildirimler",
-    action: "Bildirimleri aç",
-  },
-  {
-    icon: "🧾",
-    title: "İşlem kayıtları",
-    description:
-      "Panelde yapılan önemli yönetim hareketlerini ve denetim kayıtlarını inceleyin.",
-    href: "/islem-kayitlari",
-    action: "Kayıtları incele",
-  },
-  {
-    icon: "📡",
-    title: "Sistem bütünlüğü",
-    description:
-      "Bağlantıları, servislerin durumunu ve sistem kontrollerini görüntüleyin.",
-    href: "/yonetim/sistem-durumu",
-    action: "Sistemi kontrol et",
-  },
-  {
-    icon: "💳",
-    title: "Ticari ayarlar",
-    description:
-      "Ödeme, havale ve finans operasyonlarına ilişkin yönetim ekranları.",
-    href: "/finans",
-    action: "Finans ayarlarını aç",
-  },
-];
-
-export default function SettingsHubPage() {
-  return (
-    <main>
-      <AdminNav />
-      <section>
-        <p>AYARLAR / YÖNETİM MERKEZİ</p>
-        <h1>Ayarlar</h1>
-        <p>
-          İşletme yönetimi, erişim güvenliği ve sistem kontrollerini buradan
-          düzenleyin. Her bölüm kendi ekranında çalışır ve yetkinize göre
-          erişilebilir.
-        </p>
-        <div className="cards">
-          {areas.map((area) => (
-            <article key={area.href}>
-              <p aria-hidden="true" style={{ fontSize: "28px", margin: 0 }}>
-                {area.icon}
-              </p>
-              <h2>{area.title}</h2>
-              <p>{area.description}</p>
-              <Link className="financeLink" href={area.href}>
-                {area.action} →
-              </Link>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
+import { api } from "../../lib/api";
+type Field={key:string;label:string;type:"text"|"number"|"boolean"};
+const groups:Record<string,{title:string;fields:Field[]}>={
+ genel:{title:"Genel Ayarlar",fields:[{key:"companyName",label:"Firma unvanı",type:"text"},{key:"supportEmail",label:"Destek e-postası",type:"text"},{key:"defaultCurrency",label:"Varsayılan para birimi",type:"text"}]},
+ siparis:{title:"Sipariş Ayarları",fields:[{key:"minimumOrderAmount",label:"Minimum sipariş tutarı (TL)",type:"number"},{key:"guestCheckout",label:"Üyeliksiz alışverişe izin ver",type:"boolean"},{key:"orderNotes",label:"Sipariş notu alanını göster",type:"boolean"}]},
+ iade:{title:"İade Ayarları",fields:[{key:"returnsEnabled",label:"Müşteriler iade talebi oluşturabilir",type:"boolean"},{key:"returnWindowDays",label:"İade süresi (gün)",type:"number"},{key:"autoApproveReturns",label:"İade taleplerini otomatik onayla",type:"boolean"}]},
+ urun:{title:"Ürün Ayarları",fields:[{key:"hideOutOfStock",label:"Stokta olmayan ürünleri gizle",type:"boolean"},{key:"minimumStock",label:"Minimum stok uyarısı",type:"number"},{key:"searchByBarcode",label:"Barkod ile aramayı etkinleştir",type:"boolean"}]},
+ musteri:{title:"Müşteri Ayarları",fields:[{key:"emailVerification",label:"E-posta doğrulaması iste",type:"boolean"},{key:"adminApproval",label:"Yeni üyeler için yönetici onayı",type:"boolean"},{key:"loyaltyEnabled",label:"Trex sadakat puanını etkinleştir",type:"boolean"}]},
+ bayi:{title:"Bayi Ayarları",fields:[{key:"dealerApproval",label:"Sadece onaylı bayiler giriş yapabilir",type:"boolean"},{key:"dealerMinimumOrder",label:"Bayi minimum sipariş tutarı (TL)",type:"number"},{key:"dealerPrices",label:"Bayilere özel fiyatları göster",type:"boolean"}]},
+ xml:{title:"Bayi XML Ayarları",fields:[{key:"dealerXmlEnabled",label:"Bayi XML akışını etkinleştir",type:"boolean"},{key:"xmlProductLimit",label:"XML ürün limiti",type:"number"},{key:"xmlIncludeImages",label:"XML içinde ürün görsellerini göster",type:"boolean"}]},
+ api:{title:"Bayi API Ayarları",fields:[{key:"dealerApiEnabled",label:"Bayi API erişimini etkinleştir",type:"boolean"},{key:"apiRateLimit",label:"Dakikalık API istek limiti",type:"number"}]},
+ guvenlik:{title:"Güvenlik Ayarları",fields:[{key:"forceMfa",label:"Yöneticiler için iki aşamalı doğrulama zorunlu",type:"boolean"},{key:"sessionHours",label:"Oturum süresi (saat)",type:"number"}]},
+ bakim:{title:"Bakım Modu",fields:[{key:"maintenanceMode",label:"Bakım modunu etkinleştir",type:"boolean"},{key:"maintenanceMessage",label:"Bakım mesajı",type:"text"}]}
+};
+const defaults:Record<string,unknown>={companyName:"TREX",defaultCurrency:"TRY",minimumOrderAmount:0,guestCheckout:true,orderNotes:true,returnsEnabled:true,returnWindowDays:14,autoApproveReturns:false,hideOutOfStock:false,minimumStock:5,searchByBarcode:true,emailVerification:false,adminApproval:false,loyaltyEnabled:true,dealerApproval:true,dealerMinimumOrder:0,dealerPrices:true,dealerXmlEnabled:false,xmlProductLimit:30000,xmlIncludeImages:true,dealerApiEnabled:false,apiRateLimit:60,forceMfa:false,sessionHours:12,maintenanceMode:false,maintenanceMessage:"Kısa süreli bakım çalışması yapıyoruz."};
+export default function SettingsPage(){const params=useSearchParams();const requested=params.get("tab")??"genel";const tab=groups[requested]?requested:"genel";const[values,setValues]=useState<Record<string,unknown>>(defaults);const[message,setMessage]=useState("");const[saving,setSaving]=useState(false);useEffect(()=>{void api<Record<string,unknown>>("/admin/settings").then(data=>setValues(current=>({...current,...data}))).catch(error=>setMessage(error instanceof Error?error.message:"Ayarlar yüklenemedi."));},[]);const group=groups[tab];async function save(event:FormEvent){event.preventDefault();setSaving(true);setMessage("");try{const settings=Object.fromEntries(group.fields.map(field=>[field.key,values[field.key]]));await api("/admin/settings",{method:"PUT",body:JSON.stringify({settings})});setMessage(`${group.title} kaydedildi.`)}catch(error){setMessage(error instanceof Error?error.message:"Ayarlar kaydedilemedi.")}finally{setSaving(false)}}return <main><AdminNav/><section><p>AYARLAR / YÖNETİM</p><h1>Ayarlar</h1><p>Değişiklikler kalıcı olarak kaydedilir ve işlem kayıtlarına eklenir.</p><nav className="header-subnav" aria-label="Ayarlar alt menüsü"><span>AYARLAR</span><div>{Object.entries(groups).map(([key,item])=><a key={key} className={tab===key?"active":""} href={`/yonetim/ayarlar?tab=${key}`}>{item.title}</a>)}</div></nav>{message&&<p role="status">{message}</p>}<form className="form-card" onSubmit={save}><h2>{group.title}</h2><div className="form-grid">{group.fields.map(field=><label key={field.key}>{field.label}{field.type==="boolean"?<input type="checkbox" checked={Boolean(values[field.key])} onChange={event=>setValues(data=>({...data,[field.key]:event.target.checked}))}/>:<input type={field.type} min={field.type==="number"?0:undefined} value={String(values[field.key]??"")} onChange={event=>setValues(data=>({...data,[field.key]:field.type==="number"?Number(event.target.value):event.target.value}))}/>}</label>)}</div><button disabled={saving}>{saving?"Kaydediliyor…":"Ayarları kaydet"}</button></form></section></main>}
