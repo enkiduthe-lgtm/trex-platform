@@ -19,6 +19,9 @@ export class CheckoutService {
     if (!idempotencyKey || idempotencyKey.length > 200) throw new ConflictException('Idempotency-Key header required');
     const requestHash = createHash('sha256').update(JSON.stringify(dto)).digest('hex');
     return this.db.transaction(async (client: PoolClient) => {
+      const settingRow = await client.query<{ settings: Record<string, unknown> }>('SELECT settings FROM admin_settings WHERE singleton=true FOR SHARE');
+      const settings = settingRow.rows[0]?.settings ?? {};
+      if (settings.maintenanceMode === true) throw new ConflictException(typeof settings.maintenanceMessage === 'string' && settings.maintenanceMessage ? settings.maintenanceMessage : 'Mağaza kısa süreli bakımda. Lütfen daha sonra tekrar deneyin.');
       const prior = await client.query<{ request_hash: string; resource_id: string | null }>('SELECT request_hash, resource_id FROM idempotency_records WHERE key=$1 AND expires_at > now() FOR UPDATE', [idempotencyKey]);
       if (prior.rows[0]) { if (prior.rows[0].request_hash !== requestHash) throw new ConflictException('Idempotency key reused with different data'); return { checkoutId: prior.rows[0].resource_id, replayed: true }; }
       const cart = await client.query('SELECT id FROM carts WHERE id=$1 AND session_key_hash=$2 AND expires_at > now() FOR UPDATE', [dto.cartId, createHash('sha256').update(dto.guestKey).digest('hex')]);
@@ -37,6 +40,8 @@ export class CheckoutService {
         couponId=row.id; const raw=row.discount_type==='PERCENT' ? subtotal * Number(row.discount_value) / 100 : Number(row.discount_value); discount=Math.min(subtotal,Math.round(raw*100)/100);
       }
       const total = subtotal - discount;
+      const minimumOrderAmount = Number(settings.minimumOrderAmount ?? 0);
+      if (Number.isFinite(minimumOrderAmount) && minimumOrderAmount > 0 && total < minimumOrderAmount) throw new ConflictException(`Minimum sipariş tutarı ${minimumOrderAmount.toLocaleString('tr-TR')} TL olmalıdır.`);
       const warehouse = await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
       if (!warehouse.rows[0]) throw new ConflictException('Teslimat için aktif depo bulunamadı');
       for (const item of priced) {
