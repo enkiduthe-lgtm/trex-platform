@@ -147,6 +147,22 @@ main {
 .stock-workspace .two-columns {
   grid-template-columns: 1fr;
 }
+.dealer-workspace .two-columns {
+  grid-template-columns: 1fr;
+}
+.dealer-workspace .form-card {
+  max-width: none;
+}
+.dealer-workspace .two-columns .form-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  align-items: end;
+}
+.dealer-workspace .two-columns .form-card h2,
+.dealer-workspace .two-columns .form-card p,
+.dealer-workspace .two-columns .form-card ul {
+  grid-column: 1 / -1;
+}
 .stock-workspace .form-card {
   max-width: none;
 }
