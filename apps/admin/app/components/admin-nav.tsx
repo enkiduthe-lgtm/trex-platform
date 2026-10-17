@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useMemo, useRef, useState } from "react";
 import { logout } from "../lib/api";
 
 type Entry = { label: string; href?: string };
@@ -311,7 +311,7 @@ function active(pathname: string, menu: Menu) {
     )
   );
 }
-export function AdminNav() {
+function AdminNavContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -474,5 +474,13 @@ export function AdminNav() {
         </nav>
       )}
     </header>
+  );
+}
+
+export function AdminNav() {
+  return (
+    <Suspense fallback={<header className="admin-header" aria-label="Yönetim menüsü" />}>
+      <AdminNavContent />
+    </Suspense>
   );
 }
