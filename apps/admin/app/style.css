@@ -43,20 +43,23 @@ main {
   gap: 26px;
 }
 .header-brand {
-  width: 166px;
+  width: 128px;
   display: grid;
+  justify-items: center;
   line-height: 1;
 }
-.header-brand b {
-  font-size: 21px;
-  letter-spacing: 0.13em;
-  color: #54027c;
+.header-brand img {
+  width: 68px;
+  height: 42px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
 }
 .header-brand span {
-  font-size: 10px;
-  letter-spacing: 0.32em;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
   color: #7a2a98;
-  margin-top: 5px;
+  margin-top: -2px;
 }
 .panel-search {
   position: relative;
@@ -643,6 +646,14 @@ button {
 .login-page .form-card {
   max-width: 480px;
 }
+.login-brand {
+  display: block;
+  width: 148px;
+  height: 106px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  margin: 0 0 6px -8px;
+}
 
 /* Modül ekranlarını ortak mor temaya bağla. */
 [class*="subnav"],
@@ -743,8 +754,9 @@ button {
   .header-brand {
     width: 94px;
   }
-  .header-brand b {
-    font-size: 15px;
+  .header-brand img {
+    width: 54px;
+    height: 36px;
   }
   .panel-search {
     max-width: none;

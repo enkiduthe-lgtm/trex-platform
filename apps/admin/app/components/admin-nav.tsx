@@ -385,8 +385,8 @@ export function AdminNav() {
     <header className="admin-header">
       <div className="header-main">
         <Link className="header-brand" href="/">
-          <b>TREX</b>
-          <span>YÖNETİM</span>
+          <img src="/brand/trex-tea-logo.png" alt="TREX Tea" />
+          <span>YÖNETİM PANELİ</span>
         </Link>
         <form className="panel-search" onSubmit={submitPanelSearch}>
           <input
