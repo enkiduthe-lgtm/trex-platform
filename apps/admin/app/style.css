@@ -163,6 +163,19 @@ main {
 .dealer-workspace .two-columns .form-card ul {
   grid-column: 1 / -1;
 }
+.finance-workspace .split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.finance-workspace .split .form-card {
+  max-width: none;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  align-items: end;
+}
+.finance-workspace .split .form-card h2 {
+  grid-column: 1 / -1;
+}
 .stock-workspace .form-card {
   max-width: none;
 }

@@ -188,7 +188,7 @@ export default function Finance() {
   return (
     <main>
       <AdminNav />
-      <section>
+      <section className="finance-workspace">
         <p>FİNANS VE TAHSİLAT</p>
         <h1>Hesap bazlı finans</h1>
         <p>
