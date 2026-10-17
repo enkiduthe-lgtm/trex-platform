@@ -163,6 +163,24 @@ main {
 .dealer-workspace .two-columns .form-card ul {
   grid-column: 1 / -1;
 }
+.dealer-workspace > .cards {
+  grid-template-columns: 1fr;
+}
+.dealer-workspace > .cards article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) minmax(190px, 1fr) minmax(150px, 0.7fr) minmax(300px, 1.5fr);
+  gap: 14px;
+  align-items: center;
+}
+.dealer-workspace > .cards article > * {
+  margin: 0;
+}
+.dealer-workspace > .cards article > h2 {
+  font-size: 16px;
+}
+.dealer-workspace > .cards article > div:last-child {
+  grid-column: 1 / -1;
+}
 .finance-workspace .split {
   display: grid;
   grid-template-columns: 1fr;
@@ -725,6 +743,10 @@ button {
     padding-right: 8px;
   }
   .stock-workspace > .cards article {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .dealer-workspace > .cards article {
     grid-template-columns: 1fr;
     gap: 8px;
   }
