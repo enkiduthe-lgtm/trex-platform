@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useRef, useState } from "react";
 import { logout } from "../lib/api";
 
@@ -73,16 +73,28 @@ const menus: Menu[] = [
         title: "Sipariş durumları",
         entries: [
           { label: "Tüm siparişler", href: "/siparisler" },
+          {
+            label: "Onay bekleyenler",
+            href: "/siparisler?durum=PENDING_PAYMENT",
+          },
+          { label: "Hazırlananlar", href: "/siparisler?durum=PROCESSING" },
+          { label: "Kargolananlar", href: "/siparisler?durum=SHIPPED" },
+          {
+            label: "Teslim edilenler",
+            href: "/siparisler?durum=DELIVERED",
+          },
           { label: "İade talepleri", href: "/iadeler" },
-          { label: "Ödeme hareketleri", href: "/finans" },
+          { label: "İptal edilenler", href: "/siparisler?durum=CANCELLED" },
         ],
       },
       {
         title: "Operasyon",
         entries: [
+          { label: "Hızlı satış", href: "/siparisler/yeni" },
           { label: "Depo ve stok", href: "/stok" },
           { label: "Kargo işlemleri", href: "/kargo" },
-          { label: "Sipariş etiketleri", href: "/kargo" },
+          { label: "Havale bildirimleri", href: "/finans/havaleler" },
+          { label: "Sipariş etiketleri", href: "/etiketler" },
         ],
       },
     ],
@@ -298,6 +310,7 @@ function active(pathname: string, menu: Menu) {
 export function AdminNav() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [panelSearch, setPanelSearch] = useState("");
@@ -312,6 +325,9 @@ export function AdminNav() {
           entries.findIndex((candidate) => candidate.href === entry.href) ===
           index,
       ) ?? [];
+  const currentHref = searchParams.size
+    ? `${pathname}?${searchParams.toString()}`
+    : pathname;
   const searchEntries = useMemo(
     () => [
       { label: "Ana sayfa", href: "/" },
@@ -444,7 +460,7 @@ export function AdminNav() {
             {secondaryEntries.map((entry) => (
               <Link
                 key={entry.href}
-                className={pathname === entry.href ? "active" : ""}
+                className={currentHref === entry.href ? "active" : ""}
                 href={entry.href}
               >
                 {entry.label}

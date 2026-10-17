@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import styles from "./orders.module.css";
@@ -37,6 +43,7 @@ const date = (value: string) =>
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 export default function Orders() {
+  const searchParams = useSearchParams();
   const [canCreate, setCanCreate] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const actionLock = useRef(false);
@@ -53,6 +60,15 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selected, setSelected] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  useEffect(() => {
+    const requestedStatus = searchParams.get("durum");
+    setStatusFilter(
+      requestedStatus && requestedStatus in statusText
+        ? requestedStatus
+        : "ALL",
+    );
+    setSelected([]);
+  }, [searchParams]);
   const load = () =>
     api<Order[]>("/admin/orders")
       .then(setOrders)
