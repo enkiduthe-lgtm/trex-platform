@@ -161,15 +161,12 @@ const menus: Menu[] = [
         title: "Fiyatlandırma",
         entries: [
           { label: "Kampanya yönetimi", href: "/kampanyalar" },
+          { label: "Hediye çekleri", href: "/kampanyalar?tab=coupons" },
+          {
+            label: "Hızlı indirimler",
+            href: "/kampanyalar?tab=discounts",
+          },
           { label: "Bayi indirimleri", href: "/bayiler" },
-          { label: "Hızlı indirimler", href: "/kampanyalar" },
-        ],
-      },
-      {
-        title: "Pazarlama",
-        entries: [
-          { label: "Hediye çekleri", href: "/kampanyalar" },
-          { label: "Satış kotaları", href: "/kampanyalar" },
           { label: "E-posta ve SMS bültenleri", href: "/bildirimler" },
         ],
       },
