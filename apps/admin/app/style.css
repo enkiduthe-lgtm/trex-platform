@@ -99,6 +99,7 @@ main {
 .header-nav {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   padding: 0 25px;
   min-height: 44px;
   background: linear-gradient(90deg, #5c087f, #9a25bb);
@@ -267,7 +268,7 @@ main {
 .nav-dropdown {
   position: absolute;
   left: 0;
-  top: 44px;
+  top: 100%;
   min-width: 380px;
   display: none;
   grid-template-columns: repeat(2, minmax(175px, 1fr));
@@ -733,6 +734,7 @@ button {
   .header-nav {
     padding: 0;
     overflow: auto;
+    flex-wrap: nowrap;
   }
   .header-subnav {
     padding: 0 12px;
