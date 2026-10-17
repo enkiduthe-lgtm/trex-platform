@@ -207,7 +207,7 @@ export default function Customers() {
         <nav className={styles.subnav}>
           <span className={styles.current}>Müşteriler</span>
           <Link href="/bayiler">Bayiler</Link>
-          <Link href="/finans">Cari ve bakiye</Link>
+          <Link href="/cari">Cari ve bakiye</Link>
           <Link href="/bildirimler">Bildirim merkezi</Link>
         </nav>
         <div className={styles.heading}>

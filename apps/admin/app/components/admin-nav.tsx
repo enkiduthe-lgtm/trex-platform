@@ -135,7 +135,7 @@ const menus: Menu[] = [
       {
         title: "Kanallar",
         entries: [
-          { label: "Pazaryeri bağlantıları", href: "/pazaryeri" },
+          { label: "Mağazalar", href: "/pazaryeri" },
           { label: "Bayi satış kanalı", href: "/toptan" },
         ],
       },
