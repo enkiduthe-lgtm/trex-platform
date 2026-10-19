@@ -24,7 +24,8 @@ export default function LoginPage() {
     try {
       const result = await api<{ accessToken: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...(mfaCode ? { mfaCode } : {}) }) });
       setToken(result.accessToken);
-      router.push('/urunler');
+      const session = await api<{ user: { role: string } }>('/auth/me');
+      router.push(session.user.role === 'DEALER' ? '/bayi-portal' : '/urunler');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Giriş yapılamadı'); }
     finally { setBusy(false); }
   }
