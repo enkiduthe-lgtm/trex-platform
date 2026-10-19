@@ -5,7 +5,8 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
+    useState,
+  Suspense,
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
@@ -42,7 +43,7 @@ const date = (value: string) =>
   });
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
-export default function Orders() {
+function OrdersContent() {
   const searchParams = useSearchParams();
   const [canCreate, setCanCreate] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -417,5 +418,14 @@ export default function Orders() {
         </p>
       </section>
     </main>
+  );
+}
+
+
+export default function Orders() {
+  return (
+    <Suspense fallback={<main><AdminNav /></main>}>
+      <OrdersContent />
+    </Suspense>
   );
 }
