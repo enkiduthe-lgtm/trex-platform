@@ -48,15 +48,15 @@ const menus: Menu[] = [
     ],
   },
   {
-    label: "STOK / DEPO",
+    label: "STOK",
     href: "/stok",
-    icon: "🏭",
+    icon: "▦",
     groups: [
       {
         title: "Yönetim",
         entries: [
           { label: "Stok girişi", href: "/stok" },
-          { label: "Toplama ve paketleme", href: "/depo-operasyon" },
+          { label: "Depo operasyonu", href: "/depo-operasyon" },
           { label: "Satın alma", href: "/satinalma" },
           { label: "Stok silme", href: "/stok#stok-silme" },
           { label: "Depo silme", href: "/stok#depo-silme" },
