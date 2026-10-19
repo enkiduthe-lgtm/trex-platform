@@ -62,11 +62,11 @@ export class AdminController {
     try {
       const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
       return await this.db.transaction(async client => {
-        const dealer = await client.query('SELECT id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR UPDATE', [dealerId]);
+        const dealer = await client.query('SELECT id FROM dealers WHERE id=$1 AND status=\'ACTIVE\' FOR UPDATE', [dealerId]);
         if (!dealer.rowCount) throw new ConflictException('Önce aktif bayi onayı verilmelidir');
         const existing = await client.query('SELECT 1 FROM dealer_user_accounts WHERE dealer_id=$1', [dealerId]);
         if (existing.rowCount) throw new ConflictException('Bu bayi için portal hesabı zaten açılmış');
-        const created = await client.query<{ id: string }>('INSERT INTO users(email,password_hash,role) VALUES($1,$2,'DEALER') RETURNING id', [email, passwordHash]);
+        const created = await client.query<{ id: string }>('INSERT INTO users(email,password_hash,role) VALUES($1,$2,\'DEALER\') RETURNING id', [email, passwordHash]);
         await client.query('INSERT INTO dealer_user_accounts(dealer_id,user_id) VALUES($1,$2)', [dealerId, created.rows[0].id]);
         await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [req.user.id, 'dealer.portal_account.created', 'dealer', dealerId, JSON.stringify({ email })]);
         return { id: created.rows[0].id, email };
@@ -74,4 +74,3 @@ export class AdminController {
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta ile bir hesap zaten var'); throw error; }
   }
 }
-
