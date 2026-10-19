@@ -426,8 +426,9 @@ export default function Products() {
             <h1>Ürünler</h1>
           </div>
           <div className={styles.catalogLinks}>
-            <Link href="/stok">Stok yönetimi</Link>
-            <Link href="/medya">Medya merkezi</Link>
+            <Link href="/stok">▦ Stok girişi</Link>
+            <Link href="/depo-operasyon">⌂ Depo operasyonu</Link>
+            <Link href="/medya">▧ Medya merkezi</Link>
           </div>
         </div>
         {message && (
@@ -989,7 +990,8 @@ export default function Products() {
                     </td>
                     <td>
                       <Link className={styles.stockLink} href="/stok">
-                        Stok işlemi →
+                        ▦ Stok girişi
+                        <small>Depo ve lot bilgisiyle kaydet</small>
                       </Link>
                     </td>
                     <td>
