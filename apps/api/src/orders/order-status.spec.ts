@@ -7,7 +7,7 @@ describe('Order status transitions',()=>{
     const query=jest.fn().mockResolvedValue({rows:[]});
     query.mockResolvedValueOnce({rows:status?[{status}]:[]});
     const transaction=jest.fn(async(work:any)=>work({query}));
-    return {query,transaction,service:new OrdersService({transaction} as never)};
+    return {query,transaction,service:new OrdersService({transaction,query} as never)};
   }
   it.each(['CANCELLED','DELIVERED','PENDING_PAYMENT','SHIPPED'])('does not reopen %s as processing',async status=>{
     const {service,query}=setup(status);
@@ -18,7 +18,7 @@ describe('Order status transitions',()=>{
   it.each([['PAID',OrderStatusUpdate.PROCESSING],['PROCESSING',OrderStatusUpdate.SHIPPED],['SHIPPED',OrderStatusUpdate.DELIVERED]])('allows %s to %s atomically',async(previous,status)=>{
     const {service,query}=setup(previous);
     await expect(service.updateStatus('order',{status},actor)).resolves.toEqual({id:'order',status});
-    expect(query).toHaveBeenCalledTimes(4);
+    expect(query).toHaveBeenCalledTimes(status===OrderStatusUpdate.DELIVERED?5:4);
     expect(query.mock.calls[2][1]).toEqual(['order',status,actor.id]);
   });
   it('replays an unchanged status without duplicate history',async()=>{
@@ -40,5 +40,16 @@ describe('Order status transitions',()=>{
     await service.updateStatus('order',{status:OrderStatusUpdate.CANCELLED},actor);
     expect(cancel).toHaveBeenCalledWith('order',actor);
     expect(transaction).not.toHaveBeenCalled();
+  });
+  it('creates dealer commission entries once when a dealer order is delivered',async()=>{
+    const query=jest.fn().mockResolvedValue({rows:[]});
+    query.mockResolvedValueOnce({rows:[{status:'SHIPPED',order_number:'TRX-1',contact_email:null}]});
+    query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]});
+    query.mockResolvedValueOnce({rowCount:1,rows:[{dealer_id:'dealer'}]}).mockResolvedValueOnce({rows:[{id:'item',product_id:'product',quantity:2}]});
+    const transaction=jest.fn(async(work:any)=>work({query}));
+    const commissions={awardForDeliveredOrder:jest.fn(),confirmForOrderItem:jest.fn().mockResolvedValue({id:'commission'})};
+    const service=new OrdersService({transaction,query} as never,commissions as never);
+    await expect(service.updateStatus('order',{status:OrderStatusUpdate.DELIVERED},actor)).resolves.toEqual({id:'order',status:OrderStatusUpdate.DELIVERED});
+    expect(commissions.confirmForOrderItem).toHaveBeenCalledWith({dealerId:'dealer',orderId:'order',orderItemId:'item',productId:'product',quantity:2});
   });
 });
