@@ -43,10 +43,13 @@ akışında kargo sağlayıcısı değiştirilmez.
 
 ## 3. Bildirimler
 
-Bir SMS/e-posta sağlayıcısı seçilir; gönderici başlığı, izin/ret politikası ve
-teslimat callback'i birlikte tanımlanır. Sağlayıcı seçilmeden
-`NOTIFICATION_PROVIDER` değeri `mock` olarak kalır. Testte şu üç olay kayıt
-altına alınır: gönderim, başarısız gönderim ve tekrar deneme.
+İlk canlı e-posta adaptörü Brevo olarak hazırdır. Ücretsiz paketi, küçük
+başlangıç hacimleri için günlük e-posta kotası sunar. Render API hizmetine
+`NOTIFICATION_PROVIDER=brevo`, `BREVO_API_KEY` ve doğrulanmış göndereni
+içeren `BREVO_FROM_EMAIL` eklenir. SMS sağlayıcısı seçilene kadar SMS ve push
+bildirimleri güvenli biçimde başarısız kayda düşer; e-posta akışı etkilenmez.
+Testte şu üç olay kayıt altına alınır: gönderim, başarısız gönderim ve tekrar
+deneme.
 
 ## 4. Görsel depolama — Cloudflare R2
 

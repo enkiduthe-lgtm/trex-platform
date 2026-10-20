@@ -17,5 +17,8 @@ export function validateEnvironment(env: NodeJS.ProcessEnv): void {
   if (production) {
     if (!env.CORS_ORIGIN || env.CORS_ORIGIN.split(',').some(origin => origin.trim() === '*')) throw new Error('Production CORS_ORIGIN must contain explicit origins');
     if (!env.PAYMENT_PROVIDER || !env.SHIPPING_PROVIDER || !env.NOTIFICATION_PROVIDER || env.PAYMENT_PROVIDER === 'mock' || env.SHIPPING_PROVIDER === 'mock' || env.NOTIFICATION_PROVIDER === 'mock') throw new Error('Production payment, shipping, and notification providers must be configured; mock adapters cannot run in production');
+    if (env.PAYMENT_PROVIDER === 'paytr' && (!env.PAYTR_MERCHANT_ID || !env.PAYTR_MERCHANT_KEY || !env.PAYTR_MERCHANT_SALT || !env.PUBLIC_WEB_URL)) throw new Error('PayTR production settings are incomplete');
+    if (env.SHIPPING_PROVIDER === 'aras' && (!env.ARAS_CUSTOMER_CODE || !env.ARAS_SET_ORDER_USERNAME || !env.ARAS_SET_ORDER_PASSWORD || !env.ARAS_SET_ORDER_ENDPOINT)) throw new Error('Aras shipping production settings are incomplete');
+    if (env.NOTIFICATION_PROVIDER === 'brevo' && (!env.BREVO_API_KEY || !env.BREVO_FROM_EMAIL)) throw new Error('Brevo notification settings are incomplete');
   }
 }
