@@ -27,21 +27,27 @@ export class DealerPortalController {
 
   @Get('orders')
   async listOrders(@Req() req: UserRequest) {
-    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at FROM audit_logs al JOIN orders o ON o.id=al.entity_id WHERE al.actor_user_id=$1 AND al.action='order.admin.created' AND al.entity_type='order' ORDER BY o.created_at DESC", [req.user.id]);
+    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at FROM audit_logs al JOIN orders o ON o.id=al.entity_id WHERE al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order' ORDER BY o.created_at DESC", [req.user.id]);
     return result.rows;
   }
 
   @Get('creation-options')
-  creationOptions() { return this.adminOrders.options(); }
+  async creationOptions(@Req() req: UserRequest) {
+    const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);
+    if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
+    return this.adminOrders.options(account.rows[0].dealer_id);
+  }
 
   @Post('orders')
-  createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
-    return this.adminOrders.create(dto, key, req.user);
+  async createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
+    const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);
+    if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
+    return this.adminOrders.create({ ...dto, customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
   }
 
   @Post('orders/:id/cancel')
   async cancelOrder(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
-    const owned = await this.db.query("SELECT 1 FROM audit_logs WHERE actor_user_id=$1 AND action='order.admin.created' AND entity_type='order' AND entity_id=$2", [req.user.id, id]);
+    const owned = await this.db.query("SELECT 1 FROM audit_logs WHERE actor_user_id=$1 AND action IN ('order.dealer.created','order.admin.created') AND entity_type='order' AND entity_id=$2", [req.user.id, id]);
     if (!owned.rowCount) throw new NotFoundException('Sipariş bulunamadı');
     return this.orders.cancel(id, req.user);
   }
