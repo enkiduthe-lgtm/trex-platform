@@ -52,7 +52,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
   }
   async track(number:string,email:string) { const result=await this.db.query<{order_number:string;status:string;total_amount:string;currency:string;created_at:string;shipment_status:string|null;tracking_number:string|null}>(`SELECT o.order_number,o.status,o.total_amount,o.currency,o.created_at,s.status AS shipment_status,s.tracking_number FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN shipments s ON s.order_id=o.id WHERE o.order_number=$1 AND lower(cs.contact_email)=lower($2)`,[number.trim(),email.trim()]); if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı'); return result.rows[0]; }
   async cancel(id:string,actor:RequestUser) {
-    if(!['ADMIN','SUPER_ADMIN'].includes(actor.role)) throw new ForbiddenException('Sipariş iptali için yönetici yetkisi gerekli');
+    if(!['ADMIN','SUPER_ADMIN','DEALER'].includes(actor.role)) throw new ForbiddenException('Sipariş iptali için yönetici yetkisi gerekli');
     return this.db.transaction(async client=>{
       const order=(await client.query<{checkout_id:string;status:string;sales_channel:string}>('SELECT checkout_id,status,sales_channel FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
