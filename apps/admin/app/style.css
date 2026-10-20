@@ -185,6 +185,12 @@ main {
 .dealer-workspace > .cards article > div:last-child {
   grid-column: 1 / -1;
 }
+.dealer-summary-cards { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.dealer-summary-cards article { display: block !important; }
+.dealer-summary-cards article > * { margin: 0 0 8px !important; }
+.dealer-orders > div { grid-template-columns: minmax(220px, 1fr) minmax(180px, .75fr) auto !important; align-items: center; }
+.dealer-orders button { background: #8b1fae; color: #fff; border: 0; border-radius: 7px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
+.dealer-orders button:disabled { opacity: .6; cursor: wait; }
 .finance-workspace .split {
   display: grid;
   grid-template-columns: 1fr;
