@@ -7,6 +7,8 @@ export class AdminOrderItemDto {
   @ValidateIf((_object,value)=>value!==undefined) @IsNumber({maxDecimalPlaces:2}) @Min(0) @Max(9999999999.99) unitAmount?: number;
 }
 export class CreateAdminOrderDto {
+  // Dealer portal orders set this on the server. Managers must choose one explicitly.
+  @IsOptional() @IsIn(['RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','DEALER_PORTAL','MARKETPLACE']) salesChannel?: 'RETAIL' | 'WHOLESALE' | 'PUBLIC_WEB' | 'INSTAGRAM' | 'DEALER_PORTAL' | 'MARKETPLACE';
   @IsOptional() @IsUUID() customerId?: string;
   @IsUUID() warehouseId!: string;
   @IsString() @MinLength(1) @MaxLength(160) recipientName!: string;

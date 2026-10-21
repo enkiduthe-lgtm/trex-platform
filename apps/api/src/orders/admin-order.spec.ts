@@ -7,7 +7,7 @@ import { CreateAdminOrderDto } from './dto/create-admin-order.dto';
 import { OrdersController } from './orders.controller';
 import { RolesGuard } from '../auth/roles.guard';
 
-const dto = { warehouseId:'f61db1b6-5bd6-4c68-9564-e063d34e1f68',recipientName:'Test',contactEmail:'test@example.com',phone:'05000000000',city:'İstanbul',district:'Test',addressLine:'Test address',paymentMethod:'TRANSFER',items:[{productId:'d91db1b6-5bd6-4c68-9564-e063d34e1f68',quantity:2}] };
+const dto = { salesChannel:'RETAIL',warehouseId:'f61db1b6-5bd6-4c68-9564-e063d34e1f68',recipientName:'Test',contactEmail:'test@example.com',phone:'05000000000',city:'İstanbul',district:'Test',addressLine:'Test address',paymentMethod:'TRANSFER',items:[{productId:'d91db1b6-5bd6-4c68-9564-e063d34e1f68',quantity:2}] };
 describe('Administrator order input and access', () => {
   it('accepts a complete order', async () => {
     expect(await validate(plainToInstance(CreateAdminOrderDto,dto))).toHaveLength(0);
@@ -34,6 +34,12 @@ describe('Administrator order input and access', () => {
     const db = { transaction:jest.fn() };
     const service = new AdminOrderService(db as never);
     await expect(service.create({...dto,items:[dto.items[0],dto.items[0]]} as CreateAdminOrderDto,'f61db1b6-5bd6-4c68-9564-e063d34e1f68',{} as never)).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+  it('requires a sales channel for a manager-created order',async () => {
+    const db = { transaction:jest.fn() };
+    const service = new AdminOrderService(db as never);
+    await expect(service.create({...dto,salesChannel:undefined} as CreateAdminOrderDto,'f61db1b6-5bd6-4c68-9564-e063d34e1f68',{} as never)).rejects.toThrow('Satış kanalı seçimi gerekli');
     expect(db.transaction).not.toHaveBeenCalled();
   });
   it.each(['TRANSFER','COD_CARD','COD_CASH','HAND_CASH'])('accepts %s and a manager price override',async paymentMethod=>{

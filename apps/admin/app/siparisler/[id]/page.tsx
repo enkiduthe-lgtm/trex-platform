@@ -7,6 +7,8 @@ import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
 import styles from "../orders.module.css";
 
+const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
+
 type Detail = {
   order_number: string;
   sales_channel: string;
@@ -190,7 +192,7 @@ export default function OrderDetail() {
                 .join(", ") || "Belirtilmedi"}
             </p>
             {canEdit &&
-              data.sales_channel === "ADMIN_ORDER" &&
+              editableAdminChannels.includes(data.sales_channel) &&
               data.status !== "CANCELLED" && (
                 <Link
                   className={styles.financeLink}
@@ -200,7 +202,7 @@ export default function OrderDetail() {
                 </Link>
               )}
             {canEdit &&
-              data.sales_channel === "ADMIN_ORDER" &&
+              editableAdminChannels.includes(data.sales_channel) &&
               ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) &&
               data.payments.length > 0 &&
               data.payments.every(
@@ -215,7 +217,7 @@ export default function OrderDetail() {
                 </button>
               )}
             {canEdit &&
-              data.sales_channel === "ADMIN_ORDER" &&
+              editableAdminChannels.includes(data.sales_channel) &&
               ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) &&
               data.payments.length > 0 &&
               data.payments.every(

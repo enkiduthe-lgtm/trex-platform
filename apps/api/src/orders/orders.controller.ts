@@ -21,7 +21,7 @@ export class OrdersController {
   @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
   reportOperations(@Query('days') days?:string) { return this.orders.operationalSummary(Number(days ?? 30)); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
-  options() { return this.adminOrders.options(); }
+  options(@Query('channel') channel?: string) { return this.adminOrders.options(undefined, channel); }
   @Post() @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   create(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) { return this.adminOrders.create(dto,key,req.user); }
   @Get(':id') detail(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.detail(id); }

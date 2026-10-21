@@ -20,11 +20,12 @@ export default function NewOrder() {
   const [busy,setBusy] = useState(false);
   const lock = useRef(false);
   const attempt = useRef<{ payload:string; key:string }|null>(null);
-  const [form,setForm] = useState({ customerId:'',warehouseId:'',recipientName:'',contactEmail:'',phone:'',city:'',district:'',addressLine:'',postalCode:'',paymentMethod:'TRANSFER',currency:'TRY',priceChangeReason:'' });
+  const [form,setForm] = useState({ salesChannel:'',customerId:'',warehouseId:'',recipientName:'',contactEmail:'',phone:'',city:'',district:'',addressLine:'',postalCode:'',paymentMethod:'TRANSFER',currency:'TRY',priceChangeReason:'' });
   const [items,setItems] = useState([{ productId:'',quantity:1,unitAmount:'' }]);
   useEffect(() => {
-    api<Options>('/admin/orders/creation-options').then(setOptions).catch(error => setMessage(error instanceof Error ? error.message : 'Sipariş bilgileri yüklenemedi'));
-  },[]);
+    if (!form.salesChannel) { setOptions(null); return; }
+    api<Options>(`/admin/orders/creation-options?channel=${encodeURIComponent(form.salesChannel)}`).then(setOptions).catch(error => setMessage(error instanceof Error ? error.message : 'Sipariş bilgileri yüklenemedi'));
+  },[form.salesChannel]);
   function chooseCustomer(id:string) {
     const customer = options?.customers.find(item => item.id===id);
     setForm(current => ({ ...current,customerId:id,recipientName:customer ? `${customer.first_name} ${customer.last_name}` : '',contactEmail:customer?.email ?? '',phone:customer?.phone ?? '' }));
@@ -49,7 +50,8 @@ export default function NewOrder() {
     <Link href="/siparisler">← Siparişler</Link><h1>Yeni yönetici siparişi</h1>
     <p className={styles.notice}>Stok sipariş için ayrılır. Havale ve elden nakit siparişleri tahsilat onayını bekler. Elden nakit seçmek, para alındığı anlamına gelmez. Kapıda ödeme siparişleri depoya hazırlanmak üzere gönderilir; ödeme, teslimatta tahsil edilip finans tarafından onaylanana kadar bekliyor görünür.</p>
     {message&&<p role="alert" className={styles.notice}>{message}</p>}
-    {!options&&!message&&<p>Yükleniyor…</p>}
+    <section className={styles.notice}><label>Satış kanalı<select required value={form.salesChannel} onChange={event=>{setForm({...form,salesChannel:event.target.value});setItems([{productId:'',quantity:1,unitAmount:''}]);}}><option value="">Kanal seçin</option><option value="RETAIL">Perakende Satış</option><option value="WHOLESALE">Toptan Satış</option><option value="PUBLIC_WEB">Site Satış</option><option value="INSTAGRAM">Instagram Satış</option><option value="DEALER_PORTAL">Bayi Satış</option><option value="MARKETPLACE">Pazaryeri Satış</option></select></label><p>Seçim, sipariş raporları ve kanal bazlı fiyatlandırmada kullanılır. Pazaryeri entegrasyonu bağlandığında kayıtlar otomatik bu kanala düşer.</p></section>
+    {form.salesChannel&&!options&&!message&&<p>Ürün ve depo seçenekleri yükleniyor…</p>}
     {options&&<form onSubmit={submit} className={styles.newOrder}>
       <fieldset disabled={busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
         <label>Müşteri<select value={form.customerId} onChange={event=>chooseCustomer(event.target.value)}><option value="">Yeni / misafir müşteri</option>{options.customers.map(customer=><option key={customer.id} value={customer.id}>{customer.first_name} {customer.last_name} · {customer.email}</option>)}</select></label>

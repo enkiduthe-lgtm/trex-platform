@@ -34,6 +34,10 @@ const statusText: Record<string, string> = {
   DELIVERED: "Teslim edildi",
   CANCELLED: "İptal edildi",
 };
+const channelText: Record<string, string> = {
+  RETAIL: "Perakende Satış", WHOLESALE: "Toptan Satış", PUBLIC_WEB: "Site Satış", INSTAGRAM: "Instagram Satış", DEALER_PORTAL: "Bayi Satış", MARKETPLACE: "Pazaryeri Satış", ADMIN_ORDER: "Yönetici siparişi",
+};
+const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
 const money = (value: string, currency: string) =>
   Number(value).toLocaleString("tr-TR", { style: "currency", currency });
 const date = (value: string) =>
@@ -170,7 +174,7 @@ function OrdersContent() {
         order.total_amount,
         order.currency,
         statusText[order.status] ?? order.status,
-        order.marketplace_name ?? order.sales_channel ?? "",
+        order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : ""),
         new Date(order.created_at).toLocaleString("tr-TR"),
       ]),
     ];
@@ -330,10 +334,7 @@ function OrdersContent() {
                   </td>
                   <td>
                     <b>
-                      {order.marketplace_name ??
-                        (order.sales_channel === "PUBLIC_WEB"
-                          ? "Trex mağaza"
-                          : (order.sales_channel ?? "—"))}
+                      {order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—")}
                     </b>
                     <small>{order.sales_channel ?? "SATIŞ KANALI"}</small>
                   </td>
@@ -349,7 +350,7 @@ function OrdersContent() {
                         Detay / Ödeme
                       </Link>
                       {canCreate &&
-                        order.sales_channel === "ADMIN_ORDER" &&
+                        editableAdminChannels.includes(order.sales_channel ?? "") &&
                         order.status !== "CANCELLED" && (
                           <Link
                             className={styles.financeLink}
@@ -359,7 +360,7 @@ function OrdersContent() {
                           </Link>
                         )}
                       {canCreate &&
-                        order.sales_channel === "ADMIN_ORDER" &&
+                        editableAdminChannels.includes(order.sales_channel ?? "") &&
                         ["PENDING_PAYMENT", "PROCESSING"].includes(
                           order.status,
                         ) && (

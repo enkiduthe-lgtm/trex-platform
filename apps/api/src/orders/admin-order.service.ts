@@ -7,15 +7,20 @@ import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
 
+const manualSalesChannels = ['RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'] as const;
+type ManualSalesChannel = typeof manualSalesChannels[number];
+
 const effectivePrice = `SELECT amount,currency FROM product_prices
   WHERE product_id=$1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
-    AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel='ADMIN_ORDER'))
-  ORDER BY CASE WHEN scope='CHANNEL' THEN 0 ELSE 1 END,starts_at DESC,id DESC LIMIT 1`;
+    AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel=$2::sales_channel_code) OR ($2='RETAIL' AND scope='CHANNEL' AND channel='ADMIN_ORDER'))
+  ORDER BY CASE WHEN scope='CHANNEL' AND channel=$2::sales_channel_code THEN 0 WHEN scope='CHANNEL' AND channel='ADMIN_ORDER' THEN 1 ELSE 2 END,starts_at DESC,id DESC LIMIT 1`;
 
 @Injectable()
 export class AdminOrderService {
   constructor(private readonly db: DatabaseService) {}
-  async options(dealerId?: string) {
+  async options(dealerId?: string, requestedChannel?: string) {
+    const salesChannel = (requestedChannel ?? 'RETAIL').trim().toUpperCase() as ManualSalesChannel;
+    if (!dealerId && !manualSalesChannels.includes(salesChannel)) throw new BadRequestException('Geçersiz satış kanalı');
     const dealerContext = dealerId ? await this.db.query<{ id:string; dealer_level_id:string|null; price_group_id:string|null }>(
       "SELECT d.id,d.dealer_level_id,d.price_group_id FROM dealers d WHERE d.id=$1 AND d.status='ACTIVE'", [dealerId]) : null;
     if (dealerId && !dealerContext?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
@@ -28,9 +33,9 @@ export class AdminOrderService {
           WHERE p.status='ACTIVE' ORDER BY p.name`, [context!.id, context!.price_group_id, context!.dealer_level_id])
       : this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
-            AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel='ADMIN_ORDER'))
-            ORDER BY CASE WHEN scope='CHANNEL' THEN 0 ELSE 1 END,starts_at DESC,id DESC LIMIT 1) price ON true
-          WHERE p.status='ACTIVE' ORDER BY p.name`);
+            AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel=$1::sales_channel_code) OR ($1='RETAIL' AND scope='CHANNEL' AND channel='ADMIN_ORDER'))
+            ORDER BY CASE WHEN scope='CHANNEL' AND channel=$1::sales_channel_code THEN 0 WHEN scope='CHANNEL' AND channel='ADMIN_ORDER' THEN 1 ELSE 2 END,starts_at DESC,id DESC LIMIT 1) price ON true
+          WHERE p.status='ACTIVE' ORDER BY p.name`, [salesChannel]);
     const [products, warehouses, customers] = await Promise.all([
       productQuery,
       this.db.query('SELECT id,name FROM warehouses WHERE is_active=true ORDER BY name'),
@@ -42,6 +47,8 @@ export class AdminOrderService {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key ?? '')) {
       throw new BadRequestException('Sipariş işlem anahtarı gerekli');
     }
+    const salesChannel = dealerId ? 'DEALER_PORTAL' : dto.salesChannel;
+    if (!salesChannel || !manualSalesChannels.includes(salesChannel)) throw new BadRequestException('Satış kanalı seçimi gerekli');
     if ([dto.recipientName,dto.phone,dto.city,dto.district,dto.addressLine].some(value => !value.trim())) {
       throw new BadRequestException('Teslimat bilgileri boş bırakılamaz');
     }
@@ -81,7 +88,7 @@ export class AdminOrderService {
         if (!product.rows[0]) throw new NotFoundException('Aktif ürün bulunamadı');
         const price = dealerId
           ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND ((scope='DEALER' AND dealer_id=$2) OR (scope='DEALER_PRICE_GROUP' AND dealer_price_group_id=$3) OR (scope='DEALER_LEVEL' AND dealer_level_id=$4) OR (scope='CHANNEL' AND channel='DEALER_PORTAL') OR scope='GLOBAL') ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].id,dealer!.rows[0].price_group_id,dealer!.rows[0].dealer_level_id])).rows[0]
-          : (await client.query<{ amount: string; currency: string }>(effectivePrice, [item.productId])).rows[0];
+          : (await client.query<{ amount: string; currency: string }>(effectivePrice, [item.productId, salesChannel])).rows[0];
         if (!price || price.currency.trim() !== 'TRY') throw new ConflictException(`${product.rows[0].name} için geçerli TL fiyatı gerekli`);
         if (dealerId && item.unitAmount !== undefined && item.unitAmount < Number(price.amount)) throw new ForbiddenException(`${product.rows[0].name} bayi fiyatının altında siparişe eklenemez`);
         const amount = item.unitAmount === undefined ? price.amount : item.unitAmount.toFixed(2);
@@ -101,8 +108,7 @@ export class AdminOrderService {
       const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions(cart_id,status,total_amount,contact_email,contact_name,currency,expires_at,completed_at) VALUES ($1,'COMPLETED',$2,$3,$4,$5,now()+interval '30 days',now()) RETURNING id", [cart.rows[0].id,total,dto.contactEmail.trim().toLowerCase(),dto.recipientName.trim(),currency]);
       const checkoutId = checkout.rows[0].id;
       const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
-      const channel = dealerId ? 'DEALER_PORTAL' : 'ADMIN_ORDER';
-      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,$7::sales_channel_code) RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dealerId ? null : (dto.customerId ?? null),total,orderStatus,currency,channel]);
+      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,$7::sales_channel_code) RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dealerId ? null : (dto.customerId ?? null),total,orderStatus,currency,salesChannel]);
       const orderId = order.rows[0].id;
       const address = [dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode?.trim() || null];
       await client.query('INSERT INTO checkout_addresses(checkout_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkoutId,...address]);
@@ -123,7 +129,7 @@ export class AdminOrderService {
       const payment = await client.query<{ id: string }>("INSERT INTO payments(checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id", [checkoutId,provider,reference,total,currency]);
       await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$3,$2)', [orderId,actor.id,orderStatus]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ dealerId: dealerId ?? null,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);
       return { ...order.rows[0], replayed: false };
     });
@@ -135,7 +141,7 @@ export class AdminOrderService {
     return this.db.transaction(async client=>{
       const order=(await client.query<{checkout_id:string;status:string;sales_channel:string;currency:string;total_amount:string}>('SELECT checkout_id,status,sales_channel,currency,total_amount FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
-      if(order.sales_channel!=='ADMIN_ORDER'||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
+      if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
       const contact=(await client.query<{contact_name:string|null;contact_email:string|null}>('SELECT contact_name,contact_email FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
       const payments=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
       if(payments.length!==1) throw new ConflictException('Ödeme kaydı doğrulanamadı');
@@ -190,7 +196,7 @@ export class AdminOrderService {
       const order=(await client.query<{checkout_id:string;status:string;sales_channel:string;total_amount:string}>(
         'SELECT checkout_id,status,sales_channel,total_amount FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
-      if(order.sales_channel!=='ADMIN_ORDER'||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
+      if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
       const payment=(await client.query<{id:string;status:string;provider:string}>(
         'SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
       if(!payment||payment.status!=='PENDING'||!['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) throw new ConflictException('Tahsil edilmiş siparişin fiyatı değiştirilemez');

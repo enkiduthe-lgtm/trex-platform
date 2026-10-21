@@ -48,7 +48,7 @@ export class DealerPortalController {
   async createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
     const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);
     if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
-    return this.adminOrders.create({ ...dto, customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
+    return this.adminOrders.create({ ...dto, salesChannel: 'DEALER_PORTAL', customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
   }
 
   @Post('orders/:id/cancel')
