@@ -16,7 +16,9 @@ export class ArasShippingProvider implements ShippingProvider {
     }
 
     const orderReference = this.limit(input.orderNumber, 16);
-    const integrationCode = this.limit(input.orderId.replaceAll('-', ''), 32);
+    // Aras validates this identifier strictly and rejects lowercase characters.
+    // Keeping it deterministic also makes a retry for the same order idempotent.
+    const integrationCode = this.limit(input.orderId.replaceAll('-', '').toUpperCase(), 32);
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/soap+xml; charset=utf-8', SOAPAction: 'http://tempuri.org/IArasCargoIntegrationService/SetOrder' },
