@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -26,6 +26,8 @@ export class FinanceController {
   @Post('records') create(@Body() dto: CreateFinanceRecordDto, @Req() req: UserRequest) { return this.finance.create(dto, req.user); }
   @Get('accounts') accounts() { return this.finance.listAccounts(); }
   @Post('accounts') account(@Body() dto: CreateFinanceAccountDto, @Req() req: UserRequest) { return this.finance.createAccount(dto, req.user); }
+  @Patch('accounts/:id') updateAccount(@Param('id') id:string,@Body() dto: CreateFinanceAccountDto,@Req() req:UserRequest) { return this.finance.updateAccount(id,dto,req.user); }
+  @Delete('accounts/:id') archiveAccount(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.archiveAccount(id,req.user); }
   @Get('transactions') transactions() { return this.finance.listTransactions(); }
 
   // Yönetici yalnızca bekleyen havaleyi görüp siparişle eşleştirebilir.
@@ -41,6 +43,8 @@ export class FinanceController {
   @Get('cash-flow') cashFlow() { return this.finance.cashFlowProjection(); }
   @Post('budgets') budget(@Body() dto: CreateFinanceBudgetDto, @Req() req: UserRequest) { return this.finance.createBudget(dto, req.user); }
   @Post('transactions') transaction(@Body() dto: CreateFinanceTransactionDto, @Req() req: UserRequest) { return this.finance.createTransaction(dto, req.user); }
+  @Patch('transactions/:id') updateTransaction(@Param('id') id:string,@Body() dto: CreateFinanceTransactionDto,@Req() req:UserRequest) { return this.finance.updateTransaction(id,dto,req.user); }
+  @Delete('transactions/:id') deleteTransaction(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.deleteTransaction(id,req.user); }
   @Post('marketplace-settlements') marketplaceSettlement(@Body() dto: CreateMarketplaceSettlementDto, @Req() req: UserRequest) { return this.finance.createMarketplaceSettlement(dto, req.user); }
   @Post('transfers') transfer(@Body() dto: CreateFinanceTransferDto, @Req() req: UserRequest) { return this.finance.createTransfer(dto, req.user); }
 }

@@ -11,6 +11,7 @@ import { CreateAdminOrderDto } from './dto/create-admin-order.dto';
 import { AdminOrderService } from './admin-order.service';
 import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
+import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 
 type UserRequest=Request & {user:RequestUser};@Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
 export class OrdersController {
@@ -25,6 +26,8 @@ export class OrdersController {
   @Post() @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   create(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) { return this.adminOrders.create(dto,key,req.user); }
   @Get(':id') detail(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.detail(id); }
+  @Get(':id/invoice') @RequireRoles(Roles.SUPER_ADMIN) invoice(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.invoice(id); }
+  @Post(':id/invoice') @RequireRoles(Roles.SUPER_ADMIN) invoiceDraft(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:CreateInvoiceDraftDto,@Req() req:UserRequest) { return this.orders.createInvoiceDraft(id,dto,req.user); }
   @Patch(':id/prices') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   prices(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateAdminOrderPricesDto,@Req() req:UserRequest) { return this.adminOrders.updatePrices(id,dto,req.user); }
   @Patch(':id') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

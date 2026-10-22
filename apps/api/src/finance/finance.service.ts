@@ -41,6 +41,29 @@ export class FinanceService {
       return result.rows[0];
     });
   }
+  async updateAccount(id:string,dto:CreateFinanceAccountDto,actor:RequestUser) {
+    return this.db.transaction(async client=>{
+      const previous=await client.query('SELECT id,name,account_type,currency FROM finance_accounts WHERE id=$1 FOR UPDATE',[id]);
+      if(!previous.rowCount) throw new BadRequestException('Para hesabı bulunamadı');
+        const requestedCurrency=dto.currency??'TRY';
+        if(previous.rows[0].currency!==requestedCurrency) {
+          const usage=await client.query('SELECT 1 FROM finance_transactions WHERE account_id=$1 LIMIT 1',[id]);
+          if(usage.rowCount) throw new BadRequestException('Hareketi olan hesabın para birimi değiştirilemez');
+        }
+        await client.query('UPDATE finance_accounts SET name=$1,account_type=$2,currency=$3 WHERE id=$4',[dto.name.trim(),dto.accountType,requestedCurrency,id]);
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'finance.account.updated','finance_account',id,JSON.stringify({previous:previous.rows[0],current:{name:dto.name.trim(),accountType:dto.accountType,currency:requestedCurrency}})]);
+      return {id};
+    });
+  }
+  async archiveAccount(id:string,actor:RequestUser) {
+    return this.db.transaction(async client=>{
+      const account=await client.query('SELECT id,name FROM finance_accounts WHERE id=$1 FOR UPDATE',[id]);
+      if(!account.rowCount) throw new BadRequestException('Para hesabı bulunamadı');
+      await client.query('UPDATE finance_accounts SET is_active=false WHERE id=$1',[id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'finance.account.archived','finance_account',id,JSON.stringify({name:account.rows[0].name})]);
+      return {id,archived:true};
+    });
+  }
   async listTransactions() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
   }
@@ -78,6 +101,25 @@ export class FinanceService {
       const result = await client.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, description, dto.occurredAt ?? null, actor.id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'finance.transaction.created','finance_transaction',result.rows[0].id,JSON.stringify({kind:dto.kind,amount:dto.amount,accountId:dto.accountId})]);
       return result.rows[0];
+    });
+  }
+  async updateTransaction(id:string,dto:CreateFinanceTransactionDto,actor:RequestUser) {
+    const description=dto.description.trim(); if(!description) throw new BadRequestException('İşlem açıklaması zorunludur');
+    return this.db.transaction(async client=>{
+      const previous=await client.query('SELECT id,order_id,transfer_group_id,approved_at FROM finance_transactions WHERE id=$1 FOR UPDATE',[id]);
+      if(!previous.rowCount) throw new BadRequestException('Para hareketi bulunamadı');
+      if(previous.rows[0].order_id||previous.rows[0].transfer_group_id||previous.rows[0].approved_at) throw new BadRequestException('Sipariş, transfer veya onay kaydına bağlı hareket değiştirilemez');
+      const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND is_active=true FOR KEY SHARE',[dto.accountId]); if(!account.rowCount) throw new BadRequestException('Aktif finans hesabı bulunamadı');
+      await client.query('UPDATE finance_transactions SET account_id=$1,kind=$2,amount=$3,payment_status=$4,counterparty_name=$5,reference_number=$6,expense_category=$7,cost_center=$8,document_url=$9,description=$10,occurred_at=COALESCE($11::timestamptz,occurred_at) WHERE id=$12',[dto.accountId,dto.kind,dto.amount,dto.paymentStatus??null,dto.counterpartyName?.trim()||null,dto.referenceNumber?.trim()||null,dto.expenseCategory?.trim()||null,dto.costCenter?.trim()||null,dto.documentUrl?.trim()||null,description,dto.occurredAt??null,id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.transaction.updated','finance_transaction',id]); return {id};
+    });
+  }
+  async deleteTransaction(id:string,actor:RequestUser) {
+    return this.db.transaction(async client=>{
+      const row=await client.query('SELECT id,order_id,transfer_group_id,approved_at FROM finance_transactions WHERE id=$1 FOR UPDATE',[id]);
+      if(!row.rowCount) throw new BadRequestException('Para hareketi bulunamadı');
+      if(row.rows[0].order_id||row.rows[0].transfer_group_id||row.rows[0].approved_at) throw new BadRequestException('Sipariş, transfer veya onay kaydına bağlı hareket silinemez');
+      await client.query('DELETE FROM finance_transactions WHERE id=$1',[id]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.transaction.deleted','finance_transaction',id]); return {id,deleted:true};
     });
   }
   async createMarketplaceSettlement(dto: CreateMarketplaceSettlementDto, actor: RequestUser) {

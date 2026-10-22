@@ -877,3 +877,11 @@ button {
     width: 100%;
   }
 }
+
+/* Mobilde oturumu kapatma her zaman görünür kalsın. */
+@media (max-width: 650px) {
+  .header-links { display:flex; margin-left:auto; gap:6px; }
+  .header-links a { display:none; }
+  .header-links button { display:inline-flex; white-space:nowrap; font-size:12px; padding:8px 10px; }
+  .panel-search { min-width:0; flex:1 1 120px; }
+}

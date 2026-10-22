@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
 import styles from "../orders.module.css";
@@ -106,19 +106,31 @@ const orderStatus: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
+type Invoice = {
+  id: string;
+  customer_type: "INDIVIDUAL" | "CORPORATE";
+  provider_status: string;
+  invoice_number: string | null;
+  pdf_url: string | null;
+};
 export default function OrderDetail() {
   const [canEdit, setCanEdit] = useState(false);
+  const [role, setRole] = useState("");
   useEffect(() => {
     api<{ user: { role: string } }>("/auth/me")
-      .then((value) =>
-        setCanEdit(["ADMIN", "SUPER_ADMIN"].includes(value.user.role)),
-      )
-      .catch(() => setCanEdit(false));
+      .then((value) => {
+        setRole(value.user.role);
+        setCanEdit(["ADMIN", "SUPER_ADMIN"].includes(value.user.role));
+      })
+      .catch(() => { setRole(""); setCanEdit(false); });
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [invoiceType, setInvoiceType] = useState<"INDIVIDUAL" | "CORPORATE">("INDIVIDUAL");
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
   async function cancelOrder() {
     if (
       cancelling ||
@@ -138,6 +150,28 @@ export default function OrderDetail() {
       setCancelling(false);
     }
   }
+  async function saveInvoice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (invoiceSaving) return;
+    const form = new FormData(event.currentTarget);
+    setInvoiceSaving(true); setError("");
+    try {
+      const value = await api<Invoice>(`/admin/orders/${id}/invoice`, {
+        method: "POST", body: JSON.stringify({
+          customerType: invoiceType,
+          recipientName: form.get("recipientName"),
+          identityNumber: form.get("identityNumber") || undefined,
+          companyName: form.get("companyName") || undefined,
+          taxNumber: form.get("taxNumber") || undefined,
+          taxOffice: form.get("taxOffice") || undefined,
+          billingAddress: form.get("billingAddress"),
+        }),
+      });
+      void value;
+      setInvoice(await api<Invoice>(`/admin/orders/${id}/invoice`));
+    } catch (e) { setError(e instanceof Error ? e.message : "Fatura taslağı kaydedilemedi"); }
+    finally { setInvoiceSaving(false); }
+  }
   useEffect(() => {
     let active = true;
     setData(null);
@@ -150,10 +184,13 @@ export default function OrderDetail() {
         if (active)
           setError(e instanceof Error ? e.message : "Sipariş yüklenemedi");
       });
+    if (role === "SUPER_ADMIN") api<Invoice | null>(`/admin/orders/${id}/invoice`).then((value) => {
+      if (active) setInvoice(value);
+    }).catch(() => { if (active) setInvoice(null); });
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, role]);
   return (
     <main>
       <AdminNav />
@@ -303,6 +340,28 @@ export default function OrderDetail() {
               </table>
               {data.payments.length === 0 && <p>Ödeme kaydı bulunamadı.</p>}
             </div>
+            {role === "SUPER_ADMIN" && (
+              <section className={styles.notice}>
+                <h2>Paraşüt fatura hazırlığı</h2>
+                {invoice ? (
+                  <p>
+                    {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura taslağı kaydedildi. Durum: {invoice.provider_status}
+                    {invoice.invoice_number ? ` · Fatura no: ${invoice.invoice_number}` : " · Paraşüt bağlantısı tamamlanınca gönderime hazır."}
+                  </p>
+                ) : (
+                  <form onSubmit={saveInvoice}>
+                    <label>Fatura türü
+                      <select value={invoiceType} onChange={(event) => setInvoiceType(event.target.value as "INDIVIDUAL" | "CORPORATE")}>
+                        <option value="INDIVIDUAL">Bireysel</option><option value="CORPORATE">Kurumsal</option>
+                      </select>
+                    </label>
+                    {invoiceType === "INDIVIDUAL" ? <><label>Ad soyad<input name="recipientName" required defaultValue={data.contact_name ?? ""} /></label><label>TC kimlik no<input name="identityNumber" inputMode="numeric" pattern="[0-9]{11}" required /></label></> : <><label>Firma unvanı<input name="companyName" required /></label><label>Yetkili / alıcı<input name="recipientName" required defaultValue={data.contact_name ?? ""} /></label><label>Vergi no<input name="taxNumber" inputMode="numeric" pattern="[0-9]{10}" required /></label><label>Vergi dairesi<input name="taxOffice" /></label></>}
+                    <label>Fatura adresi<input name="billingAddress" required defaultValue={data.address ? `${data.address.address_line}, ${data.address.district} / ${data.address.city}` : ""} /></label>
+                    <button type="submit" disabled={invoiceSaving}>{invoiceSaving ? "Kaydediliyor…" : "Fatura taslağını kaydet"}</button>
+                  </form>
+                )}
+              </section>
+            )}
             <h2>Hazırlama ve sevkiyat akışı</h2>
             <section className={styles.notice}>
               <p><strong>1. Ürün hazırlanıyor:</strong> {data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler toplandı." : "Toplama işlemi devam ediyor.") : "Ödeme onayından sonra depo operasyonuna düşer."}</p>

@@ -18,6 +18,8 @@ type Transaction = {
   amount: string;
   description: string;
   counterparty_name: string | null;
+  reference_number: string | null;
+  payment_status: string | null;
   occurred_at: string;
 };
 type Dashboard = {
@@ -50,7 +52,7 @@ export default function Finance() {
   const [accounts, setAccounts] = useState<Account[]>([]),
     [transactions, setTransactions] = useState<Transaction[]>([]),
     [dashboard, setDashboard] = useState<Dashboard | null>(null),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""), [editingAccount,setEditingAccount]=useState<string|null>(null), [editingTx,setEditingTx]=useState<string|null>(null);
   const [transactionAccountFilter, setTransactionAccountFilter] = useState("ALL");
   const [account, setAccount] = useState({
       name: "",
@@ -91,12 +93,12 @@ export default function Finance() {
   async function addAccount(e: FormEvent) {
     e.preventDefault();
     try {
-      await api("/admin/finance/accounts", {
-        method: "POST",
+      await api(editingAccount?`/admin/finance/accounts/${editingAccount}`:"/admin/finance/accounts", {
+        method: editingAccount?"PATCH":"POST",
         body: JSON.stringify(account),
       });
       setAccount({ name: "", accountType: "BANK", currency: "TRY" });
-      setMessage("Hesap oluşturuldu.");
+      setEditingAccount(null); setMessage("Hesap kaydedildi.");
       void load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Kaydedilemedi");
@@ -105,8 +107,8 @@ export default function Finance() {
   async function addTx(e: FormEvent) {
     e.preventDefault();
     try {
-      await api("/admin/finance/transactions", {
-        method: "POST",
+      await api(editingTx?`/admin/finance/transactions/${editingTx}`:"/admin/finance/transactions", {
+        method: editingTx?"PATCH":"POST",
         body: JSON.stringify({
           ...tx,
           amount: Number(tx.amount),
@@ -121,12 +123,14 @@ export default function Finance() {
         counterpartyName: "",
         referenceNumber: "",
       }));
-      setMessage("Para hareketi kaydedildi.");
+      setEditingTx(null); setMessage("Para hareketi kaydedildi.");
       void load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Kaydedilemedi");
     }
   }
+  async function removeAccount(id:string){if(!window.confirm('Bu para hesabı pasife alınacak. Devam edilsin mi?'))return;try{await api(`/admin/finance/accounts/${id}`,{method:'DELETE'});setMessage('Hesap pasife alındı.');void load()}catch(e){setMessage(e instanceof Error?e.message:'Hesap silinemedi')}}
+  async function removeTx(id:string){if(!window.confirm('Bu manuel para hareketi silinsin mi?'))return;try{await api(`/admin/finance/transactions/${id}`,{method:'DELETE'});setMessage('Para hareketi silindi.');void load()}catch(e){setMessage(e instanceof Error?e.message:'Para hareketi silinemedi')}}
   async function addTransfer(e: FormEvent) {
     e.preventDefault();
     try {
@@ -221,7 +225,7 @@ export default function Finance() {
         )}
         <div className="split">
           <form className="form-card" onSubmit={addAccount}>
-            <h2>Yeni hesap</h2>
+            <h2>{editingAccount?'Para hesabını düzenle':'Yeni hesap'}</h2>
             <label>
               Hesap adı
               <input
@@ -261,7 +265,7 @@ export default function Finance() {
                 <option value="USD">Dolar (USD)</option>
               </select>
             </label>
-            <button>Hesabı oluştur</button>
+            <button>{editingAccount?'Hesabı güncelle':'Hesabı oluştur'}</button>{editingAccount&&<button type="button" className="secondary" onClick={()=>{setEditingAccount(null);setAccount({name:'',accountType:'BANK',currency:'TRY'})}}>Vazgeç</button>}
           </form>
           <form className="form-card" onSubmit={addTransfer}>
             <h2>Hesaplar arası transfer</h2>
@@ -329,7 +333,7 @@ export default function Finance() {
           </form>
         </div>
         <form className="form-card" onSubmit={addTx}>
-          <h2>Para hareketi ekle</h2>
+          <h2>{editingTx?'Para hareketini düzenle':'Para hareketi ekle'}</h2>
           <div className="form-grid">
             <label>
               Hesap
@@ -424,7 +428,7 @@ export default function Finance() {
               />
             </label>
           </div>
-          <button>Hareketi kaydet</button>
+          <button>{editingTx?'Hareketi güncelle':'Hareketi kaydet'}</button>{editingTx&&<button type="button" className="secondary" onClick={()=>setEditingTx(null)}>Vazgeç</button>}
         </form>
         {message && <p role="status">{message}</p>}
         <h2>Hesap bakiyeleri</h2>
@@ -433,7 +437,7 @@ export default function Finance() {
             <article key={a.id}>
               <p>{types[a.account_type]}</p>
               <h2>{a.name}</h2>
-              <p>{money(a.balance, a.currency)}</p>
+              <p>{money(a.balance, a.currency)}</p><div className="button-row"><button type="button" className="secondary" onClick={()=>{setEditingAccount(a.id);setAccount({name:a.name,accountType:a.account_type,currency:a.currency})}}>Düzenle</button><button type="button" className="secondary" onClick={()=>void removeAccount(a.id)}>Sil</button></div>
             </article>
           ))}
         </div>
@@ -469,7 +473,7 @@ export default function Finance() {
               <p>
                 {t.counterparty_name ?? "—"} ·{" "}
                 {new Date(t.occurred_at).toLocaleDateString("tr-TR")}
-              </p>
+              </p><div className="button-row"><button type="button" className="secondary" onClick={()=>{setEditingTx(t.id);setTx({accountId:accounts.find(a=>a.name===t.account_name)?.id??'',kind:t.kind,amount:t.amount,description:t.description,counterpartyName:t.counterparty_name??'',referenceNumber:t.reference_number??'',paymentStatus:t.payment_status??'PAID'})}}>Düzenle</button><button type="button" className="secondary" onClick={()=>void removeTx(t.id)}>Sil</button></div>
             </article>
           ))}
           {!shownTransactions.length && <article><p>Bu hesapta para hareketi yok.</p></article>}
