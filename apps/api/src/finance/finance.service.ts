@@ -153,7 +153,7 @@ export class FinanceService {
     return this.db.transaction(async client => {
       const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL FOR UPDATE OF t`, [id]);
       if (!collection.rowCount) throw new Error('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
-      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string; currency:string }>('SELECT id,status,total_amount,checkout_id,currency FROM orders WHERE id=$1 FOR UPDATE', [dto.orderId]);
+      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string; currency:string }>('SELECT id,status,total_amount,checkout_id,currency FROM orders WHERE id::text=$1 OR order_number=$1 FOR UPDATE', [dto.orderId.trim()]);
       if (!order.rowCount) throw new Error('Sipariş bulunamadı');
       if(order.rows[0].status==='CANCELLED') throw new BadRequestException('İptal edilmiş siparişe tahsilat bağlanamaz');
       if(collection.rows[0].currency?.trim()!==order.rows[0].currency?.trim() || !order.rows[0].currency) throw new BadRequestException('Tahsilat hesabı ve sipariş aynı para biriminde olmalı');
