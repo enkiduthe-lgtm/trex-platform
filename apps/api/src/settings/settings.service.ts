@@ -9,6 +9,13 @@ export class SettingsService {
     const result = await this.db.query<{ settings: Record<string, unknown> }>('SELECT settings FROM admin_settings WHERE singleton=true');
     return result.rows[0]?.settings ?? {};
   }
+  async managerMenu() {
+    const settings = await this.get();
+    const defaults: Record<string, boolean> = {
+      ORDERS: true, STOCK: true, PRODUCTS: true, MARKETPLACE: true, CAMPAIGNS: true, CUSTOMERS: true, DESIGN: true, TOOLS: true,
+    };
+    return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, typeof settings[`managerMenu${key}`] === 'boolean' ? settings[`managerMenu${key}`] : fallback]));
+  }
   async update(settings: Record<string, unknown>, actor: RequestUser) {
     await this.db.transaction(async client => {
       const previous = await client.query<{ settings: Record<string, unknown> }>('SELECT settings FROM admin_settings WHERE singleton=true FOR UPDATE');

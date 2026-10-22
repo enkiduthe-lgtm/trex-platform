@@ -12,6 +12,8 @@ type UserRequest = Request & { user: RequestUser };
 @Controller('admin/settings') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
+  @Get('manager-menu') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  managerMenu() { return this.settings.managerMenu(); }
   @Get() get() { return this.settings.get(); }
   @Put() update(@Body() dto: UpdateSettingsDto, @Req() req: UserRequest) { return this.settings.update(dto.settings, req.user); }
 }
