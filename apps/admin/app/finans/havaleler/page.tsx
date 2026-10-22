@@ -68,13 +68,14 @@ function CollectionsContent() {
     <p>{isOwner ? 'Gelen tutarı girin; yönetici veya ana yönetici siparişle eşleştirip onaylayabilir.' : 'Bekleyen havaleleri sipariş numarasıyla eşleştirip onaylayabilirsiniz. Para hareketi ve hesap yönetimi yalnız ana yöneticidedir.'}</p>
     {selectedOrder && <p className="selected-order">Onay için seçilen sipariş: <strong>{selectedOrder}</strong>. Aşağıdan ilgili gelen havaleyi seçip eşleştirin.</p>}
     <p><Link href="/siparisler">← Siparişlere dön</Link></p>{message && <p role="status">{message}</p>}
-    {isOwner && <form className="form-card" onSubmit={addCollection}><h2>Hesaba gelen havale girişi</h2><div className="form-grid">
+    {isOwner && <form className="transfer-entry" onSubmit={addCollection}><div className="transfer-entry-head"><h2>Hesaba gelen havale girişi</h2><p>Havale kaydedilince aşağıdaki bekleyen kayıtlar arasına eklenir.</p></div><div className="transfer-entry-grid">
       <label>Banka / kasa hesabı<select required value={entry.accountId} onChange={(event) => setEntry((current) => ({ ...current, accountId: event.target.value }))}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</select></label>
       <label>Tutar<input required min="0.01" step="0.01" type="number" value={entry.amount} onChange={(event) => setEntry((current) => ({ ...current, amount: event.target.value }))} /></label>
       <label>Gönderen adı<input value={entry.counterpartyName} onChange={(event) => setEntry((current) => ({ ...current, counterpartyName: event.target.value }))} /></label>
       <label>Dekont / banka referansı<input value={entry.referenceNumber} onChange={(event) => setEntry((current) => ({ ...current, referenceNumber: event.target.value }))} /></label>
       <label>Açıklama<input required value={entry.description} placeholder="Örn. müşteri havalesi" onChange={(event) => setEntry((current) => ({ ...current, description: event.target.value }))} /></label>
-    </div><button>Bekleyen havaleyi kaydet</button></form>}
+      <button>Bekleyen havaleyi kaydet</button>
+    </div></form>}
     <div className="collection-list">{items.length ? items.map((item) => <article className="collection-row" key={item.id}><div><p>Hesap</p><strong>{item.account_name}</strong><small>{new Date(item.occurred_at).toLocaleString('tr-TR')}</small></div><div><p>Gelen tutar</p><h2>{money(item.amount, item.currency)}</h2></div><div><p>Gönderen</p><strong>{item.counterparty_name ?? 'Bilinmiyor'}</strong><small>Dekont: {item.reference_number ?? 'Yok'}</small></div><div><p>Açıklama</p><strong>{item.description}</strong></div><form onSubmit={(event) => approve(event, item.id)}><label>Eşleştirilecek sipariş<input required placeholder="Örn. TRX-10025" value={orders[item.id] ?? ''} onChange={(event) => setOrders((value) => ({ ...value, [item.id]: event.target.value }))} /></label><button>Havaleyi eşleştir ve siparişi onayla</button></form></article>) : <article className="collection-row"><p>Onay bekleyen havale yok.</p></article>}</div>
   </section></main>;
 }

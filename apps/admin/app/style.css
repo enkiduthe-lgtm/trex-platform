@@ -841,8 +841,15 @@ button {
 .collection-row form label { margin:0; }
 .collection-row form input { min-width:0; }
 .collection-row form button { white-space:normal; min-height:42px; }
+.transfer-entry { margin:18px 0; overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 5px 18px rgba(48,16,67,.06); }
+.transfer-entry-head { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:15px 18px; border-bottom:1px solid var(--line); background:#fcf8fd; }
+.transfer-entry-head h2,.transfer-entry-head p { margin:0; }
+.transfer-entry-head p { color:var(--muted); font-size:13px; }
+.transfer-entry-grid { display:grid; grid-template-columns:1.15fr .65fr 1fr 1fr 1.35fr auto; gap:12px; align-items:end; min-width:1080px; padding:16px 18px; }
+.transfer-entry-grid label { margin:0; font-size:12px; }
+.transfer-entry-grid button { min-height:42px; white-space:nowrap; }
 @media (max-width:1100px) { .collection-row { grid-template-columns:repeat(2,minmax(0,1fr)); } .collection-row form { grid-column:1 / -1; } }
-@media (max-width:650px) { .collection-row { grid-template-columns:1fr; gap:10px; } .collection-row form { grid-template-columns:1fr; } }
+@media (max-width:650px) { .collection-row { grid-template-columns:1fr; gap:10px; } .collection-row form { grid-template-columns:1fr; } .transfer-entry-head { align-items:flex-start; flex-direction:column; } }
 
 
 
