@@ -60,6 +60,15 @@ type Detail = {
     last_event_description: string | null;
     last_event_at: string | null;
   }[];
+  fulfillment: {
+    picking_status: string;
+    picking_started_at: string;
+    picking_completed_at: string | null;
+    packed_at: string | null;
+    package_barcode: string | null;
+    shipment_status: string | null;
+    tracking_number: string | null;
+  } | null;
   returns: {
     id: string;
     status: string;
@@ -294,6 +303,14 @@ export default function OrderDetail() {
               </table>
               {data.payments.length === 0 && <p>Ödeme kaydı bulunamadı.</p>}
             </div>
+            <h2>Hazırlama ve sevkiyat akışı</h2>
+            <section className={styles.notice}>
+              <p><strong>1. Ürün hazırlanıyor:</strong> {data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler toplandı." : "Toplama işlemi devam ediyor.") : "Ödeme onayından sonra depo operasyonuna düşer."}</p>
+              <p><strong>2. Paket / barkod:</strong> {data.fulfillment?.package_barcode ? `Paket barkodu basıldı: ${data.fulfillment.package_barcode}` : "Paketleme tamamlanınca barkod otomatik oluşur."}</p>
+              <p><strong>3. Kargo:</strong> {data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Kargo oluşturulduğunda takip kodu burada görünür."}</p>
+              {data.fulfillment && !data.fulfillment.packed_at && <Link className={styles.financeLink} href="/depo-operasyon">Depo operasyonunu aç</Link>}
+              {data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <Link className={styles.financeLink} href="/kargo">Kargo kaydını oluştur</Link>}
+            </section>
             <h2>Kargo ve paket</h2>
             {data.shipments.length ? (
               <div className={styles.tableWrap}>

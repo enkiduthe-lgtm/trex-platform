@@ -24,7 +24,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       AND NOT EXISTS(SELECT 1 FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id)) AS financial_editable
       FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1`,[id]);
     if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı');
-    const [address,items,payments,supportTickets,shipments,returns,activity]=await Promise.all([
+    const [address,items,payments,supportTickets,shipments,returns,activity,fulfillment]=await Promise.all([
       this.db.query<{recipient_name:string;phone:string;city:string;district:string;address_line:string;postal_code:string|null}>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1',[id]),
       this.db.query<{id:string;quantity:number;unit_amount:string}>('SELECT id,product_name,sku,quantity,unit_amount,currency FROM order_items WHERE order_id=$1 ORDER BY id',[id]),
       this.db.query('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
@@ -47,8 +47,14 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       this.db.query(`SELECT a.action,a.created_at,u.email AS actor_email
         FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id
         WHERE a.entity_type='order' AND a.entity_id=$1 ORDER BY a.created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT ps.status AS picking_status,ps.created_at AS picking_started_at,ps.completed_at AS picking_completed_at,
+        pk.packed_at,pk.package_barcode,s.status AS shipment_status,s.tracking_number
+        FROM picking_sessions ps
+        LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
+        LEFT JOIN shipments s ON s.order_id=ps.order_id
+        WHERE ps.order_id=$1 ORDER BY ps.created_at DESC,s.created_at DESC LIMIT 1`,[id]),
     ]);
-    return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows,supportTickets:supportTickets.rows,shipments:shipments.rows,returns:returns.rows,activity:activity.rows,edit_version:editVersion(result.rows[0],address.rows[0]??null,items.rows)};
+    return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows,supportTickets:supportTickets.rows,shipments:shipments.rows,returns:returns.rows,activity:activity.rows,fulfillment:fulfillment.rows[0]??null,edit_version:editVersion(result.rows[0],address.rows[0]??null,items.rows)};
   }
   async track(number:string,email:string) { const result=await this.db.query<{order_number:string;status:string;total_amount:string;currency:string;created_at:string;shipment_status:string|null;tracking_number:string|null}>(`SELECT o.order_number,o.status,o.total_amount,o.currency,o.created_at,s.status AS shipment_status,s.tracking_number FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN shipments s ON s.order_id=o.id WHERE o.order_number=$1 AND lower(cs.contact_email)=lower($2)`,[number.trim(),email.trim()]); if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı'); return result.rows[0]; }
   async cancel(id:string,actor:RequestUser) {
