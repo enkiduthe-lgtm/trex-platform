@@ -377,7 +377,7 @@ function OrdersContent() {
                       {order.status === "PENDING_PAYMENT" && (
                         <Link
                           className={styles.approveLink}
-                          href={`/finans/havaleler?order=${order.id}`}
+                          href={`/finans/havaleler?order=${encodeURIComponent(order.order_number)}`}
                         >
                           Onaya gönder
                         </Link>
