@@ -131,6 +131,75 @@ export default function OrderDetail() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [invoiceType, setInvoiceType] = useState<"INDIVIDUAL" | "CORPORATE">("INDIVIDUAL");
   const [invoiceSaving, setInvoiceSaving] = useState(false);
+  const [operationBusy, setOperationBusy] = useState(false);
+  const [operationMessage, setOperationMessage] = useState("");
+  async function refreshOrder() {
+    setData(await api<Detail>(`/admin/orders/${id}`));
+  }
+  async function startPreparation() {
+    if (operationBusy) return;
+    setOperationBusy(true);
+    setError("");
+    try {
+      const pick = await api<{ id: string }>(
+        `/admin/warehouse/picks/queue/${id}`,
+        { method: "POST" },
+      );
+      window.location.assign(`/depo-operasyon?pick=${encodeURIComponent(pick.id)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Hazırlama başlatılamadı");
+      setOperationBusy(false);
+    }
+  }
+  async function createShipment() {
+    if (operationBusy) return;
+    setOperationBusy(true);
+    setError("");
+    try {
+      const shipment = await api<{ trackingNumber?: string }>(
+        `/admin/orders/${id}/shipment`,
+        { method: "POST" },
+      );
+      setOperationMessage(
+        shipment.trackingNumber
+          ? `Aras gönderisi oluşturuldu. Takip kodu: ${shipment.trackingNumber}`
+          : "Kargo gönderisi oluşturuldu.",
+      );
+      await refreshOrder();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Kargo gönderisi oluşturulamadı");
+    } finally {
+      setOperationBusy(false);
+    }
+  }
+  async function moveShipment(
+    shipmentStatus: "IN_TRANSIT" | "DELIVERED",
+    orderStatus: "SHIPPED" | "DELIVERED",
+  ) {
+    if (operationBusy) return;
+    setOperationBusy(true);
+    setError("");
+    try {
+      await api(`/admin/orders/${id}/shipment/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: shipmentStatus }),
+      });
+      await api(`/admin/orders/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: orderStatus }),
+      });
+      setOperationMessage(
+        orderStatus === "SHIPPED"
+          ? "Gönderi kargoya verildi olarak işaretlendi."
+          : "Gönderi teslim edildi olarak işaretlendi.",
+      );
+      await refreshOrder();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sevkiyat durumu güncellenemedi");
+    } finally {
+      setOperationBusy(false);
+    }
+  }
   async function cancelOrder() {
     if (
       cancelling ||
@@ -364,11 +433,37 @@ export default function OrderDetail() {
             )}
             <h2>Hazırlama ve sevkiyat akışı</h2>
             <section className={styles.notice}>
+              {operationMessage && <p role="status">{operationMessage}</p>}
               <p><strong>1. Ürün hazırlanıyor:</strong> {data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler toplandı." : "Toplama işlemi devam ediyor.") : "Ödeme onayından sonra depo operasyonuna düşer."}</p>
               <p><strong>2. Paket / barkod:</strong> {data.fulfillment?.package_barcode ? `Paket barkodu basıldı: ${data.fulfillment.package_barcode}` : "Paketleme tamamlanınca barkod otomatik oluşur."}</p>
               <p><strong>3. Kargo:</strong> {data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Kargo oluşturulduğunda takip kodu burada görünür."}</p>
-              {data.fulfillment && !data.fulfillment.packed_at && <Link className={styles.financeLink} href="/depo-operasyon">Depo operasyonunu aç</Link>}
-              {data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <Link className={styles.financeLink} href="/kargo">Kargo kaydını oluştur</Link>}
+              <div className={styles.actions}>
+                {canEdit && data.status === "PAID" && (
+                  <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
+                    {operationBusy ? "Hazırlama açılıyor…" : "Ürün hazırlamayı başlat"}
+                  </button>
+                )}
+                {canEdit && data.status === "PROCESSING" && !data.fulfillment?.packed_at && (
+                  <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
+                    {operationBusy ? "Açılıyor…" : "Ürünleri topla ve paketi kapat"}
+                  </button>
+                )}
+                {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && (
+                  <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>
+                    {operationBusy ? "Aras kaydı açılıyor…" : "Aras barkodu ve takip kodunu oluştur"}
+                  </button>
+                )}
+                {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && (
+                  <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>
+                    {operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}
+                  </button>
+                )}
+                {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && (
+                  <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>
+                    {operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}
+                  </button>
+                )}
+              </div>
             </section>
             <h2>Kargo ve paket</h2>
             {data.shipments.length ? (

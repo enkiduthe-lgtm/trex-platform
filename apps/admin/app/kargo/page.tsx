@@ -92,6 +92,14 @@ export default function Shipping() {
         method: "POST",
         body: JSON.stringify({ status: statusValue }),
       });
+      if (statusValue === "IN_TRANSIT" || statusValue === "DELIVERED") {
+        await api(`/admin/orders/${orderId}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: statusValue === "IN_TRANSIT" ? "SHIPPED" : "DELIVERED",
+          }),
+        });
+      }
       setMessage(`Gönderi durumu güncellendi: ${status[statusValue]}`);
       await load();
     } catch (e) {

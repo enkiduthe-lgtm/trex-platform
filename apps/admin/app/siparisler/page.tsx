@@ -134,34 +134,6 @@ function OrdersContent() {
       setPendingAction(null);
     }
   }
-  async function updateStatus(id: string, value: string) {
-    try {
-      await api(`/admin/orders/${id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: value }),
-      });
-      setMessage("Sipariş durumu güncellendi.");
-      void load();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Durum güncellenemedi");
-    }
-  }
-  async function shipment(id: string) {
-    try {
-      const data = await api<{ trackingNumber?: string }>(
-        `/admin/orders/${id}/shipment`,
-        { method: "POST" },
-      );
-      setMessage(
-        data.trackingNumber
-          ? `Kargo kaydı oluşturuldu: ${data.trackingNumber}`
-          : "Kargo kaydı oluşturuldu.",
-      );
-      void load();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Kargo kaydı oluşturulamadı");
-    }
-  }
   function exportOrders() {
     const source = selected.length
       ? visible.filter((order) => selected.includes(order.id))
@@ -382,24 +354,16 @@ function OrdersContent() {
                           Onaya gönder
                         </Link>
                       )}
-                      {order.status === "PAID" && <Link className={styles.approveLink} href="/stok">Depoda hazırla</Link>}
+                      {order.status === "PAID" && <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>Hazırlamayı aç</Link>}
                       {order.status === "PROCESSING" && (
-                        <button
-                          type="button"
-                          onClick={() => void shipment(order.id)}
-                        >
-                          Kargola
-                        </button>
+                        <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
+                          Operasyonu aç
+                        </Link>
                       )}
                       {order.status === "SHIPPED" && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void updateStatus(order.id, "DELIVERED")
-                          }
-                        >
-                          Teslim
-                        </button>
+                        <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
+                          Teslimatı aç
+                        </Link>
                       )}
                     </div>
                   </td>

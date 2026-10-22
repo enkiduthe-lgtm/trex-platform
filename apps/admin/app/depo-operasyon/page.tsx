@@ -19,6 +19,7 @@ export default function WarehouseOperationsPage() {
   async function load() { try { const [queueRows, pickRows] = await Promise.all([api<QueueItem[]>('/admin/warehouse/picks/queue'), api<Pick[]>('/admin/warehouse/picks')]); setQueue(queueRows); setPicks(pickRows); } catch (error) { setMessage(error instanceof Error ? error.message : 'Depo operasyonu yüklenemedi.'); } }
   useEffect(() => { void load(); }, []);
   async function open(id: string) { setBusy(true); try { setSelected(await api<PickDetail>(`/admin/warehouse/picks/${id}`)); } catch (error) { setMessage(error instanceof Error ? error.message : 'Toplama listesi açılamadı.'); } finally { setBusy(false); } }
+  useEffect(() => { const pickId = new URLSearchParams(window.location.search).get('pick'); if (pickId) void open(pickId); }, []);
   async function action(work: () => Promise<unknown>, success: string) { setBusy(true); setMessage(''); try { await work(); setMessage(success); await load(); if (selected) await open(selected.id); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem tamamlanamadı.'); } finally { setBusy(false); } }
   function scan(event: FormEvent) { event.preventDefault(); if (!selected || !barcode.trim()) return; void action(() => api(`/admin/warehouse/picks/${selected.id}/scan`, { method: 'POST', body: JSON.stringify({ barcode: barcode.trim() }) }), 'Barkod işlendi.'); setBarcode(''); }
   const pickingCount = picks.filter(item => item.status !== 'COMPLETED').length;
