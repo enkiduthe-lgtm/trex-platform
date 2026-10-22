@@ -155,8 +155,15 @@ export class AdminOrderService {
       if(lines.length!==dto.items.length||lines.some(line=>!dto.items.some(item=>item.itemId===line.id))) throw new BadRequestException('Siparişin bütün ürün satırları gerekli');
       const changes=lines.map(line=>({...line,next:dto.items.find(item=>item.itemId===line.id)!}));
       const financialChanged=changes.some(line=>line.quantity!==line.next.quantity||line.unit_amount!==line.next.unitAmount.toFixed(2));
+      const priceChanged=changes.some(line=>line.unit_amount!==line.next.unitAmount.toFixed(2));
+      if(priceChanged&&actor.role!=='SUPER_ADMIN') throw new ForbiddenException('Sipariş birim fiyatını yalnız ana yönetici değiştirebilir');
       const financialEditable=['PENDING_PAYMENT','PROCESSING'].includes(order.status)&&payments[0].status==='PENDING'&&['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payments[0].provider)&&!collected&&!packing&&picks.every(pick=>pick.status==='OPEN');
       if(financialChanged&&!financialEditable) throw new ConflictException('Tahsilat veya depo işlemi başlamış siparişte yalnız müşteri/teslimat bilgileri düzeltilebilir');
+      const providerByMethod={TRANSFER:'bank_transfer',HAND_CASH:'cash',COD_CARD:'cash_on_delivery_card',COD_CASH:'cash_on_delivery_cash'} as const;
+      const requestedProvider=dto.paymentMethod?providerByMethod[dto.paymentMethod]:undefined;
+      const paymentChanged=Boolean(requestedProvider&&requestedProvider!==payments[0].provider);
+      if(paymentChanged&&!financialEditable) throw new ConflictException('Tahsilat veya depo işlemi başlamış siparişte ödeme yöntemi değiştirilemez');
+      if(paymentChanged&&requestedProvider?.startsWith('cash_on_delivery')&&order.currency!=='TRY') throw new BadRequestException('Kapıda ödeme yalnız TL olabilir');
       const cents=changes.reduce((sum,line)=>sum+BigInt(line.next.unitAmount.toFixed(2).replace('.',''))*BigInt(line.next.quantity),0n);
       if(cents<=0n||cents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
       if(financialChanged) {
@@ -185,7 +192,8 @@ export class AdminOrderService {
         await client.query('UPDATE orders SET total_amount=$1 WHERE id=$2',[total,id]);
         await client.query('UPDATE payments SET amount=$1 WHERE id=$2',[total,payments[0].id]);
       }
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actor.id,'order.admin.updated','order',id,JSON.stringify({reason:dto.reason.trim(),currency:order.currency,previous:{contact,address,items:lines,total:order.total_amount},current:{delivery,email:dto.contactEmail.trim().toLowerCase(),items:dto.items,total}})]);
+      if(paymentChanged) await client.query('UPDATE payments SET provider=$1,provider_reference=$2 WHERE id=$3',[requestedProvider,`${requestedProvider}_${randomUUID()}`,payments[0].id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actor.id,'order.admin.updated','order',id,JSON.stringify({reason:dto.reason.trim(),currency:order.currency,previous:{contact,address,items:lines,total:order.total_amount,paymentProvider:payments[0].provider},current:{delivery,email:dto.contactEmail.trim().toLowerCase(),items:dto.items,total,paymentProvider:requestedProvider??payments[0].provider}})]);
       return {id,total_amount:total,currency:order.currency};
     });
   }

@@ -9,7 +9,7 @@ import { RequestUser } from '../auth/auth.types';
 import { SettingsService } from './settings.service';
 class UpdateSettingsDto { @IsObject() settings!: Record<string, unknown>; }
 type UserRequest = Request & { user: RequestUser };
-@Controller('admin/settings') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+@Controller('admin/settings') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
   @Get() get() { return this.settings.get(); }

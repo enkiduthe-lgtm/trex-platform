@@ -20,9 +20,9 @@ export class ProductsController {
   @Get('products') listPublic() { return this.products.listPublic(); }
   @Get('products/:slug') getPublic(@Param('slug') slug: string) { return this.products.getPublic(slug); }
   @Get('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) listAdmin() { return this.products.listAdmin(); }
-  @Get('admin/product-costs') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE) listCosts() { return this.products.listCosts(); }
-  @Get('admin/product-profitability') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE) profitability() { return this.products.profitability(); }
-  @Post('admin/product-costs') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE) createCost(@Body() dto: CreateProductCostDto, @Req() req: UserRequest) { return this.products.createCost(dto, req.user); }
+  @Get('admin/product-costs') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN) listCosts() { return this.products.listCosts(); }
+  @Get('admin/product-profitability') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN) profitability() { return this.products.profitability(); }
+  @Post('admin/product-costs') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN) createCost(@Body() dto: CreateProductCostDto, @Req() req: UserRequest) { return this.products.createCost(dto, req.user); }
   @Post('admin/products') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreateProductDto, @Req() req: UserRequest) { return this.products.create(dto, req.user); }
   @Post('admin/products/import') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) importMany(@Body() dto: ImportProductsDto, @Req() req: UserRequest) { return this.products.importMany(dto.products, req.user); }
   @Post('admin/products/bulk-status') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) bulkStatus(@Body() dto: BulkProductStatusDto, @Req() req: UserRequest) { return this.products.bulkStatus(dto.ids, dto.status, req.user); }

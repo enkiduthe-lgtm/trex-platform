@@ -16,9 +16,9 @@ type UserRequest=Request & {user:RequestUser};@Controller('admin/orders') @UseGu
 export class OrdersController {
   constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService) {}
   @Get() list(@Query('channel') channel?:string) { return this.orders.list(channel); }
-  @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
+  @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN)
   reportSummary(@Query('days') days?:string) { return this.orders.reportSummary(Number(days ?? 30)); }
-  @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
+  @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN)
   reportOperations(@Query('days') days?:string) { return this.orders.operationalSummary(Number(days ?? 30)); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   options(@Query('channel') channel?: string) { return this.adminOrders.options(undefined, channel); }

@@ -9,7 +9,9 @@ describe('Order edit validation',()=>{
   it('accepts a complete edit',async()=>expect(await validate(plainToInstance(UpdateAdminOrderDto,dto))).toHaveLength(0));
   it.each([0,-1,1.5,100001,null])('rejects quantity %s',async quantity=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,items:[{...dto.items[0],quantity}]}))).length).toBeGreaterThan(0));
   it.each([-1,1.001,10000000000,null])('rejects unit price %s',async unitAmount=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,items:[{...dto.items[0],unitAmount}]}))).length).toBeGreaterThan(0));
-  it.each(['currency','paymentMethod','warehouseId','status'])('rejects forged %s',async field=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,[field]:'FORGED'}),{whitelist:true,forbidNonWhitelisted:true})).length).toBeGreaterThan(0));
+  it.each(['currency','warehouseId','status'])('rejects forged %s',async field=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,[field]:'FORGED'}),{whitelist:true,forbidNonWhitelisted:true})).length).toBeGreaterThan(0));
+  it.each(['TRANSFER','COD_CARD','COD_CASH','HAND_CASH'])('accepts payment method %s',async paymentMethod=>expect(await validate(plainToInstance(UpdateAdminOrderDto,{...dto,paymentMethod}))).toHaveLength(0));
+  it('rejects an invalid payment method',async()=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,paymentMethod:'FORGED'}))).length).toBeGreaterThan(0));
   it('rejects a missing edit version',async()=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,version:undefined}))).length).toBeGreaterThan(0));
   it('versions detect quantity, price and address changes',()=>{
     const contact={contact_name:'Test',contact_email:'test@example.com'},address={recipient_name:'Test',phone:'0500',city:'Test',district:'Test',address_line:'Address',postal_code:null};

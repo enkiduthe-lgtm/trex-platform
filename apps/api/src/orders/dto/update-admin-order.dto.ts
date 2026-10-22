@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsEmail, IsInt, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { AdminOrderPriceDto } from './update-admin-order-prices.dto';
 
 export class AdminOrderEditItemDto extends AdminOrderPriceDto {
@@ -15,6 +15,8 @@ export class UpdateAdminOrderDto {
   @IsString() @MinLength(1) @MaxLength(100) district!: string;
   @IsString() @MinLength(1) @MaxLength(500) addressLine!: string;
   @IsString() @MaxLength(20) postalCode!: string;
+  @IsOptional() @IsIn(['TRANSFER', 'COD_CARD', 'COD_CASH', 'HAND_CASH'])
+  paymentMethod?: 'TRANSFER' | 'COD_CARD' | 'COD_CASH' | 'HAND_CASH';
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100)
   @ValidateNested({each:true}) @Type(()=>AdminOrderEditItemDto) items!: AdminOrderEditItemDto[];
 }

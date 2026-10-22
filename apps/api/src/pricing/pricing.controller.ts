@@ -16,5 +16,5 @@ export class PricingController {
     return this.pricing.resolve(productId, { channel: SalesChannel.PUBLIC_WEB });
   }
   @Get('admin/prices') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) list(@Query('productId') productId?: string) { return this.pricing.list(productId); }
-  @Post('admin/prices') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) create(@Body() dto: CreatePriceDto, @Req() req: UserRequest) { return this.pricing.create(dto, req.user); }
+  @Post('admin/prices') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN) create(@Body() dto: CreatePriceDto, @Req() req: UserRequest) { return this.pricing.create(dto, req.user); }
 }
