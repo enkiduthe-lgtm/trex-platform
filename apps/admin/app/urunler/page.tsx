@@ -15,6 +15,7 @@ type Product = {
   description: string | null;
   status: string;
   image_url?: string | null;
+  available_quantity?: number;
 };
 type Level = { id: string; name: string };
 type PriceGroup = { id: string; name: string };
@@ -229,6 +230,7 @@ export default function Products() {
     [priceGroups, setPriceGroups] = useState<PriceGroup[]>([]),
     [prices, setPrices] = useState<Price[]>([]),
     [costs, setCosts] = useState<Cost[]>([]);
+  const [role, setRole] = useState("");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -260,24 +262,27 @@ export default function Products() {
     supplierName: "",
     note: "",
   });
-  const load = () =>
-    Promise.all([
-      api<Product[]>("/admin/products"),
-      api<Level[]>("/admin/dealers/levels"),
-      api<PriceGroup[]>("/admin/dealers/price-groups"),
-      api<Price[]>("/admin/prices"),
-      api<Cost[]>("/admin/product-costs"),
-    ])
-      .then(([a, b, g, c, d]) => {
+  const load = async () => {
+    try {
+      const current = await api<{ user: { role: string } }>("/auth/me");
+      const owner = current.user.role === "SUPER_ADMIN";
+      const [a, b, g, c, d] = await Promise.all([
+        api<Product[]>("/admin/products"),
+        api<Level[]>("/admin/dealers/levels"),
+        api<PriceGroup[]>("/admin/dealers/price-groups"),
+        api<Price[]>("/admin/prices"),
+        owner ? api<Cost[]>("/admin/product-costs") : Promise.resolve([] as Cost[]),
+      ]);
+      setRole(current.user.role);
         setProducts(a);
         setLevels(b);
         setPriceGroups(g);
         setPrices(c);
         setCosts(d);
-      })
-      .catch((e) =>
-        setMessage(e instanceof Error ? e.message : "Ürünler yüklenemedi"),
-      );
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Ürünler yüklenemedi");
+    }
+  };
   useEffect(() => {
     void load();
   }, []);
@@ -467,13 +472,13 @@ export default function Products() {
           >
             İçe aktar
           </button>
-          <button
+          {role === "SUPER_ADMIN" && <button
             type="button"
             className={styles.secondaryAction}
             onClick={() => setPriceOpen((open) => !open)}
           >
             ₺ Fiyat / maliyet
-          </button>
+          </button>}
           <button type="button" onClick={() => setNewOpen((open) => !open)}>
             ＋ Yeni ürün
           </button>
@@ -882,7 +887,7 @@ export default function Products() {
                   accept="image/jpeg,image/png,image/webp"
                   onChange={chooseImage}
                 />
-                <small>JPG, PNG veya WebP · en fazla 2 MB</small>
+                <small>JPG, JPEG, PNG veya WebP · en fazla 2 MB · önerilen ölçü: 1200 × 1200 px (kare)</small>
               </label>
               <footer>
                 <button
@@ -927,7 +932,7 @@ export default function Products() {
                 <th>Görsel</th>
                 <th>Ürün bilgileri</th>
                 <th>Site fiyatı</th>
-                <th>Maliyet</th>
+                {role === "SUPER_ADMIN" && <th>Maliyet</th>}
                 <th>Stok</th>
                 <th>Durum</th>
                 <th>İşlemler</th>
@@ -980,18 +985,18 @@ export default function Products() {
                           : "Fiyat menüsünden ekleyin"}
                       </small>
                     </td>
-                    <td>
+                    {role === "SUPER_ADMIN" && <td>
                       <b>
                         {costItem
                           ? money(costItem.unit_cost)
                           : "Maliyet girilmedi"}
                       </b>
                       <small>{costItem?.supplier_name ?? "—"}</small>
-                    </td>
+                    </td>}
                     <td>
                       <Link className={styles.stockLink} href="/stok">
-                        ▦ Stok girişi
-                        <small>Depo ve lot bilgisiyle kaydet</small>
+                        ▦ {product.available_quantity ?? 0} adet
+                        <small>Kalan stok · depo ve lot bilgisi</small>
                       </Link>
                     </td>
                     <td>
@@ -1016,7 +1021,7 @@ export default function Products() {
                           <span>🖼</span>
                           <small>Görsel</small>
                         </button>
-                        <button
+                        {role === "SUPER_ADMIN" && <button
                           type="button"
                           className={styles.priceAction}
                           onClick={() => {
@@ -1030,7 +1035,7 @@ export default function Products() {
                         >
                           <span>₺</span>
                           <small>Fiyat</small>
-                        </button>
+                        </button>}
                         <a
                           className={styles.siteAction}
                           href={`https://www.trextea.com.tr/urunler/${product.slug}`}
