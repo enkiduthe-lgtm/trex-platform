@@ -40,7 +40,9 @@ export class ArasShippingProvider implements ShippingProvider {
 
   private envelope({ username, password, orderReference, integrationCode, input }: { username: string; password: string; orderReference: string; integrationCode: string; input: ShippingProviderInput }) {
     const phone = input.phone.replace(/\D/g, '').slice(-10);
-    const pieceBarcode = input.orderId.replace(/\D/g, '').slice(0, 32) || orderReference.replace(/\D/g, '');
+    // Aras branches process each package by PieceDetail.BarcodeNumber. This is
+    // the same unique barcode printed on the physical TREX package label.
+    const pieceBarcode = this.limit(input.packageBarcode || input.orderId.replace(/\D/g, '') || orderReference.replace(/\D/g, ''), 64);
     return `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tem="http://tempuri.org/"><soap:Body><SetOrder xmlns="http://tempuri.org/"><orderInfo><Order>
 <UserName>${this.xml(username)}</UserName><Password>${this.xml(password)}</Password><TradingWaybillNumber>${this.xml(orderReference)}</TradingWaybillNumber>

@@ -106,6 +106,19 @@ const orderStatus: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
+const code39: Record<string, string> = {
+  "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn",
+  "4": "nnnwwnnnw", "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw",
+  "8": "wnnwnnwnn", "9": "nnwwnnwnn", A: "wnnnnwnnw", B: "nnwnnwnnw",
+  C: "wnwnnwnnn", D: "nnnnwwnnw", E: "wnnnwwnnn", F: "nnwnwwnnn",
+  G: "nnnnnwwnw", H: "wnnnnwwnn", I: "nnwnnwwnn", J: "nnnnwwwnn",
+  K: "wnnnnnnww", L: "nnwnnnnww", M: "wnwnnnnwn", N: "nnnnwnnww",
+  O: "wnnnwnnwn", P: "nnwnwnnwn", Q: "nnnnnnwww", R: "wnnnnnwwn",
+  S: "nnwnnnwwn", T: "nnnnwnwwn", U: "wwnnnnnnw", V: "nwwnnnnnw",
+  W: "wwwnnnnnn", X: "nwnnwnnnw", Y: "wwnnwnnnn", Z: "nwwnwnnnn",
+  "-": "nwnnnnwnw", ".": "wwnnnnwnn", " ": "nwwnnnwnn", "*": "nwnnwnwnn",
+  "$": "nwnwnwnnn", "/": "nwnwnnnwn", "+": "nwnnnwnwn", "%": "nnnwnwnwn",
+};
 type Invoice = {
   id: string;
   customer_type: "INDIVIDUAL" | "CORPORATE";
@@ -199,6 +212,32 @@ export default function OrderDetail() {
     } finally {
       setOperationBusy(false);
     }
+  }
+  function printPackageBarcode(packageBarcode: string) {
+    const value = packageBarcode.toUpperCase().replace(/[^0-9A-Z .\-$/+%]/g, "");
+    const encoded = `*${value}*`;
+    if (!value || [...encoded].some((character) => !code39[character])) {
+      setError("Paket barkodu yazdırılamadı.");
+      return;
+    }
+    let cursor = 20;
+    const bars: string[] = [];
+    for (const character of encoded) {
+      [...code39[character]].forEach((width, index) => {
+        const unit = width === "w" ? 5 : 2;
+        if (index % 2 === 0) bars.push(`<rect x="${cursor}" y="12" width="${unit}" height="92" fill="#111" />`);
+        cursor += unit;
+      });
+      cursor += 2;
+    }
+    const label = window.open("", "_blank", "popup=yes,width=720,height=440");
+    if (!label) {
+      setError("Yazdırma penceresi engellendi. Tarayıcıdan açılır pencereye izin verin.");
+      return;
+    }
+    const orderNumber = data?.order_number ?? "";
+    label.document.write(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 55mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:5mm;width:90mm;box-sizing:border-box}h1{font-size:16px;margin:0 0 3mm}.muted{font-size:11px;margin:0 0 3mm}.code{font-size:16px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:1mm}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><p class="muted">Sipariş: ${orderNumber}</p><svg viewBox="0 0 ${cursor + 20} 116" width="100%" height="42mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><script>window.onload=()=>window.print()</script></body></html>`);
+    label.document.close();
   }
   async function cancelOrder() {
     if (
@@ -438,6 +477,11 @@ export default function OrderDetail() {
               <p><strong>2. Paket / barkod:</strong> {data.fulfillment?.package_barcode ? `Paket barkodu basıldı: ${data.fulfillment.package_barcode}` : "Paketleme tamamlanınca barkod otomatik oluşur."}</p>
               <p><strong>3. Kargo:</strong> {data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Kargo oluşturulduğunda takip kodu burada görünür."}</p>
               <div className={styles.actions}>
+                {data.fulfillment?.package_barcode && (
+                  <button type="button" onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>
+                    Paket barkodunu yazdır
+                  </button>
+                )}
                 {canEdit && data.status === "PAID" && (
                   <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
                     {operationBusy ? "Hazırlama açılıyor…" : "Ürün hazırlamayı başlat"}
