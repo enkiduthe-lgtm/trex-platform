@@ -106,6 +106,13 @@ const orderStatus: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
+const escapeLabelHtml = (value: string) =>
+  value.replace(/[&<>\"']/g, (character) => {
+    const replacements: Record<string, string> = {
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+    };
+    return replacements[character] ?? character;
+  });
 const code39: Record<string, string> = {
   "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn",
   "4": "nnnwwnnnw", "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw",
@@ -235,8 +242,12 @@ export default function OrderDetail() {
       setError("Yazdırma penceresi engellendi. Tarayıcıdan açılır pencereye izin verin.");
       return;
     }
-    const orderNumber = data?.order_number ?? "";
-    label.document.write(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 55mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:5mm;width:90mm;box-sizing:border-box}h1{font-size:16px;margin:0 0 3mm}.muted{font-size:11px;margin:0 0 3mm}.code{font-size:16px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:1mm}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><p class="muted">Sipariş: ${orderNumber}</p><svg viewBox="0 0 ${cursor + 20} 116" width="100%" height="42mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><script>window.onload=()=>window.print()</script></body></html>`);
+    const orderNumber = escapeLabelHtml(data?.order_number ?? "");
+    const recipient = escapeLabelHtml(data?.address?.recipient_name ?? data?.contact_name ?? "Alıcı bilgisi yok");
+    const products = data?.items.length
+      ? data.items.map((item) => `<li>${escapeLabelHtml(item.product_name)} <b>× ${item.quantity}</b></li>`).join("")
+      : "<li>Ürün bilgisi bulunamadı</li>";
+    label.document.write(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 80mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:92mm;box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><script>window.onload=()=>window.print()</script></body></html>`);
     label.document.close();
   }
   async function cancelOrder() {
@@ -470,36 +481,47 @@ export default function OrderDetail() {
                 )}
               </section>
             )}
-            <h2>Hazırlama ve sevkiyat akışı</h2>
+            <h2>Sipariş akışı</h2>
             <section className={styles.notice}>
               {operationMessage && <p role="status">{operationMessage}</p>}
-              <p><strong>1. Ürün hazırlanıyor:</strong> {data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler toplandı." : "Toplama işlemi devam ediyor.") : "Ödeme onayından sonra depo operasyonuna düşer."}</p>
-              <p><strong>2. Paket / barkod:</strong> {data.fulfillment?.package_barcode ? `Paket barkodu basıldı: ${data.fulfillment.package_barcode}` : "Paketleme tamamlanınca barkod otomatik oluşur."}</p>
-              <p><strong>3. Kargo:</strong> {data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Kargo oluşturulduğunda takip kodu burada görünür."}</p>
+              <ol style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12, margin: "0 0 16px", padding: 0, listStyle: "none" }}>
+                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.fulfillment ? "#f4fbf7" : "#fff" }}>
+                  <strong>1. Hazırla</strong>
+                  <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
+                </li>
+                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.fulfillment?.packed_at ? "#f4fbf7" : "#fff" }}>
+                  <strong>2. Paketle / barkod bas</strong>
+                  <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
+                </li>
+                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.status === "SHIPPED" || data.status === "DELIVERED" ? "#f4fbf7" : "#fff" }}>
+                  <strong>3. Kargoya ver</strong>
+                  <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Aras kaydını açıp paketi şubeye teslim edin."}</p>
+                </li>
+              </ol>
               <div className={styles.actions}>
                 {data.fulfillment?.package_barcode && (
                   <button type="button" onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>
-                    Paket barkodunu yazdır
+                    2. Barkodu yazdır
                   </button>
                 )}
                 {canEdit && data.status === "PAID" && (
                   <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
-                    {operationBusy ? "Hazırlama açılıyor…" : "Ürün hazırlamayı başlat"}
+                    {operationBusy ? "Hazırlama açılıyor…" : "1. Hazırlamayı başlat"}
                   </button>
                 )}
                 {canEdit && data.status === "PROCESSING" && !data.fulfillment?.packed_at && (
                   <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
-                    {operationBusy ? "Açılıyor…" : "Ürünleri topla ve paketi kapat"}
+                    {operationBusy ? "Açılıyor…" : "2. Paketle / barkod bas"}
                   </button>
                 )}
                 {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && (
                   <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>
-                    {operationBusy ? "Aras kaydı açılıyor…" : "Aras barkodu ve takip kodunu oluştur"}
+                    {operationBusy ? "Aras kaydı açılıyor…" : "3. Kargo kaydını hazırla"}
                   </button>
                 )}
                 {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && (
                   <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>
-                    {operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}
+                    {operationBusy ? "Kaydediliyor…" : "Paketi Aras'a teslim ettim"}
                   </button>
                 )}
                 {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && (
