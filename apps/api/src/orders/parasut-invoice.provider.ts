@@ -5,6 +5,17 @@ type InvoiceRequest = { customerType: 'INDIVIDUAL' | 'CORPORATE'; recipientName:
 
 @Injectable()
 export class ParasutInvoiceProvider {
+  private productCode(description: string) {
+    const normalized = description
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toUpperCase()
+      .slice(0, 90);
+    return `TREX-${normalized || 'URUN'}`;
+  }
+
   private configuration() {
     const value = {
       companyId: process.env.PARASUT_COMPANY_ID?.trim(),
@@ -43,6 +54,34 @@ export class ParasutInvoiceProvider {
     return result.access_token;
   }
 
+  private async ensureProduct(
+    config: ReturnType<ParasutInvoiceProvider['configuration']>,
+    headers: Record<string, string>,
+    line: InvoiceLine,
+  ) {
+    const code = this.productCode(line.description);
+    const existing = await this.request<{ data: Array<{ id: string }> }>(
+      `https://api.parasut.com/v4/${config.companyId}/products?filter[code]=${encodeURIComponent(code)}`,
+      { headers },
+    );
+    if (existing.data[0]?.id) return existing.data[0].id;
+
+    const product = await this.request<{ data: { id: string } }>(`https://api.parasut.com/v4/${config.companyId}/products`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ data: { type: 'products', attributes: {
+        name: line.description,
+        code,
+        unit: 'Adet',
+        vat_rate: 0,
+        list_price: line.unitPrice,
+        currency: 'TRL',
+        inventory_tracking: false,
+      } } }),
+    });
+    return product.data.id;
+  }
+
   async issue(input: InvoiceRequest) {
     const config = this.configuration();
     const token = await this.accessToken(config);
@@ -58,11 +97,13 @@ export class ParasutInvoiceProvider {
         address: input.billingAddress, city: input.billingCity || undefined, district: input.billingDistrict || undefined,
       } } }),
     });
+    const productIds: string[] = [];
+    for (const line of input.lines) productIds.push(await this.ensureProduct(config, headers, line));
     const invoice = await this.request<{ data: { id: string; attributes?: { invoice_no?: string } } }>(`https://api.parasut.com/v4/${config.companyId}/sales_invoices`, {
       method: 'POST', headers, body: JSON.stringify({ data: { type: 'sales_invoices', attributes: {
         item_type: 'invoice', description: `TREX siparişi ${input.orderNumber}`, issue_date: input.issueDate, due_date: input.issueDate,
         currency: 'TRL', billing_address: input.billingAddress, billing_city: input.billingCity || undefined, billing_district: input.billingDistrict || undefined,
-      }, relationships: { contact: { data: { id: contact.data.id, type: 'contacts' } }, details: { data: input.lines.map(line => ({ type: 'sales_invoice_details', attributes: { description: line.description, quantity: line.quantity, unit_price: line.unitPrice, vat_rate: 0 } })) } } } }),
+      }, relationships: { contact: { data: { id: contact.data.id, type: 'contacts' } }, details: { data: input.lines.map((line, index) => ({ type: 'sales_invoice_details', attributes: { description: line.description, quantity: line.quantity, unit_price: line.unitPrice, vat_rate: 0 }, relationships: { product: { data: { id: productIds[index], type: 'products' } } } })) } } } }),
     });
     return { providerInvoiceId: invoice.data.id, invoiceNumber: invoice.data.attributes?.invoice_no ?? null, payload: invoice };
   }
