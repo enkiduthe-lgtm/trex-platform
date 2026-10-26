@@ -51,6 +51,8 @@ export class ParasutInvoiceProvider {
       method: 'POST', headers, body: JSON.stringify({ data: { type: 'contacts', attributes: {
         name: input.customerType === 'CORPORATE' ? input.companyName : input.recipientName,
         contact_type: input.customerType === 'CORPORATE' ? 'company' : 'person',
+        // Paraşüt requires every new contact to be classified as a customer or supplier.
+        account_type: 'customer',
         email: input.email || undefined, tax_number: input.customerType === 'CORPORATE' ? input.taxNumber : input.identityNumber,
         tax_office: input.customerType === 'CORPORATE' ? input.taxOffice : undefined,
         address: input.billingAddress, city: input.billingCity || undefined, district: input.billingDistrict || undefined,
