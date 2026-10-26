@@ -1,5 +1,7 @@
 .page {
-  max-width: 1540px;
+  max-width: none;
+  width: 100%;
+  padding: 18px 28px 36px;
 }
 
 .tableWrap table {
@@ -232,6 +234,7 @@
   overflow: auto;
   border: 1px solid #d9e7df;
   background: #fff;
+  border-radius: 5px;
 }
 .tableWrap table {
   width: 100%;
@@ -239,18 +242,16 @@
   border-collapse: collapse;
 }
 .tableWrap th {
-  background: #e4f5eb;
-  color: #315e4c;
+  background: #f5f8f6;
+  color: #36564a;
   text-align: left;
-  padding: 11px 9px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border-bottom: 1px solid #c4e3d0;
+  padding: 12px 9px;
+  font-size: 11px;
+  border: 1px solid #e0e8e3;
 }
 .tableWrap td {
   padding: 11px 9px;
-  border-bottom: 1px solid #edf4ef;
+  border: 1px solid #e4ebe7;
   vertical-align: middle;
 }
 .tableWrap tbody tr:hover {

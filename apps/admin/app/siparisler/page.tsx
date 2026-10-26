@@ -25,6 +25,9 @@ type Order = {
   item_count: string;
   sales_channel?: string;
   marketplace_name?: string | null;
+  shipping_provider?: string | null;
+  tracking_number?: string | null;
+  shipment_status?: string | null;
 };
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
@@ -46,6 +49,24 @@ const date = (value: string) =>
     timeStyle: "short",
   });
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
+const tabs = [
+  { value: "PENDING_PAYMENT", label: "Onay bekleyenler" },
+  { value: "PROCESSING", label: "Hazırlananlar" },
+  { value: "SHIPPED", label: "Kargolananlar" },
+  { value: "DELIVERED", label: "Teslim edilenler" },
+  { value: "CANCELLED", label: "İptal edilenler" },
+  { value: "ALL", label: "Tüm siparişler" },
+];
+function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "trash" | "check" }) {
+  const icon = {
+    eye: <><path d="M2.5 12s3.3-5 9.5-5 9.5 5 9.5 5-3.3 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.2"/></>,
+    edit: <><path d="m4 20 4.2-1 10-10-3.2-3.2-10 10L4 20Z"/><path d="m13.5 6.5 3.2 3.2"/></>,
+    print: <><path d="M6 8V3h12v5M6 17H4V9h16v8h-2"/><path d="M7 14h10v7H7z"/></>,
+    trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></>,
+    check: <><path d="m5 12 4 4L19 6"/></>,
+  }[name];
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{icon}</svg>;
+}
 
 function OrdersContent() {
   const searchParams = useSearchParams();
@@ -103,6 +124,8 @@ function OrdersContent() {
       }),
     [orders, query, statusFilter],
   );
+  const countFor = (status: string) =>
+    status === "ALL" ? orders.length : orders.filter((order) => order.status === status).length;
   const toggle = (id: string) =>
     setSelected((items) =>
       items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
@@ -164,6 +187,19 @@ function OrdersContent() {
     <main>
       <AdminNav />
       <section className={styles.page}>
+        <nav className={styles.orderTabs} aria-label="Sipariş durumları">
+          {tabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.value}
+              className={statusFilter === tab.value ? styles.currentTab : ""}
+              onClick={() => setStatusFilter(tab.value)}
+            >
+              {tab.label}
+              {tab.value !== "ALL" && <small>{countFor(tab.value)}</small>}
+            </button>
+          ))}
+        </nav>
         <div className={styles.titleRow}>
           <div>
             <p>SİPARİŞ OPERASYONU</p>
@@ -267,8 +303,9 @@ function OrdersContent() {
                 <th>Müşteri bilgileri</th>
                 <th>Tutar</th>
                 <th>Durum</th>
-                <th>Kanal</th>
+                <th>Kargo</th>
                 <th>Tarih</th>
+                <th>Yazdır</th>
                 <th>İşlemler</th>
               </tr>
             </thead>
@@ -305,13 +342,16 @@ function OrdersContent() {
                     </span>
                   </td>
                   <td>
-                    <b>
-                      {order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—")}
-                    </b>
-                    <small>{order.sales_channel ?? "SATIŞ KANALI"}</small>
+                    <b>{order.shipping_provider ?? "Kargo bekliyor"}</b>
+                    <small>{order.tracking_number ?? (order.status === "PROCESSING" ? "Paketleme sonrası oluşur" : order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"))}</small>
                   </td>
                   <td>
                     <time>{date(order.created_at)}</time>
+                  </td>
+                  <td>
+                    <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}`} title="Fatura, paket ve kargo çıktıları">
+                      <OrderIcon name="print" /><span>Çıktılar</span>
+                    </Link>
                   </td>
                   <td>
                     <div className={styles.actions}>
@@ -319,7 +359,7 @@ function OrdersContent() {
                         href={`/siparisler/${order.id}`}
                         title="Sipariş detayı ve ödeme hareketleri"
                       >
-                        Detay / Ödeme
+                        <OrderIcon name="eye" /><span>Detay</span>
                       </Link>
                       {canCreate &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
@@ -328,7 +368,7 @@ function OrdersContent() {
                             className={styles.financeLink}
                             href={`/siparisler/${order.id}/duzenle`}
                           >
-                            Düzenle
+                            <OrderIcon name="edit" /><span>Düzenle</span>
                           </Link>
                         )}
                       {canCreate &&
@@ -343,7 +383,7 @@ function OrdersContent() {
                           >
                             {pendingAction === order.id
                               ? "İptal ediliyor…"
-                              : "İptal et"}
+                              : <><OrderIcon name="trash" /><span>İptal</span></>}
                           </button>
                         )}
                       {order.status === "PENDING_PAYMENT" && (
@@ -351,18 +391,18 @@ function OrdersContent() {
                           className={styles.approveLink}
                           href={`/finans/havaleler?order=${encodeURIComponent(order.order_number)}`}
                         >
-                          Onaya gönder
+                          <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
                       )}
-                      {order.status === "PAID" && <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>Hazırlamayı aç</Link>}
+                      {order.status === "PAID" && <Link className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Hazırlamayı aç</span></Link>}
                       {order.status === "PROCESSING" && (
                         <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
-                          Operasyonu aç
+                          <OrderIcon name="check" /><span>Operasyonu aç</span>
                         </Link>
                       )}
                       {order.status === "SHIPPED" && (
                         <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
-                          Teslimatı aç
+                          <OrderIcon name="check" /><span>Teslimatı aç</span>
                         </Link>
                       )}
                     </div>
