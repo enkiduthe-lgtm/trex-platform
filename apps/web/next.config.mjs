@@ -1,5 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async redirects() {
+    return [
+      { source: '/urunler/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/sepet/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/odeme/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/hesabim/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/bayilik/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/club/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+      { source: '/yasal/:path*', destination: 'https://trex-admin.onrender.com/giris', permanent: false },
+    ];
+  },
   async headers() {
     return [{
       source: '/:path*',
