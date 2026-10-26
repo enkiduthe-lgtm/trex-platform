@@ -240,6 +240,7 @@ export default function Products() {
   const [imageProduct, setImageProduct] = useState<Product | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
+  const [failedImages, setFailedImages] = useState<Record<string, true>>({});
   const [uploadingImage, setUploadingImage] = useState(false);
   const [form, setForm] = useState({
     name: "",
@@ -275,6 +276,7 @@ export default function Products() {
       ]);
       setRole(current.user.role);
         setProducts(a);
+        setFailedImages({});
         setLevels(b);
         setPriceGroups(g);
         setPrices(c);
@@ -386,6 +388,9 @@ export default function Products() {
     setImagePreview("");
     setImageFile(null);
     setImageProduct(null);
+  }
+  function markImageUnavailable(product: Product) {
+    setFailedImages((current) => current[product.id] ? current : { ...current, [product.id]: true });
   }
   function chooseImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -869,14 +874,15 @@ export default function Products() {
                 </button>
               </header>
               <div className={styles.imagePreview}>
-                {imagePreview || imageProduct.image_url ? (
+                {(imagePreview || imageProduct.image_url) && !(imageProduct.image_url && !imagePreview && failedImages[imageProduct.id]) ? (
                   <img
                     src={imagePreview || imageProduct.image_url || ""}
                     alt={`${imageProduct.name} önizlemesi`}
+                    onError={() => markImageUnavailable(imageProduct)}
                   />
                 ) : (
                   <span>
-                    🖼<small>Henüz görsel yok</small>
+                    🖼<small>{imageProduct.image_url ? "Görsel yüklenemedi" : "Henüz görsel yok"}</small>
                   </span>
                 )}
               </div>
@@ -960,10 +966,11 @@ export default function Products() {
                         onClick={() => setImageProduct(product)}
                         title="Ürün görselini yükle veya değiştir"
                       >
-                        {product.image_url ? (
+                        {product.image_url && !failedImages[product.id] ? (
                           <img
                             src={product.image_url}
                             alt={`${product.name} görseli`}
+                            onError={() => markImageUnavailable(product)}
                           />
                         ) : (
                           <span aria-hidden="true">🖼</span>
