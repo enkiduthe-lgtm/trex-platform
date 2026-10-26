@@ -7,6 +7,7 @@ import { CreateFinanceTransactionDto, CreateFinanceTransferDto } from './dto/cre
 import { ApproveCollectionDto } from './dto/approve-collection.dto';
 import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlement.dto';
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
+import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -69,6 +70,38 @@ export class FinanceService {
   }
   async listMarketplaceSettlements() {
     return (await this.db.query(`SELECT s.*,a.name AS account_name, a.currency FROM marketplace_settlements s JOIN finance_accounts a ON a.id=s.account_id ORDER BY s.occurred_at DESC LIMIT 100`)).rows;
+  }
+  async listCarrierSettlements() {
+    return (await this.db.query(`SELECT s.*,a.name AS account_name,a.currency
+      FROM carrier_settlements s JOIN finance_accounts a ON a.id=s.account_id
+      ORDER BY CASE WHEN s.status='PLANNED' THEN 0 ELSE 1 END,s.expected_payout_date ASC,s.created_at DESC LIMIT 200`)).rows;
+  }
+  async createCarrierSettlement(dto: CreateCarrierSettlementDto, actor: RequestUser) {
+    const shipping = dto.shippingDeductionAmount ?? 0;
+    const other = dto.otherDeductionAmount ?? 0;
+    const net = Number((dto.grossCollectionAmount - shipping - other).toFixed(2));
+    if (net < 0) throw new BadRequestException('Kargo ve diğer kesintiler brüt tahsilattan yüksek olamaz');
+    return this.db.transaction(async client => {
+      const account = await client.query<{ id:string }>(`SELECT id FROM finance_accounts WHERE id=$1 AND is_active=true AND currency='TRY' FOR KEY SHARE`, [dto.accountId]);
+      if (!account.rowCount) throw new BadRequestException('Tahsilatın yatacağı aktif TL hesabını seçin');
+      const result = await client.query<{id:string}>(`INSERT INTO carrier_settlements(account_id,carrier_name,reference_number,gross_collection_amount,shipping_deduction_amount,other_deduction_amount,net_payout_amount,expected_payout_date,note,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, [dto.accountId,dto.carrierName.trim(),dto.referenceNumber?.trim()||null,dto.grossCollectionAmount,shipping,other,net,dto.expectedPayoutDate,dto.note?.trim()||null,actor.id]);
+      await client.query(`INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)`, [actor.id,'finance.carrier_settlement.created','carrier_settlement',result.rows[0].id,JSON.stringify({carrier:dto.carrierName.trim(),net,expectedPayoutDate:dto.expectedPayoutDate})]);
+      return {id:result.rows[0].id,netPayoutAmount:net,status:'PLANNED'};
+    });
+  }
+  async markCarrierSettlementPaid(id:string, actor:RequestUser) {
+    return this.db.transaction(async client => {
+      const settlement=await client.query<{id:string;account_id:string;carrier_name:string;reference_number:string|null;net_payout_amount:string;expected_payout_date:string;status:string}>(`SELECT * FROM carrier_settlements WHERE id=$1 FOR UPDATE`,[id]);
+      if(!settlement.rowCount) throw new BadRequestException('Kargo tahsilat kaydı bulunamadı');
+      if(settlement.rows[0].status==='PAID') return {id,status:'PAID',replayed:true};
+      const row=settlement.rows[0];
+      const transaction=await client.query<{id:string}>(`INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,description,occurred_at,created_by)
+        VALUES($1,'COLLECTION',$2,'PAID',$3,$4,$5,now(),$6) RETURNING id`,[row.account_id,row.net_payout_amount,row.carrier_name,row.reference_number,`${row.carrier_name} kargo tahsilatı · planlanan ödeme ${String(row.expected_payout_date).slice(0,10)}`,actor.id]);
+      await client.query(`UPDATE carrier_settlements SET status='PAID',paid_at=now(),finance_transaction_id=$1,updated_at=now() WHERE id=$2`,[transaction.rows[0].id,id]);
+      await client.query(`INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)`,[actor.id,'finance.carrier_settlement.paid','carrier_settlement',id,JSON.stringify({financeTransactionId:transaction.rows[0].id})]);
+      return {id,status:'PAID',financeTransactionId:transaction.rows[0].id};
+    });
   }
   async pendingCollections() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC LIMIT 100`)).rows;

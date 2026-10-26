@@ -13,6 +13,7 @@ import { ApproveCollectionDto } from './dto/approve-collection.dto';
 import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlement.dto';
 import { UpdatePaytrSettingsDto } from './dto/update-paytr-settings.dto';
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
+import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 type UserRequest = Request & { user: RequestUser };
 @Controller('admin/finance')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,6 +38,9 @@ export class FinanceController {
   approve(@Param('id') id: string, @Body() dto: ApproveCollectionDto, @Req() req: UserRequest) { return this.finance.approveCollection(id, dto, req.user); }
 
   @Get('marketplace-settlements') marketplaceSettlements() { return this.finance.listMarketplaceSettlements(); }
+  @Get('carrier-settlements') carrierSettlements() { return this.finance.listCarrierSettlements(); }
+  @Post('carrier-settlements') carrierSettlement(@Body() dto: CreateCarrierSettlementDto, @Req() req: UserRequest) { return this.finance.createCarrierSettlement(dto, req.user); }
+  @Post('carrier-settlements/:id/mark-paid') markCarrierSettlementPaid(@Param('id') id: string, @Req() req: UserRequest) { return this.finance.markCarrierSettlementPaid(id, req.user); }
   @Get('dashboard') dashboard() { return this.finance.dashboard(); }
   @Get('alerts') alerts() { return this.finance.alerts(); }
   @Get('budgets') budgets(@Query('period') period?: string) { return this.finance.budgets(period); }
