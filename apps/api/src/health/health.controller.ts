@@ -14,7 +14,7 @@ export class HealthController {
     try { await Promise.all([this.db.query('SELECT 1'), this.queue.waitUntilReady()]); return { status: 'ok', checks: { database: 'up', queue: 'up' } }; }
     catch { throw new ServiceUnavailableException({ status: 'error', checks: { database: 'down or queue: down' } }); }
   }
-  @Get('integrity') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  @Get('integrity') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
   async integrity() {
     try {
       const [migration] = await Promise.all([
@@ -24,6 +24,8 @@ export class HealthController {
       const paymentProvider = process.env.PAYMENT_PROVIDER ?? 'missing';
       const shippingProvider = process.env.SHIPPING_PROVIDER ?? 'missing';
       const notificationProvider = process.env.NOTIFICATION_PROVIDER ?? 'missing';
+      const mediaConfigured = Boolean(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET && process.env.R2_PUBLIC_BASE_URL);
+      const invoicingConfigured = Boolean(process.env.PARASUT_COMPANY_ID && process.env.PARASUT_CLIENT_ID && process.env.PARASUT_CLIENT_SECRET && process.env.PARASUT_USERNAME && process.env.PARASUT_PASSWORD);
       return {
         status: 'ok',
         build: (process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? 'local').slice(0, 12),
@@ -34,11 +36,13 @@ export class HealthController {
           payment: { configured: paymentProvider !== 'missing' && paymentProvider !== 'mock', kind: paymentProvider },
           shipping: { configured: shippingProvider !== 'missing' && shippingProvider !== 'mock', kind: shippingProvider },
           notification: { configured: notificationProvider !== 'missing' && notificationProvider !== 'mock', kind: notificationProvider },
+          media: { configured: mediaConfigured, kind: mediaConfigured ? 'cloudflare-r2' : 'missing' },
+          invoicing: { configured: invoicingConfigured, kind: invoicingConfigured ? 'parasut' : 'missing' },
         },
       };
     } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Çalışma zamanı bütünlüğü doğrulanamadı' }); }
   }
-  @Get('integrity/reconciliation') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
+  @Get('integrity/reconciliation') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
   async reconciliation() {
     try {
       const [paymentsWithoutOrders, paidOrdersWithoutPayments, invalidInventory, cancelledReservations, unlinkedCollections] = await Promise.all([
@@ -58,7 +62,7 @@ export class HealthController {
       return { status: Object.values(checks).every(value => value === 0) ? 'ok' : 'attention', checks };
     } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Uzlaştırma kontrolü çalıştırılamadı' }); }
   }
-  @Get('integrity/release-readiness') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  @Get('integrity/release-readiness') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
   async releaseReadiness() {
     try {
       const [legal] = await Promise.all([
@@ -74,6 +78,9 @@ export class HealthController {
         legalDocumentCount: Number(legal.rows[0]?.count ?? 0),
         paymentConfigured: Boolean(process.env.PAYMENT_PROVIDER && process.env.PAYMENT_PROVIDER !== 'mock'),
         shippingConfigured: Boolean(process.env.SHIPPING_PROVIDER && process.env.SHIPPING_PROVIDER !== 'mock'),
+        notificationConfigured: Boolean(process.env.NOTIFICATION_PROVIDER && process.env.NOTIFICATION_PROVIDER !== 'mock'),
+        mediaStorageConfigured: Boolean(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET && process.env.R2_PUBLIC_BASE_URL),
+        invoicingConfigured: Boolean(process.env.PARASUT_COMPANY_ID && process.env.PARASUT_CLIENT_ID && process.env.PARASUT_CLIENT_SECRET && process.env.PARASUT_USERNAME && process.env.PARASUT_PASSWORD),
       };
       const blockers = [
         !checks.productionEnvironment && 'Üretim ortamı etkin değil',
@@ -81,6 +88,10 @@ export class HealthController {
         !checks.corsIncludesPublicDomain && 'Ana site için CORS tanımı eksik',
         checks.legalDocumentCount === 0 && 'Yayınlanmış yasal doküman yok',
         !checks.paymentConfigured && 'Canlı ödeme sağlayıcısı yapılandırılmamış',
+        !checks.shippingConfigured && 'Canlı kargo sağlayıcısı yapılandırılmamış',
+        !checks.notificationConfigured && 'Canlı e-posta sağlayıcısı yapılandırılmamış',
+        !checks.mediaStorageConfigured && 'Kalıcı görsel depolama yapılandırılmamış',
+        !checks.invoicingConfigured && 'Paraşüt fatura bağlantısı yapılandırılmamış',
       ].filter(Boolean);
       return { status: blockers.length ? 'attention' : 'ready', checks, blockers };
     } catch { throw new ServiceUnavailableException({ status: 'error', message: 'Yayın hazırlık kontrolü çalıştırılamadı' }); }
