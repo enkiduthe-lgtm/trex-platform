@@ -327,12 +327,24 @@ export default function OrderDetail() {
         {!data && !error && <p>Yükleniyor…</p>}
         {data && (
           <>
-            <p>
-              Sipariş durumu: {orderStatus[data.status] ?? data.status} ·
-              Toplam: {money(data.total_amount, data.currency)}
-            </p>
-            <section className={styles.notice}>
-              <h2>Müşteri ve teslimat</h2>
+            <div className={styles.detailLayout}>
+            <section className={`${styles.detailCard} ${styles.summaryCard}`}>
+              <div className={styles.cardHeader}>
+                <h2>Sipariş özeti</h2>
+                <span className={`${styles.status} ${styles[`status_${data.status}`] ?? ""}`}>{orderStatus[data.status] ?? data.status}</span>
+              </div>
+              <div className={styles.summaryValues}>
+                <div><small>Toplam tutar</small><strong>{money(data.total_amount, data.currency)}</strong></div>
+                <div><small>Ödeme yöntemi</small><strong>{data.payments.map((payment) => paymentMethod[payment.provider] ?? payment.provider).join(", ") || "Belirtilmedi"}</strong></div>
+              </div>
+              <div className={styles.cardActions}>
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && data.status !== "CANCELLED" && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
+              </div>
+            </section>
+            <section className={styles.detailCard}>
+              <div className={styles.cardHeader}><h2>Müşteri ve teslimat</h2><span>Müşteri bilgileri</span></div>
               <p>
                 {data.contact_name ??
                   data.address?.recipient_name ??
@@ -354,62 +366,8 @@ export default function OrderDetail() {
                 <p>Teslimat adresi bulunamadı. Siparişi göndermeyin.</p>
               )}
             </section>
-            <p>
-              Ödeme yöntemi:{" "}
-              {data.payments
-                .map(
-                  (payment) =>
-                    paymentMethod[payment.provider] ?? payment.provider,
-                )
-                .join(", ") || "Belirtilmedi"}
-            </p>
-            {canEdit &&
-              editableAdminChannels.includes(data.sales_channel) &&
-              data.status !== "CANCELLED" && (
-                <Link
-                  className={styles.financeLink}
-                  href={`/siparisler/${id}/duzenle`}
-                >
-                  Siparişi düzenle
-                </Link>
-              )}
-            {canEdit &&
-              editableAdminChannels.includes(data.sales_channel) &&
-              ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) &&
-              data.payments.length > 0 &&
-              data.payments.every(
-                (payment) => payment.status === "PENDING",
-              ) && (
-                <button
-                  type="button"
-                  disabled={cancelling}
-                  onClick={() => void cancelOrder()}
-                >
-                  {cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}
-                </button>
-              )}
-            {canEdit &&
-              editableAdminChannels.includes(data.sales_channel) &&
-              ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) &&
-              data.payments.length > 0 &&
-              data.payments.every(
-                (payment) =>
-                  payment.status === "PENDING" &&
-                  [
-                    "bank_transfer",
-                    "cash",
-                    "cash_on_delivery_card",
-                    "cash_on_delivery_cash",
-                  ].includes(payment.provider),
-              ) && (
-                <Link
-                  className={styles.financeLink}
-                  href={`/siparisler/${id}/fiyatlar`}
-                >
-                  Sipariş fiyatlarını değiştir
-                </Link>
-              )}
-            <h2>Ürünler</h2>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+            <div className={styles.cardHeader}><h2>Ürünler</h2><span>{data.items.length} ürün</span></div>
             <div className={styles.tableWrap}>
               <table>
                 <thead>
@@ -432,7 +390,9 @@ export default function OrderDetail() {
                 </tbody>
               </table>
             </div>
-            <h2>Ödeme hareketleri</h2>
+            </section>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+            <div className={styles.cardHeader}><h2>Ödeme hareketleri</h2><span>{data.payments.length} kayıt</span></div>
             <div className={styles.tableWrap}>
               <table>
                 <thead>
@@ -464,11 +424,12 @@ export default function OrderDetail() {
                   ))}
                 </tbody>
               </table>
-              {data.payments.length === 0 && <p>Ödeme kaydı bulunamadı.</p>}
             </div>
+            {data.payments.length === 0 && <p className={styles.emptyNote}>Ödeme kaydı bulunamadı.</p>}
+            </section>
             {role === "SUPER_ADMIN" && (
-              <section className={styles.notice}>
-                <h2>Paraşüt fatura hazırlığı</h2>
+              <section className={`${styles.detailCard} ${styles.detailWide}`}>
+                <div className={styles.cardHeader}><h2>Paraşüt fatura hazırlığı</h2><span>Faturalama</span></div>
                 {invoice ? (
                   <><p>
                     {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura taslağı kaydedildi. Durum: {invoice.provider_status}
@@ -488,8 +449,8 @@ export default function OrderDetail() {
                 )}
               </section>
             )}
-            <h2>Sipariş akışı</h2>
-            <section className={styles.notice}>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+              <div className={styles.cardHeader}><h2>Sipariş akışı</h2><span>Operasyon adımları</span></div>
               {operationMessage && <p role="status">{operationMessage}</p>}
               <ol className={styles.flowGrid}>
                 <li className={data.fulfillment ? styles.flowDone : styles.flowCard}>
@@ -515,7 +476,8 @@ export default function OrderDetail() {
                 </li>
               </ol>
             </section>
-            <h2>Kargo ve paket</h2>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+            <div className={styles.cardHeader}><h2>Kargo ve paket</h2><span>{data.shipments.length} gönderi</span></div>
             {data.shipments.length ? (
               <div className={styles.tableWrap}>
                 <table>
@@ -549,9 +511,11 @@ export default function OrderDetail() {
                 </table>
               </div>
             ) : (
-              <p>Bu sipariş için henüz kargo kaydı yok.</p>
+              <p className={styles.emptyNote}>Bu sipariş için henüz kargo kaydı yok.</p>
             )}
-            <h2>İade kayıtları</h2>
+            </section>
+            <section className={styles.detailCard}>
+            <div className={styles.cardHeader}><h2>İade kayıtları</h2><span>{data.returns.length} kayıt</span></div>
             {data.returns.length ? (
               <div className={styles.tableWrap}>
                 <table>
@@ -584,21 +548,25 @@ export default function OrderDetail() {
                 </table>
               </div>
             ) : (
-              <p>Bu sipariş için iade kaydı yok.</p>
+              <p className={styles.emptyNote}>Bu sipariş için iade kaydı yok.</p>
             )}
-            <h2>İşlem geçmişi</h2>
+            </section>
+            <section className={styles.detailCard}>
+            <div className={styles.cardHeader}><h2>İşlem geçmişi</h2><span>{data.activity.length} hareket</span></div>
             {data.activity.length ? (
-              data.activity.map((item, index) => (
-                <p key={`${item.action}-${item.created_at}-${index}`}>
+              <div className={styles.activityList}>{data.activity.map((item, index) => (
+                <p className={styles.activityItem} key={`${item.action}-${item.created_at}-${index}`}>
                   <strong>{item.action}</strong> ·{" "}
                   {item.actor_email ?? "Sistem"} ·{" "}
                   {new Date(item.created_at).toLocaleString("tr-TR")}
                 </p>
-              ))
+              ))}</div>
             ) : (
-              <p>Ek işlem kaydı yok.</p>
+              <p className={styles.emptyNote}>Ek işlem kaydı yok.</p>
             )}
-            <h2>Bağlı destek talepleri</h2>
+            </section>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+            <div className={styles.cardHeader}><h2>Bağlı destek talepleri</h2><span>{data.supportTickets.length} talep</span></div>
             <Link className={styles.financeLink} href={`/destek?order=${id}`}>
               Bu sipariş için destek talebi aç
             </Link>
@@ -630,8 +598,10 @@ export default function OrderDetail() {
                 </table>
               </div>
             ) : (
-              <p>Bu siparişe bağlı destek talebi yok.</p>
+              <p className={styles.emptyNote}>Bu siparişe bağlı destek talebi yok.</p>
             )}
+            </section>
+            </div>
           </>
         )}
       </section>
