@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
+import styles from './reports.module.css';
 
 type Row = { status?: string; sales_channel?: string; label?: string; count: number; amount: string };
 type Report = { days: number; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
@@ -12,12 +13,27 @@ type Operations = { returns_open: number; returns_refunded: number; shipments_ac
 const money = (value: string) => Number(value || 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' });
 const channel = (value: string) => ({ PUBLIC_WEB: 'Site satışı', ADMIN_ORDER: 'Yönetici siparişi', RETAIL: 'Perakende satış', DEALER_PORTAL: 'Bayi satışı', WHOLESALE: 'Toptan satış', INSTAGRAM: 'Instagram satışı', MARKETPLACE: 'Pazaryeri satışı' }[value] ?? value);
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
+const reportCatalog = [
+  ['Günlük Satış Özeti', 'Günlük olarak gerçekleşen sipariş sayıları, satış tutarları ve iade oranları.', 'Satışlar'],
+  ['Platform Satış Performansı', 'Siparişlerin pazaryerlerine göre dağılımı, satış tutarları ve iade oranları.', 'Satışlar'],
+  ['Stok Durum Raporu', 'Genel stok seviyelerinin ürün bazında listesi.', 'Ürünler'],
+  ['Ürün Satış Raporu', 'Ürünlerin satış miktarı, iade miktarı ve tutarları.', 'Ürün Bazlı Satışlar'],
+  ['Günlük Yeni Üye Kaydı', 'Sisteme kayıt olan üyelerin günlük sayıları.', 'Müşteriler'],
+  ['Günlük Ziyaretçi Özeti', 'Günlük ziyaretçi sayıları, davranışları ve dönüşüm oranları.', 'Ziyaretçiler'],
+  ['Haftalık Satışlar', 'Haftalara göre sipariş sayıları, satış tutarları ve iade oranları.', 'Satışlar'],
+  ['Aylık Satışlar', 'Aylık bazda sipariş sayıları, satış tutarları ve iade oranları.', 'Satışlar'],
+  ['Ödeme Yöntemi Satış Raporu', 'Siparişlerin ödeme yöntemlerine göre dağılımı.', 'Satışlar'],
+  ['Siparişlerin Kargo Firmalarına Göre Dağılımı', 'Siparişlerin kargo firmalarına göre dağılımı ve satış tutarları.', 'Satışlar'],
+  ['Kritik Stok Seviyesindeki Ürünler', 'Kritik stok seviyesine ulaşan ürünlerin listesi.', 'Ürünler'],
+  ['Üye Sipariş Raporu', 'Üyelerin sipariş sayıları ve satış tutarları.', 'Müşteriler'],
+];
 
 export default function Reports() {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<Report | null>(null);
   const [operations, setOperations] = useState<Operations | null>(null);
   const [message, setMessage] = useState('');
+  const [reportSearch, setReportSearch] = useState('');
   useEffect(() => {
     setMessage('');
     void Promise.all([api<Report>(`/admin/orders/report-summary?days=${days}`), api<Operations>(`/admin/orders/report-operations?days=${days}`)])
@@ -32,9 +48,11 @@ export default function Reports() {
     link.href = URL.createObjectURL(new Blob(['\ufeff' + rows.map((row) => row.map((cell) => csv(cell)).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
     link.download = `trex-yonetim-raporu-${days}-gun.csv`; link.click(); URL.revokeObjectURL(link.href);
   }
-  return <main><AdminNav /><section>
+  const shownCatalog = reportCatalog.filter(([name, description, category]) => `${name} ${description} ${category}`.toLocaleLowerCase('tr-TR').includes(reportSearch.toLocaleLowerCase('tr-TR')));
+  return <main><AdminNav /><section className={styles.page}>
     <p>RAPORLAR / SATIŞ VE FİNANS ÖZETİ</p><h1>Yönetim raporları</h1><p>Satış, para hareketi ve operasyon kayıtlarından oluşturulan dönem özeti.</p>
     <div className="period-toolbar"><div>{[7, 30, 90, 365].map((value) => <button className={days === value ? 'selected' : ''} key={value} onClick={() => setDays(value)}>Son {value} gün</button>)}</div><button type="button" disabled={!data} onClick={exportCsv}>Excel için CSV indir</button></div>{message && <p role="alert">{message}</p>}
+    <section className={styles.catalog} aria-labelledby="catalog-title"><div className={styles.catalogHeader}><div><p>RAPOR KATALOĞU</p><h2 id="catalog-title">Raporlar <small>({reportCatalog.length})</small></h2></div><label><span>⌕</span><input value={reportSearch} onChange={(event) => setReportSearch(event.target.value)} placeholder="Rapor ara..." /></label></div><div className={styles.tableWrap}><table><thead><tr><th>Rapor adı</th><th>Kategori</th><th>Oluşturulma tarihi</th><th>Oluşturan</th></tr></thead><tbody>{shownCatalog.map(([name, description, category])=><tr key={name}><td><b>{name}</b><small>{description}</small></td><td><span>{category}</span></td><td>—</td><td>Sistem</td></tr>)}</tbody></table>{!shownCatalog.length&&<p className={styles.empty}>Aramanıza uygun rapor bulunamadı.</p>}</div></section>
     <div className="cards"><article><p>SİPARİŞ</p><h2>{data?.totals.order_count ?? '—'}</h2><p>Seçilen dönem</p></article><article><p>SATIŞ CİROSU</p><h2>{data ? money(data.totals.revenue) : '—'}</h2><p>İptaller hariç</p></article><article><p>ORTALAMA SEPET</p><h2>{data ? money(data.totals.average_order) : '—'}</h2><p>Sipariş başına</p></article><article><p>PARA GİRİŞİ</p><h2>{data ? money(data.financial.income) : '—'}</h2><Link href="/finans">Finansı aç →</Link></article><article><p>PARA ÇIKIŞI</p><h2>{data ? money(data.financial.expense) : '—'}</h2><Link href="/finans">Masrafları aç →</Link></article><article><p>NET HAREKET</p><h2>{data ? money(data.financial.net) : '—'}</h2><p>Giriş − çıkış</p></article></div>
     <h2>Operasyon yükü</h2><div className="cards"><article><p>AÇIK İADE</p><h2>{operations?.returns_open ?? '—'}</h2><Link href="/iadeler">İadeleri aç →</Link></article><article><p>TAŞIMADA</p><h2>{operations?.shipments_active ?? '—'}</h2><Link href="/kargo">Kargoyu aç →</Link></article><article><p>SORUNLU KARGO</p><h2>{operations?.shipments_failed ?? '—'}</h2><Link href="/kargo">Gönderileri aç →</Link></article><article><p>GECİKEN DESTEK</p><h2>{operations?.support_overdue ?? '—'}</h2><Link href="/destek?overdue=true">Destek talepleri →</Link></article></div>
     <div className="form-card"><h2>Günlük satış cirosu</h2><div className="chart">{data?.daily.map((row) => <i key={row.label} style={{ height: `${Math.max(5, Math.round(Number(row.amount) / max * 100))}%` }} title={`${row.label}: ${money(row.amount)}`} />)}</div><div className="chart-labels">{data?.daily.map((row) => <span key={row.label}>{row.label}</span>)}</div></div>
