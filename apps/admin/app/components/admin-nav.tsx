@@ -28,7 +28,7 @@ function NavIcon({ name }: { name: string }) {
     marketplace: <><path d="M4 9h16v11H4z"/><path d="M3 9 5 4h14l2 5M8 20v-6h8v6"/></>, campaigns: <><path d="M4 10h16v10H4z"/><path d="M12 10v10M4 14h16M12 10c-3 0-4-1.2-4-2.5S9 5 12 10Zm0 0c3 0 4-1.2 4-2.5S15 5 12 10Z"/></>,
     customers: <><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.5-4 2.5-6 5.5-6s5 2 5.5 6M16 6a3 3 0 0 1 0 5.8M16 14c2.4.2 4 2.1 4.5 5"/></>, design: <><path d="m5 19 11-11 3 3L8 22H5v-3Z"/><path d="m14 6 2-2 3 3-2 2"/></>,
     reports: <><path d="M5 20V10M10 20V4M15 20v-7M20 20V7"/><path d="M3 20h19"/></>, tools: <><path d="m14 6 4-4 2 2-4 4"/><path d="m13 7-8 8v4h4l8-8M15 15l4 4M17 13l4 4"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7L10.5 2h-3l-.7 2.3-1.7.7-1.9-.9-2.1 2.1.9 1.9-.7 1.7-2.3.7v3l2.3.7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2.3h3l.7-2.3 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7 2.3-.7Z"/>
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7L10.5 2h-3l-.7 2.3-1.7.7-1.9-.9-2.1 2.1.9 1.9-.7 1.7-2.3.7v3l2.3.7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2.3h3l.7-2.3 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7 2.3-.7Z"/></>,
   };
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name] ?? paths.settings}</svg>;
 }
