@@ -7,6 +7,7 @@ import { DealerStatus } from './dto/update-dealer-status.dto';
 import { PublicDealerApplicationDto } from './dto/public-dealer-application.dto';
 import { CreateDealerBankAccountDto, CreateDealerLedgerEntryDto, CreateDealerPriceGroupDto } from './dto/dealer-commercial.dto';
 import { randomUUID } from 'crypto';
+import * as argon2 from 'argon2';
 @Injectable()
 export class DealersService {
   constructor(private readonly db: DatabaseService) {}
@@ -21,9 +22,21 @@ export class DealersService {
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer code already exists'); throw error; }
   }
   async createPublicApplication(dto: PublicDealerApplicationDto) {
+    if (dto.password.length < 12) throw new ConflictException('Şifre en az 12 karakter olmalıdır');
     const code = `APP-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
-    const result = await this.db.query<{ id: string }>(`INSERT INTO dealers(code,company_name,status,contact_name,contact_email,contact_phone,city,region,sales_channels,social_media) VALUES ($1,$2,'RECEIVED',$3,$4,$5,$6,$7,$8,$9) RETURNING id`, [code, dto.companyName.trim(), dto.contactName.trim(), dto.email.trim().toLowerCase(), dto.phone.trim(), dto.city.trim(), dto.region?.trim() || null, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
-    return { applicationId: result.rows[0].id, status: 'RECEIVED' };
+    const email = dto.email.trim().toLowerCase();
+    const iban = dto.iban.replace(/\s/g, '').toUpperCase();
+    const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+    try {
+      return await this.db.transaction(async client => {
+        const result = await client.query<{ id: string }>(`INSERT INTO dealers(code,company_name,tax_number,status,contact_name,authorized_full_name,contact_email,contact_phone,city,region,company_address,tax_office,monthly_sales_target,sales_channels,social_media) VALUES ($1,$2,$3,'RECEIVED',$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [code, dto.companyName.trim(), dto.taxNumber.trim(), dto.contactName.trim(), email, dto.phone.trim(), dto.city.trim(), dto.district.trim() || dto.region?.trim() || null, dto.address.trim(), dto.taxOffice?.trim() || null, dto.monthlySalesTarget, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
+        const dealerId = result.rows[0].id;
+        await client.query('INSERT INTO dealer_bank_accounts(dealer_id,account_holder,iban,is_primary) VALUES($1,$2,$3,true)', [dealerId, dto.accountHolder.trim(), iban]);
+        const user = await client.query<{ id: string }>("INSERT INTO users(email,password_hash,role,is_active) VALUES($1,$2,'DEALER',false) RETURNING id", [email, passwordHash]);
+        await client.query('INSERT INTO dealer_user_accounts(dealer_id,user_id) VALUES($1,$2)', [dealerId, user.rows[0].id]);
+        return { applicationId: dealerId, status: 'RECEIVED' };
+      });
+    } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }
@@ -34,9 +47,18 @@ export class DealersService {
     catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer level code and order must be unique'); throw error; }
   }
   async updateStatus(dealerId: string, status: DealerStatus, actor: RequestUser) {
-    const updated = await this.db.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 RETURNING id,status', [status, dealerId]);
-    if (!updated.rowCount) throw new NotFoundException('Dealer not found');
-    await this.audit(actor, `dealer.status.${status.toLowerCase()}`, dealerId); return updated.rows[0];
+    return this.db.transaction(async client => {
+      if (status === 'ACTIVE') {
+        const bank = await client.query('SELECT 1 FROM dealer_bank_accounts WHERE dealer_id=$1 AND is_primary=true', [dealerId]);
+        if (!bank.rowCount) throw new ConflictException('Bayi onayı için birincil IBAN kaydı gereklidir');
+      }
+      const updated = await client.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 RETURNING id,status', [status, dealerId]);
+      if (!updated.rowCount) throw new NotFoundException('Dealer not found');
+      if (status === 'ACTIVE') await client.query("UPDATE users SET is_active=true,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);
+      if (status === 'SUSPENDED' || status === 'REJECTED') await client.query("UPDATE users SET is_active=false,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);
+      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, `dealer.status.${status.toLowerCase()}`, 'dealer', dealerId]);
+      return updated.rows[0];
+    });
   }
   private async assertActiveParent(id: string) { const parent = await this.db.query("SELECT 1 FROM dealers WHERE id=$1 AND status='ACTIVE'", [id]); if (!parent.rowCount) throw new NotFoundException('Active parent dealer not found'); }
   async setParent(dealerId: string, parentDealerId: string, actor: RequestUser) {

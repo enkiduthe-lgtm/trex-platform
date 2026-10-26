@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, NotFoundException, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,7 +20,7 @@ export class DealerPortalController {
 
   @Get('summary')
   async summary(@Req() req: UserRequest) {
-    const result = await this.db.query<{ company_name: string; code: string; status: string; dealer_balance: string; available_commission: string; order_count: string }>("SELECT d.company_name,d.code,d.status,COALESCE((SELECT SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) FROM dealer_ledger_entries WHERE dealer_id=d.id AND currency='TRY'),0)::text AS dealer_balance,COALESCE((SELECT SUM(amount) FROM commission_entries WHERE dealer_id=d.id AND status IN ('CONFIRMED','AVAILABLE')),0)::text AS available_commission,(SELECT count(DISTINCT al.entity_id) FROM audit_logs al WHERE al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')::text AS order_count FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1", [req.user.id]);
+    const result = await this.db.query<{ company_name: string; code: string; status: string; dealer_balance: string; available_commission: string; order_count: string; agreement_accepted_at: string | null; has_primary_iban: boolean }>("SELECT d.company_name,d.code,d.status,dua.agreement_accepted_at,EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) AS has_primary_iban,COALESCE((SELECT SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) FROM dealer_ledger_entries WHERE dealer_id=d.id AND currency='TRY'),0)::text AS dealer_balance,COALESCE((SELECT SUM(amount) FROM commission_entries WHERE dealer_id=d.id AND status IN ('CONFIRMED','AVAILABLE')),0)::text AS available_commission,(SELECT count(DISTINCT al.entity_id) FROM audit_logs al WHERE al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')::text AS order_count FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1", [req.user.id]);
     if (!result.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
     return result.rows[0];
   }
@@ -46,9 +46,16 @@ export class DealerPortalController {
 
   @Post('orders')
   async createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
-    const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);
+    const account = await this.db.query<{ dealer_id:string }>("SELECT dua.dealer_id FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1 AND d.status='ACTIVE' AND dua.agreement_accepted_at IS NOT NULL AND EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true)", [req.user.id]);
     if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
     return this.adminOrders.create({ ...dto, salesChannel: 'DEALER_PORTAL', customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
+  }
+
+  @Post('agreement/accept')
+  async acceptAgreement(@Req() req: UserRequest) {
+    const result = await this.db.query("UPDATE dealer_user_accounts dua SET agreement_accepted_at=now() FROM dealers d WHERE dua.dealer_id=d.id AND dua.user_id=$1 AND d.status='ACTIVE' AND EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) RETURNING dua.dealer_id", [req.user.id]);
+    if (!result.rowCount) throw new ConflictException('Sözleşme onayı için aktif bayi ve birincil IBAN kaydı gereklidir');
+    return { accepted: true };
   }
 
   @Post('orders/:id/cancel')
