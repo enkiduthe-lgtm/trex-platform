@@ -16,7 +16,13 @@ export class ParasutInvoiceProvider {
     if (!value.companyId || !value.clientId || !value.clientSecret || !value.username || !value.password) {
       throw new ServiceUnavailableException('Paraşüt bağlantısı henüz tamamlanmadı. Firma no, uygulama bilgileri ve Paraşüt yetkili e-posta/şifresi güvenli ayarlara girilmeli.');
     }
-    return value as Required<typeof value>;
+    return {
+      companyId: value.companyId,
+      clientId: value.clientId,
+      clientSecret: value.clientSecret,
+      username: value.username,
+      password: value.password,
+    } as { companyId: string; clientId: string; clientSecret: string; username: string; password: string };
   }
 
   private async request<T>(url: string, init: RequestInit): Promise<T> {
