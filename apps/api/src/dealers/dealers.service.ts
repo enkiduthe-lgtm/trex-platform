@@ -8,9 +8,11 @@ import { PublicDealerApplicationDto } from './dto/public-dealer-application.dto'
 import { CreateDealerBankAccountDto, CreateDealerLedgerEntryDto, CreateDealerPriceGroupDto } from './dto/dealer-commercial.dto';
 import { randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
+import { NotificationsService } from '../notifications/notifications.service';
 @Injectable()
 export class DealersService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly notifications: NotificationsService) {}
+  private async email(recipient: string, subject: string, body: string) { await this.notifications.send({ channel: 'EMAIL', recipient, subject, body }).catch(() => undefined); }
   private async audit(actor: RequestUser, action: string, entityId: string) {
     await this.db.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, action, 'dealer', entityId]);
   }
@@ -28,7 +30,7 @@ export class DealersService {
     const iban = dto.iban.replace(/\s/g, '').toUpperCase();
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     try {
-      return await this.db.transaction(async client => {
+      const application = await this.db.transaction(async client => {
         const result = await client.query<{ id: string }>(`INSERT INTO dealers(code,company_name,tax_number,status,contact_name,authorized_full_name,contact_email,contact_phone,city,region,company_address,tax_office,monthly_sales_target,sales_channels,social_media) VALUES ($1,$2,$3,'RECEIVED',$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [code, dto.companyName.trim(), dto.taxNumber.trim(), dto.contactName.trim(), email, dto.phone.trim(), dto.city.trim(), dto.district.trim() || dto.region?.trim() || null, dto.address.trim(), dto.taxOffice?.trim() || null, dto.monthlySalesTarget, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
         const dealerId = result.rows[0].id;
         await client.query('INSERT INTO dealer_bank_accounts(dealer_id,account_holder,iban,is_primary) VALUES($1,$2,$3,true)', [dealerId, dto.accountHolder.trim(), iban]);
@@ -36,6 +38,10 @@ export class DealersService {
         await client.query('INSERT INTO dealer_user_accounts(dealer_id,user_id) VALUES($1,$2)', [dealerId, user.rows[0].id]);
         return { applicationId: dealerId, status: 'RECEIVED' };
       });
+      await this.email(email, 'TREX Tea bayi başvurunuz alındı', 'Başvurunuz alındı. Yönetici onayı sonrasında seçtiğiniz e-posta ve şifreyle giriş yapabilirsiniz.');
+      const admins = await this.db.query<{ email: string }>("SELECT email FROM users WHERE role='SUPER_ADMIN' AND is_active=true");
+      await Promise.all(admins.rows.map(admin => this.email(admin.email, 'Yeni bayi başvurusu', `${dto.companyName.trim()} adlı firmadan bayi başvurusu geldi.`)));
+      return application;
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
@@ -47,7 +53,7 @@ export class DealersService {
     catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer level code and order must be unique'); throw error; }
   }
   async updateStatus(dealerId: string, status: DealerStatus, actor: RequestUser) {
-    return this.db.transaction(async client => {
+    const changed = await this.db.transaction(async client => {
       if (status === 'ACTIVE') {
         const bank = await client.query('SELECT 1 FROM dealer_bank_accounts WHERE dealer_id=$1 AND is_primary=true', [dealerId]);
         if (!bank.rowCount) throw new ConflictException('Bayi onayı için birincil IBAN kaydı gereklidir');
@@ -59,6 +65,11 @@ export class DealersService {
       await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, `dealer.status.${status.toLowerCase()}`, 'dealer', dealerId]);
       return updated.rows[0];
     });
+    if (status === 'ACTIVE' || status === 'REJECTED') {
+      const recipient = await this.db.query<{ contact_email: string | null }>('SELECT contact_email FROM dealers WHERE id=$1', [dealerId]);
+      if (recipient.rows[0]?.contact_email) await this.email(recipient.rows[0].contact_email, status === 'ACTIVE' ? 'TREX Tea bayi başvurunuz onaylandı' : 'TREX Tea bayi başvurunuz sonuçlandı', status === 'ACTIVE' ? 'Başvurunuz onaylandı. Seçtiğiniz e-posta ve şifreyle giriş yapabilir, sözleşmeyi onayladıktan sonra sipariş verebilirsiniz.' : 'Bayi başvurunuz şu an için onaylanmadı. Bilgi için TREX Tea ekibiyle iletişime geçebilirsiniz.');
+    }
+    return changed;
   }
   private async assertActiveParent(id: string) { const parent = await this.db.query("SELECT 1 FROM dealers WHERE id=$1 AND status='ACTIVE'", [id]); if (!parent.rowCount) throw new NotFoundException('Active parent dealer not found'); }
   async setParent(dealerId: string, parentDealerId: string, actor: RequestUser) {
