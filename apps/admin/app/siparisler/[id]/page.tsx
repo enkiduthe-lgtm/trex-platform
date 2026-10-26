@@ -291,6 +291,13 @@ export default function OrderDetail() {
     } catch (e) { setError(e instanceof Error ? e.message : "Fatura taslağı kaydedilemedi"); }
     finally { setInvoiceSaving(false); }
   }
+  async function issueInvoice() {
+    if (invoiceSaving || !confirm("Faturayı Paraşüt’e göndermek istiyor musunuz?")) return;
+    setInvoiceSaving(true); setError("");
+    try { setInvoice(await api<Invoice>(`/admin/orders/${id}/invoice/issue`, { method: "POST" })); }
+    catch (e) { setError(e instanceof Error ? e.message : "Fatura Paraşüt’e gönderilemedi"); }
+    finally { setInvoiceSaving(false); }
+  }
   useEffect(() => {
     let active = true;
     setData(null);
@@ -463,10 +470,10 @@ export default function OrderDetail() {
               <section className={styles.notice}>
                 <h2>Paraşüt fatura hazırlığı</h2>
                 {invoice ? (
-                  <p>
+                  <><p>
                     {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura taslağı kaydedildi. Durum: {invoice.provider_status}
-                    {invoice.invoice_number ? ` · Fatura no: ${invoice.invoice_number}` : " · Paraşüt bağlantısı tamamlanınca gönderime hazır."}
-                  </p>
+                    {invoice.invoice_number ? ` · Fatura no: ${invoice.invoice_number}` : " · Paraşüt gönderimine hazır."}
+                  </p>{invoice.provider_status !== "ISSUED" && <button type="button" onClick={issueInvoice} disabled={invoiceSaving}>{invoiceSaving ? "Gönderiliyor…" : "Paraşüt’e gönder"}</button>}</>
                 ) : (
                   <form onSubmit={saveInvoice}>
                     <label>Fatura türü
