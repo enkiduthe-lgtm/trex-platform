@@ -491,52 +491,29 @@ export default function OrderDetail() {
             <h2>Sipariş akışı</h2>
             <section className={styles.notice}>
               {operationMessage && <p role="status">{operationMessage}</p>}
-              <ol style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12, margin: "0 0 16px", padding: 0, listStyle: "none" }}>
-                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.fulfillment ? "#f4fbf7" : "#fff" }}>
-                  <strong>1. Hazırla</strong>
+              <ol className={styles.flowGrid}>
+                <li className={data.fulfillment ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>1</span>
+                  <strong>Hazırla</strong>
                   <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
+                  {canEdit && data.status === "PAID" && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlama açılıyor…" : "Hazırlamayı başlat"}</button>}
                 </li>
-                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.fulfillment?.packed_at ? "#f4fbf7" : "#fff" }}>
-                  <strong>2. Paketle / barkod bas</strong>
+                <li className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>2</span>
+                  <strong>Paketle / barkod bas</strong>
                   <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
+                  {canEdit && data.status === "PROCESSING" && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket hazırlanıyor…" : "Paketle ve barkod oluştur"}</button>}
+                  {data.fulfillment?.package_barcode && <button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Barkodu yazdır</button>}
                 </li>
-                <li style={{ padding: 14, border: "1px solid #d7e5dd", borderRadius: 10, background: data.status === "SHIPPED" || data.status === "DELIVERED" ? "#f4fbf7" : "#fff" }}>
-                  <strong>3. Kargoya ver</strong>
+                <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>3</span>
+                  <strong>Kargoya ver</strong>
                   <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Aras kaydını açıp paketi şubeye teslim edin."}</p>
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo kaydı açılıyor…" : "Kargo kaydını hazırla"}</button>}
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
+                  {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
-              <div className={styles.actions}>
-                {data.fulfillment?.package_barcode && (
-                  <button type="button" onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>
-                    2. Barkodu yazdır
-                  </button>
-                )}
-                {canEdit && data.status === "PAID" && (
-                  <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
-                    {operationBusy ? "Hazırlama açılıyor…" : "1. Hazırlamayı başlat"}
-                  </button>
-                )}
-                {canEdit && data.status === "PROCESSING" && !data.fulfillment?.packed_at && (
-                  <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>
-                    {operationBusy ? "Açılıyor…" : "2. Paketle / barkod bas"}
-                  </button>
-                )}
-                {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && (
-                  <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>
-                    {operationBusy ? "Aras kaydı açılıyor…" : "3. Kargo kaydını hazırla"}
-                  </button>
-                )}
-                {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && (
-                  <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>
-                    {operationBusy ? "Kaydediliyor…" : "Paketi Aras'a teslim ettim"}
-                  </button>
-                )}
-                {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && (
-                  <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>
-                    {operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}
-                  </button>
-                )}
-              </div>
             </section>
             <h2>Kargo ve paket</h2>
             {data.shipments.length ? (
