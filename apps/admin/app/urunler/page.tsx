@@ -887,7 +887,7 @@ export default function Products() {
                   accept="image/jpeg,image/png,image/webp"
                   onChange={chooseImage}
                 />
-                <small>JPG, JPEG, PNG veya WebP · en fazla 2 MB · önerilen ölçü: 1200 × 1200 px (kare)</small>
+                <small>JPG, JPEG, PNG veya WebP · en fazla 2 MB · önerilen ölçü: 1600 × 1600 px (kare)</small>
               </label>
               <footer>
                 <button
