@@ -426,14 +426,15 @@ export default function Products() {
       body.append("file", imageFile);
       body.append("placement", `PRODUCT_MAIN:${imageProduct.id}`);
       const uploaded = await api<{ publicUrl?: string }>("/admin/assets/upload", { method: "POST", body });
-      if (uploaded.publicUrl) {
-        setProducts((current) => current.map((product) => product.id === imageProduct.id ? { ...product, image_url: uploaded.publicUrl } : product));
-        setFailedImages((current) => {
-          const next = { ...current };
-          delete next[imageProduct.id];
-          return next;
-        });
+      if (!uploaded.publicUrl) {
+        throw new Error("Görsel depolama adresi dönmedi. Sistem ayarlarındaki görsel depolamayı kontrol edin.");
       }
+      setProducts((current) => current.map((product) => product.id === imageProduct.id ? { ...product, image_url: uploaded.publicUrl } : product));
+      setFailedImages((current) => {
+        const next = { ...current };
+        delete next[imageProduct.id];
+        return next;
+      });
       setMessage(`${imageProduct.name} için görsel yüklendi.`);
       closeImageDialog();
       await load();
@@ -457,7 +458,6 @@ export default function Products() {
           <div className={styles.catalogLinks}>
             <Link href="/stok">▦ Stok girişi</Link>
             <Link href="/depo-operasyon">⌂ Depo operasyonu</Link>
-            <Link href="/medya">▧ Medya merkezi</Link>
           </div>
         </div>
         {message && (

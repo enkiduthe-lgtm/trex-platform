@@ -54,6 +54,8 @@ export default function Finance() {
     [dashboard, setDashboard] = useState<Dashboard | null>(null),
     [message, setMessage] = useState(""), [editingAccount,setEditingAccount]=useState<string|null>(null), [editingTx,setEditingTx]=useState<string|null>(null);
   const [transactionAccountFilter, setTransactionAccountFilter] = useState("ALL");
+  const [transactionDateFrom, setTransactionDateFrom] = useState("");
+  const [transactionDateTo, setTransactionDateTo] = useState("");
   const [account, setAccount] = useState({
       name: "",
       accountType: "BANK",
@@ -150,7 +152,12 @@ export default function Finance() {
       setMessage(e instanceof Error ? e.message : "Kaydedilemedi");
     }
   }
-  const shownTransactions = transactions.filter((transaction) => transactionAccountFilter === "ALL" || transaction.account_name === transactionAccountFilter);
+  const shownTransactions = transactions.filter((transaction) => {
+    const transactionDate = transaction.occurred_at.slice(0, 10);
+    return (transactionAccountFilter === "ALL" || transaction.account_name === transactionAccountFilter)
+      && (!transactionDateFrom || transactionDate >= transactionDateFrom)
+      && (!transactionDateTo || transactionDate <= transactionDateTo);
+  });
   function exportTransactions() {
     if (!shownTransactions.length) {
       setMessage("Dışa aktarılacak para hareketi bulunamadı.");
@@ -461,6 +468,9 @@ export default function Finance() {
             <option value="ALL">Tüm hesaplar</option>
             {[...new Set(transactions.map(transaction => transaction.account_name))].map(name => <option key={name} value={name}>{name}</option>)}
           </select>
+          <label>Başlangıç<input type="date" value={transactionDateFrom} onChange={(event) => setTransactionDateFrom(event.target.value)} /></label>
+          <label>Bitiş<input type="date" value={transactionDateTo} onChange={(event) => setTransactionDateTo(event.target.value)} /></label>
+          {(transactionDateFrom || transactionDateTo) && <button type="button" className="secondary" onClick={() => { setTransactionDateFrom(""); setTransactionDateTo(""); }}>Tarihi temizle</button>}
           <button
             type="button"
             onClick={exportTransactions}
