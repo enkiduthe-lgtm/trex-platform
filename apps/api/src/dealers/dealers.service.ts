@@ -9,10 +9,11 @@ import { CreateDealerBankAccountDto, CreateDealerLedgerEntryDto, CreateDealerPri
 import { randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationChannel } from '../notifications/dto/create-notification.dto';
 @Injectable()
 export class DealersService {
   constructor(private readonly db: DatabaseService, private readonly notifications: NotificationsService) {}
-  private async email(recipient: string, subject: string, body: string) { await this.notifications.send({ channel: 'EMAIL', recipient, subject, body }).catch(() => undefined); }
+  private async email(recipient: string, subject: string, body: string) { await this.notifications.send({ channel: NotificationChannel.EMAIL, recipient, subject, body }).catch(() => undefined); }
   private async audit(actor: RequestUser, action: string, entityId: string) {
     await this.db.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, action, 'dealer', entityId]);
   }
