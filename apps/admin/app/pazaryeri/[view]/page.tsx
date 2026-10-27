@@ -26,6 +26,8 @@ export default function MarketplaceView() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [store, setStore] = useState('Trendyol');
 
   useEffect(() => {
     void Promise.all([api<Product[]>('/admin/products'), api<Order[]>('/admin/orders?channel=MARKETPLACE')])
@@ -40,15 +42,25 @@ export default function MarketplaceView() {
     if (!selected.length) { setMessage('Önce işlem yapılacak ürünleri seçin.'); return; }
     setMessage(`${selected.length} ürün işlem listesine alındı. Kanal bağlantısı etkinleştirildiğinde bu liste güvenli şekilde gönderime hazır olacaktır.`);
   };
+  const startWorkflow = () => {
+    if (params.view === 'gonderimler' || params.view === 'eslestirmeler') { setWorkflowOpen(true); return; }
+    perform();
+  };
+  const confirmWorkflow = () => {
+    setWorkflowOpen(false);
+    if (!selected.length) { setMessage(`${store} için işlem türü seçildi. Tablo üzerinden ürünleri seçip “Seçilenleri işle” düğmesine basın.`); return; }
+    setMessage(`${selected.length} ürün ${store} için ${params.view === 'gonderimler' ? 'gönderim' : 'eşleştirme'} listesine alındı.`);
+  };
 
   if (!view) return <main><AdminNav /><section><h1>Sayfa bulunamadı</h1></section></main>;
   return <main><AdminNav /><section className={styles.page}>
     <nav className={styles.subnav} aria-label="Pazaryeri alt menüsü"><Link href="/pazaryeri">Mağazalar</Link><Link className={params.view === 'fiyat-rekabeti' ? styles.current : ''} href="/pazaryeri/fiyat-rekabeti">Fiyat rekabeti analizi</Link><Link className={params.view === 'eslestirmeler' ? styles.current : ''} href="/pazaryeri/eslestirmeler">İçerik ve ürün eşleştirmeleri</Link><Link className={params.view === 'gonderimler' ? styles.current : ''} href="/pazaryeri/gonderimler">Ürün gönderimleri</Link></nav>
-    <div className={styles.heading}><div><p>{view.eyebrow}</p><h1>{view.title}</h1><span>{view.description}</span></div><button type="button" onClick={perform}>＋ {view.action}</button></div>
+    <div className={styles.heading}><div><p>{view.eyebrow}</p><h1>{view.title}</h1><span>{view.description}</span></div><button type="button" onClick={startWorkflow}>＋ {view.action}</button></div>
     {message && <p className={styles.notice} role="status">{message}</p>}
     <div className={styles.metrics}><article><small>Aktif ürün</small><b>{products.filter((product) => product.status === 'ACTIVE').length}</b></article><article><small>Barkodlu ürün</small><b>{products.filter((product) => product.barcode).length}</b></article><article><small>Pazaryeri siparişi</small><b>{marketplaceOrders.length}</b></article><article><small>İşlem listesi</small><b>{selected.length}</b></article></div>
     <div className={styles.toolbar}><label><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ürün adı, SKU veya barkod ara" /></label><button className={styles.secondary} type="button" onClick={selectAll}>{selected.length === shown.length && shown.length ? 'Seçimi kaldır' : 'Tümünü seç'}</button><button type="button" onClick={perform}>Seçilenleri işle</button></div>
     <div className={styles.tableWrap}><table><thead><tr><th><input aria-label="Tüm ürünleri seç" type="checkbox" checked={shown.length > 0 && selected.length === shown.length} onChange={selectAll} /></th><th>Ürün bilgileri</th><th>Kanal hazırlığı</th><th>{params.view === 'fiyat-rekabeti' ? 'Fiyat takibi' : params.view === 'gonderimler' ? 'Gönderim durumu' : 'Eşleştirme durumu'}</th><th>İşlem</th></tr></thead><tbody>{shown.map((product) => <tr key={product.id}><td><input aria-label={`${product.name} seç`} type="checkbox" checked={selected.includes(product.id)} onChange={() => setSelected((items) => items.includes(product.id) ? items.filter((item) => item !== product.id) : [...items, product.id])} /></td><td><b>{product.name}</b><small>SKU: {product.sku} · Barkod: {product.barcode ?? '—'}</small></td><td><span className={product.barcode ? styles.ok : styles.waiting}>{channel(product)}</span></td><td>{params.view === 'fiyat-rekabeti' ? <small>Fiyat izleme için seçin</small> : params.view === 'gonderimler' ? <small>Gönderim listesine alınmadı</small> : <small>{product.barcode ? 'Kanal kaydı bekleniyor' : 'Barkod girilmesi gerekli'}</small>}</td><td><button className={styles.rowButton} type="button" onClick={() => setSelected((items) => items.includes(product.id) ? items.filter((item) => item !== product.id) : [...items, product.id])}>{selected.includes(product.id) ? 'Çıkar' : 'Seç'}</button></td></tr>)}</tbody></table>{shown.length === 0 && <p className={styles.empty}>Gösterilecek ürün bulunamadı.</p>}</div>
     <p className={styles.caption}>Bu ekran Trex ürün ve sipariş verilerini kullanır. Gerçek kanal gönderimi, ilgili pazar yerinin bağlantı bilgileri tanımlandığında açılır.</p>
+    {workflowOpen && <div className={styles.modalLayer} role="dialog" aria-modal="true" aria-label={view.action}><section className={styles.workflowCard}><header><div><small>PAZARYERİ İŞLEMİ</small><h2>{view.action}</h2></div><button type="button" className={styles.close} onClick={() => setWorkflowOpen(false)} aria-label="Pencereyi kapat">×</button></header><p>{params.view === 'gonderimler' ? 'Ürünleri göndermek istediğiniz mağazayı seçin. Sonraki adımda tablodan ürünleri işleme alabilirsiniz.' : 'Ürün eşleştirmesinin yapılacağı mağazayı seçin. Ürün seçimi daha sonra tablodan yapılır.'}</p><fieldset><legend>Mağazalar</legend>{['Trendyol', 'Hepsiburada', 'PttAVM', 'ÇiçekSepeti', 'N11', 'Pazarama'].map(name => <label key={name}><input type="radio" name="store" checked={store === name} onChange={() => setStore(name)} /> <span>{name}</span></label>)}</fieldset><footer><button type="button" className={styles.secondary} onClick={() => setWorkflowOpen(false)}>Vazgeç</button><button type="button" onClick={confirmWorkflow}>Devam et</button></footer></section></div>}
   </section></main>;
 }

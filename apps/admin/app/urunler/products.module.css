@@ -30,7 +30,8 @@
 .actions small { display: inline; margin: 0; font-size: 9px; font-weight: 700; }
 .mediaAction { background: #f1e9ff !important; color: #6b2eb5 !important; border-color: #cfb4f5 !important; }
 .priceAction { background: #fff2d9 !important; color: #a36000 !important; border-color: #f1d59f !important; }
-.siteAction { background: #e2f8ed !important; color: #197d52 !important; border-color: #aee4c6 !important; }
+.statusAction { background: #e2f8ed !important; color: #197d52 !important; border-color: #aee4c6 !important; }
+.stockAction { background: #edf5ff !important; color: #2367a5 !important; border-color: #bdd8f1 !important; }
 
 .imageModal { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(27, 13, 50, .48); }
 .imageModalCard { display: grid; width: min(500px, 100%); gap: 16px; padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(33, 13, 72, .3); }

@@ -225,6 +225,17 @@ export default function Products() {
       setDeleting(false);
     }
   }
+  async function updateProductStatus(product: Product, nextStatus: "DRAFT" | "ACTIVE") {
+    try {
+      const result = await api<{ updated: number }>("/admin/products/bulk-status", {
+        method: "POST", body: JSON.stringify({ ids: [product.id], status: nextStatus }),
+      });
+      setMessage(`${result.updated} ürün ${nextStatus === "ACTIVE" ? "yayına alındı" : "taslağa alındı"}.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Ürün durumu güncellenemedi.");
+    }
+  }
   const [products, setProducts] = useState<Product[]>([]),
     [levels, setLevels] = useState<Level[]>([]),
     [priceGroups, setPriceGroups] = useState<PriceGroup[]>([]),
@@ -414,7 +425,15 @@ export default function Products() {
       const body = new FormData();
       body.append("file", imageFile);
       body.append("placement", `PRODUCT_MAIN:${imageProduct.id}`);
-      await api("/admin/assets/upload", { method: "POST", body });
+      const uploaded = await api<{ publicUrl?: string }>("/admin/assets/upload", { method: "POST", body });
+      if (uploaded.publicUrl) {
+        setProducts((current) => current.map((product) => product.id === imageProduct.id ? { ...product, image_url: uploaded.publicUrl } : product));
+        setFailedImages((current) => {
+          const next = { ...current };
+          delete next[imageProduct.id];
+          return next;
+        });
+      }
       setMessage(`${imageProduct.name} için görsel yüklendi.`);
       closeImageDialog();
       await load();
@@ -1043,16 +1062,13 @@ export default function Products() {
                           <span>₺</span>
                           <small>Fiyat</small>
                         </button>}
-                        <a
-                          className={styles.siteAction}
-                          href={`https://www.trextea.com.tr/urunler/${product.slug}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Ürünü sitede görüntüle"
-                        >
-                          <span>↗</span>
-                          <small>Site</small>
-                        </a>
+                        <button type="button" className={styles.statusAction} onClick={() => void updateProductStatus(product, product.status === "ACTIVE" ? "DRAFT" : "ACTIVE")} title={product.status === "ACTIVE" ? "Ürünü taslağa al" : "Ürünü yayına al"}>
+                          <span>{product.status === "ACTIVE" ? "◌" : "●"}</span>
+                          <small>{product.status === "ACTIVE" ? "Taslak" : "Yayına al"}</small>
+                        </button>
+                        <Link className={styles.stockAction} href="/stok" title="Stok ve depo yönetimini aç">
+                          <span>▦</span><small>Stok</small>
+                        </Link>
                       </div>
                     </td>
                   </tr>

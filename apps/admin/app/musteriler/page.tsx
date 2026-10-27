@@ -205,11 +205,13 @@ export default function Customers() {
       <AdminNav />
       <section className={styles.page}>
         <nav className={styles.subnav}>
-          <span className={styles.current}>Müşteriler</span>
+          <span className={styles.current}>Üyeler</span>
           <Link href="/bayiler">Bayiler</Link>
-          <Link href="/cari">Cari ve bakiye</Link>
+          <Link href="/musteriler#etiketler">Müşteri grupları</Link>
+          <Link href="/cari">Bakiye yüklemeleri</Link>
+          <Link href="/finans/havaleler">Hızlı ödemeler</Link>
+          <Link href="/destek?tab=iletisim">İletişim talepleri</Link>
           <Link href="/destek">Müşteri talepleri</Link>
-          <Link href="/bildirimler">Bildirim merkezi</Link>
         </nav>
         <div className={styles.heading}>
           <div>
@@ -266,7 +268,7 @@ export default function Customers() {
           </select>
           <button type="button" className={styles.rowButton} onClick={exportCustomers} disabled={!shown.length}>CSV indir</button>
         </div>
-        <form onSubmit={createTag} className={styles.toolbar} style={{marginTop:12}}>
+        <form id="etiketler" onSubmit={createTag} className={styles.toolbar} style={{marginTop:12}}>
           <span>🏷</span>
           <input value={tagName} maxLength={80} onChange={(e) => setTagName(e.target.value)} placeholder="Yeni müşteri etiketi" />
           <input aria-label="Etiket rengi" value={tagColor} onChange={(e) => setTagColor(e.target.value)} type="color" style={{maxWidth:52,padding:2}} />

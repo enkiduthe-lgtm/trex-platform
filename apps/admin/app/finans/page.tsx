@@ -195,6 +195,13 @@ export default function Finance() {
       <section className="finance-workspace">
         <p>FİNANS VE TAHSİLAT</p>
         <h1>Hesap bazlı finans</h1>
+        <nav className="finance-nav" aria-label="Finans bölümleri">
+          <Link href="/finans">Finans özeti</Link>
+          <Link href="/finans/havaleler">Bekleyen havaleler</Link>
+          <Link href="/finans/masraflar">Masraflar</Link>
+          <Link href="/finans/butce">Bütçe ve nakit akışı</Link>
+          <Link href="/cari">Cari hesaplar</Link>
+        </nav>
         <p>
           <Link href="/finans/paytr">PayTR Kasası ve komisyon ayarı →</Link> ·{" "}
           <Link href="/finans/butce">Bütçe ve nakit akışı →</Link>
@@ -462,7 +469,7 @@ export default function Finance() {
             CSV indir
           </button>
         </div>
-        <div className="cards">
+        <div className="cards finance-transactions">
           {shownTransactions.map((t) => (
             <article key={t.id}>
               <p>

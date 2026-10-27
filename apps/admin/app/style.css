@@ -572,6 +572,7 @@ section {
   color: #bb3737;
   font-weight: bold;
 }
+.status-card,.shipping-card{min-height:190px}.status-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.status-summary a{display:grid;gap:4px;padding:10px;border:1px solid #eadff0;border-radius:7px;background:#fcf9fd}.status-summary b{color:#67118a;font-size:21px}.status-summary span{color:#716678;font-size:10px}.shipping-summary{display:grid;gap:9px}.shipping-summary div{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #f1eaf4;color:#66586d;font-size:12px}.shipping-summary div:last-child{border-bottom:0}.shipping-summary b{color:#67118a;font-size:12px}
 .cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -870,6 +871,8 @@ button {
 .stock-local-nav { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:18px 0 22px; padding:11px; background:#fff; border:1px solid var(--line); border-radius:10px; }
 .stock-local-nav strong { margin-right:6px; color:#621083; font-size:12px; letter-spacing:.04em; }
 .stock-local-nav a { padding:8px 11px; border-radius:7px; background:#faf1ff; border:1px solid #e6c6f0; color:#6e2488; font-weight:700; font-size:12px; }
+.stock-local-nav button { padding:8px 11px; border:1px solid #e6c6f0; border-radius:7px; background:#fff; color:#6e2488; font-size:12px; font-weight:700; }
+.stock-local-nav button:hover,.stock-local-nav button.selected { background:#8b22b2; border-color:#8b22b2; color:#fff; }
 .stock-local-nav a:hover { background:#8b22b2; color:#fff; border-color:#8b22b2; }
 .stock-section { scroll-margin-top:126px; margin-top:26px; padding-top:18px; border-top:1px solid #ead9f0; }
 .stock-workspace > .cards { gap:12px; }
@@ -909,3 +912,48 @@ button {
   .header-links button { display:inline-flex; white-space:nowrap; font-size:12px; padding:8px 10px; }
   .panel-search { min-width:0; flex:1 1 120px; }
 }
+
+/* Finans, cari ve operasyon ekranlarında aynı yatay kart düzeni. */
+.finance-workspace,.dealer-workspace,.stock-workspace { max-width:none; padding-top:18px; }
+.finance-workspace > h1,.dealer-workspace > h1,.stock-workspace > h1 { margin:0 0 6px; color:#3c2947; font-size:27px; }
+.finance-workspace > p:first-child,.dealer-workspace > p:first-child,.stock-workspace > p:first-child { margin:0 0 5px; color:#7d1aa4; font-size:10px; font-weight:800; letter-spacing:.13em; }
+.finance-workspace > .cards,.finance-workspace > .split,.dealer-workspace > .cards,.stock-workspace > .cards { margin:16px 0; }
+.finance-workspace > .cards article,.dealer-workspace > .cards article,.stock-workspace > .cards article,.two-columns > .form-card { border-radius:10px; box-shadow:0 5px 18px rgba(48,16,67,.05); }
+.finance-workspace > .cards article p:first-child,.dealer-workspace > .cards article p:first-child,.stock-workspace > .cards article p:first-child { font-size:10px; font-weight:800; letter-spacing:.08em; color:#7d1aa4; }
+.finance-workspace > .cards article h2,.dealer-workspace > .cards article h2,.stock-workspace > .cards article h2 { margin:6px 0; color:#4f1b65; }
+.finance-workspace .finance-transactions { display:grid; grid-template-columns:1fr; gap:9px; }
+.finance-workspace .finance-transactions article { display:grid; grid-template-columns:minmax(155px,.8fr) minmax(140px,.65fr) minmax(220px,1.4fr) minmax(190px,1fr) auto; align-items:center; gap:14px; padding:14px 16px; }
+.finance-workspace .finance-transactions article>* { margin:0; }
+.finance-workspace .finance-transactions article h2 { font-size:17px; }
+.finance-workspace .finance-transactions .button-row { justify-content:flex-end; }
+.finance-workspace > .form-card,.stock-workspace > .form-card,.dealer-workspace > .form-card { max-width:none; border-radius:10px; }
+.finance-workspace h2,.dealer-workspace h2,.stock-workspace h2 { color:#432c4e; }
+.finance-nav { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+.finance-nav a { padding:8px 11px; border:1px solid #e2cceb; border-radius:7px; background:#fcf7fe; color:#68158b; font-size:12px; font-weight:700; }
+.finance-nav a:hover { background:#7d1aa4; border-color:#7d1aa4; color:#fff; }
+.expense-workspace > h1 { margin:0 0 7px; color:#41294c; font-size:27px; }
+.expense-workspace > p:first-child { margin:0 0 5px; color:#7d1aa4; font-size:10px; font-weight:800; letter-spacing:.13em; }
+.expense-workspace .form-card { max-width:none; border-radius:10px; }
+.expense-workspace > .cards { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:14px; }
+.expense-workspace > .cards article { border-radius:9px; min-height:142px; }
+.stock-workspace table { width:100%; min-width:760px; border-collapse:collapse; background:#fff; }
+.stock-workspace th { padding:10px 12px; background:#f7f3f9; color:#503a5b; text-align:left; font-size:11px; }
+.stock-workspace td { padding:11px 12px; border-top:1px solid #eee7f1; color:#5a4d61; font-size:12px; }
+.stock-workspace td button { padding:7px 9px; border:1px solid #dac2e4; border-radius:5px; background:#fff; color:#701892; font-size:11px; font-weight:700; }
+.split>div>.cards { grid-template-columns:1fr; }
+.split>div>.cards>.form-card { display:grid; grid-template-columns:minmax(100px,.45fr) minmax(180px,1fr) minmax(180px,1fr) minmax(190px,1.2fr); align-items:center; gap:13px; width:100%; max-width:none; margin:0; text-align:left; border-radius:9px; }
+.split>div>.cards>.form-card>* { margin:0; }
+.split>div>.cards>.form-card:hover { border-color:#bc80d0; background:#fefbff; }
+.login-page { display:grid; place-items:center; padding:42px 22px; background:radial-gradient(circle at 14% 8%,#f0c9fa,transparent 34%),#fbf7ff; }
+.login-page section { width:min(1020px,100%); display:grid; grid-template-columns:minmax(260px,.8fr) minmax(420px,1.2fr); column-gap:46px; align-items:start; padding:34px; border:1px solid #e3d1eb; border-radius:16px; background:rgba(255,255,255,.95); box-shadow:0 22px 58px rgba(54,15,78,.12); }
+.login-page .login-brand,.login-page section>p:first-of-type,.login-page section>h1 { grid-column:1; }
+.login-page .form-card,.login-page .login-choices,.login-page section>p:not(:first-of-type),.login-page section>button { grid-column:2; }
+.login-page .form-card { width:100%; max-width:none; margin:0; padding:20px; border-radius:10px; }
+.login-page h1 { color:#482256; font-size:29px; margin:4px 0 10px; }
+.login-page .login-brand { width:170px; height:120px; margin:0; }
+.login-role-switch { grid-column:2; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:4px 0 2px; padding:6px; border:1px solid #e3d2eb; border-radius:9px; background:#faf5fc; }
+.login-role-switch button { border:1px solid transparent; border-radius:6px; background:transparent; color:#6b4e77; font-size:12px; font-weight:700; }
+.login-role-switch button.selected { background:#7d1aa4; color:#fff; box-shadow:0 3px 8px rgba(70,10,100,.18); }
+.login-choices { margin-top:12px; }
+@media(max-width:760px){.login-page{padding:18px 12px}.login-page section{display:block;padding:24px}.login-page .form-card{margin-top:18px}.login-page .login-choices{display:grid}.login-page .login-brand{width:132px;height:88px}.login-role-switch{margin-top:18px}}
+@media(max-width:760px){.finance-workspace .finance-transactions article,.split>div>.cards>.form-card{grid-template-columns:1fr}.finance-workspace .finance-transactions .button-row{justify-content:flex-start}}
