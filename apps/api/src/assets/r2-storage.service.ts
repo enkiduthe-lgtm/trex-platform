@@ -1,5 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 @Injectable()
 export class R2StorageService {
@@ -7,7 +7,7 @@ export class R2StorageService {
     const accountId = process.env.R2_ACCOUNT_ID;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    if (!accountId || !accessKeyId || !secretAccessKey || !process.env.R2_BUCKET || !process.env.R2_PUBLIC_BASE_URL) throw new ServiceUnavailableException('Media storage is not configured');
+    if (!accountId || !accessKeyId || !secretAccessKey || !process.env.R2_BUCKET) throw new ServiceUnavailableException('Media storage is not configured');
     return new S3Client({ region: 'auto', endpoint: `https://${accountId}.r2.cloudflarestorage.com`, credentials: { accessKeyId, secretAccessKey } });
   }
 
@@ -15,5 +15,11 @@ export class R2StorageService {
     const client = this.client();
     await client.send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET, Key: key, Body: body, ContentType: contentType, CacheControl: 'public, max-age=31536000, immutable' }));
     return `${process.env.R2_PUBLIC_BASE_URL!.replace(/\/$/, '')}/${key}`;
+  }
+
+  async get(key: string) {
+    const result = await this.client().send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET, Key: key }));
+    if (!result.Body) throw new ServiceUnavailableException('Stored image could not be read');
+    return Buffer.from(await result.Body.transformToByteArray());
   }
 }

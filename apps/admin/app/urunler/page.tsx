@@ -3,7 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
-import { api } from "../lib/api";
+import { api, apiBaseUrl } from "../lib/api";
 import styles from "./products.module.css";
 
 type Product = {
@@ -895,7 +895,7 @@ export default function Products() {
               <div className={styles.imagePreview}>
                 {(imagePreview || imageProduct.image_url) && !(imageProduct.image_url && !imagePreview && failedImages[imageProduct.id]) ? (
                   <img
-                    src={imagePreview || imageProduct.image_url || ""}
+                    src={imagePreview || `${apiBaseUrl}/assets/product/${imageProduct.id}`}
                     alt={`${imageProduct.name} önizlemesi`}
                     onError={() => markImageUnavailable(imageProduct)}
                   />
@@ -987,7 +987,7 @@ export default function Products() {
                       >
                         {product.image_url && !failedImages[product.id] ? (
                           <img
-                            src={product.image_url}
+                            src={`${apiBaseUrl}/assets/product/${product.id}`}
                             alt={`${product.name} görseli`}
                             onError={() => markImageUnavailable(product)}
                           />
