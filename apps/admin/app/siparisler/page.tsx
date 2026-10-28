@@ -11,6 +11,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { downloadXlsx } from "../lib/xlsx";
 import styles from "./orders.module.css";
 
 type Order = {
@@ -48,7 +49,6 @@ const date = (value: string) =>
     dateStyle: "short",
     timeStyle: "short",
   });
-const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const tabs = [
   { value: "PENDING_PAYMENT", label: "Onay bekleyenler" },
   { value: "PROCESSING", label: "Hazırlananlar" },
@@ -85,6 +85,8 @@ function OrdersContent() {
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => {
@@ -120,10 +122,12 @@ function OrdersContent() {
           .toLocaleLowerCase("tr-TR");
         return (
           (statusFilter === "ALL" || order.status === statusFilter) &&
+          (!dateFrom || order.created_at.slice(0, 10) >= dateFrom) &&
+          (!dateTo || order.created_at.slice(0, 10) <= dateTo) &&
           text.includes(query.toLocaleLowerCase("tr-TR"))
         );
       }),
-    [orders, query, statusFilter],
+    [orders, query, statusFilter, dateFrom, dateTo],
   );
   const countFor = (status: string) =>
     status === "ALL" ? orders.length : orders.filter((order) => order.status === status).length;
@@ -162,27 +166,22 @@ function OrdersContent() {
     const source = selected.length
       ? visible.filter((order) => selected.includes(order.id))
       : visible;
+    const total = source.reduce((sum, order) => sum + Number(order.total_amount), 0);
     const rows = [
-      ["Sipariş no", "Müşteri", "Tutar", "Para birimi", "Durum", "Kanal", "Tarih"],
+      ["Satış Kanalı", "Sipariş No", "Müşteri", "Tutar", "Para Birimi", "Durum", "Kargo", "Tarih"],
       ...source.map((order) => [
+        order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"),
         order.order_number,
         order.customer_name ?? order.customer_email ?? "Misafir müşteri",
         order.total_amount,
         order.currency,
         statusText[order.status] ?? order.status,
-        order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : ""),
+        order.shipping_provider ?? "",
         new Date(order.created_at).toLocaleString("tr-TR"),
       ]),
+      ["", "", "", total.toFixed(2), "Toplam", "", "", ""],
     ];
-    const blob = new Blob(
-      ["\ufeff" + rows.map((row) => row.map(csv).join(";")).join("\n")],
-      { type: "text/csv;charset=utf-8" },
-    );
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "trex-siparisler.csv";
-    link.click();
-    URL.revokeObjectURL(link.href);
+    downloadXlsx("trex-siparisler.xlsx", "Siparişler", rows);
   }
   return (
     <main>
@@ -243,7 +242,7 @@ function OrdersContent() {
           </label>
           <div className={styles.bulk}>
             <button type="button" disabled={!visible.length} onClick={exportOrders}>
-              CSV indir{selected.length ? ` (${selected.length})` : ""}
+              Excel&apos;e Aktar{selected.length ? ` (${selected.length})` : ""}
             </button>
             {selected.length > 0 && (
               <>
@@ -271,11 +270,21 @@ function OrdersContent() {
                 ))}
               </select>
             </label>
+            <label>
+              Başlangıç Tarihi
+              <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            </label>
+            <label>
+              Bitiş Tarihi
+              <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            </label>
             <button
               type="button"
               onClick={() => {
                 setQuery("");
                 setStatusFilter("ALL");
+                setDateFrom("");
+                setDateTo("");
               }}
             >
               Filtreleri sıfırla
@@ -303,6 +312,7 @@ function OrdersContent() {
                     }
                   />
                 </th>
+                <th>Satış Kanalı</th>
                 <th>Sipariş bilgileri</th>
                 <th>Müşteri bilgileri</th>
                 <th>Tutar</th>
@@ -323,6 +333,10 @@ function OrdersContent() {
                       checked={selected.includes(order.id)}
                       onChange={() => toggle(order.id)}
                     />
+                  </td>
+                  <td>
+                    <b>{order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—")}</b>
+                    <small>{order.sales_channel ?? "Kanal belirtilmedi"}</small>
                   </td>
                   <td>
                     <Link href={`/siparisler/${order.id}`}>
