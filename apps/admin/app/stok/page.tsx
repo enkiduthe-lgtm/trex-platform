@@ -47,7 +47,7 @@ export default function Inventory() {
   async function receiveStock(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage('');
     try {
-      await api('/admin/warehouse/receipts', { method: 'POST', body: JSON.stringify({ ...receipt, quantity: Number(receipt.quantity), expiryDate: receipt.expiryDate || undefined, locationCode: receipt.locationCode || undefined, note: receipt.note || undefined }) });
+      await api('/admin/warehouse/receipts', { method: 'POST', body: JSON.stringify({ ...receipt, quantity: Number(receipt.quantity), note: receipt.note || undefined }) });
       setReceipt(current => ({ ...current, quantity: '', lotCode: '', expiryDate: '', locationCode: '', note: '' })); setMessage('Stok girişi kaydedildi.'); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Stok girişi kaydedilemedi'); }
     finally { setBusy(false); }
