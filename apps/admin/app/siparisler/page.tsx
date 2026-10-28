@@ -57,6 +57,12 @@ const tabs = [
   { value: "CANCELLED", label: "İptal edilenler" },
   { value: "ALL", label: "Tüm siparişler" },
 ];
+const stageActionStyle = {
+  background: "#f5c64c",
+  color: "#3d3211",
+  border: "1px solid #dcae37",
+  fontWeight: 800,
+};
 function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "trash" | "check" }) {
   const icon = {
     eye: <><path d="M2.5 12s3.3-5 9.5-5 9.5 5 9.5 5-3.3 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.2"/></>,
@@ -417,17 +423,19 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
                       )}
-                      {order.status === "PAID" && <Link className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Hazırlamayı aç</span></Link>}
+                      {order.status === "PAID" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Hazırla</span></Link>}
                       {order.status === "PROCESSING" && (
-                        <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
-                          <OrderIcon name="check" /><span>Operasyonu aç</span>
+                        <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}>
+                          <OrderIcon name="check" /><span>Kargoya Ver</span>
                         </Link>
                       )}
                       {order.status === "SHIPPED" && (
-                        <Link className={styles.approveLink} href={`/siparisler/${order.id}`}>
-                          <OrderIcon name="check" /><span>Teslimatı aç</span>
+                        <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}>
+                          <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
+                      {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
+                      {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
                   </td>
                 </tr>
