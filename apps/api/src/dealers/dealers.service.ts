@@ -53,6 +53,8 @@ export class DealersService {
     try { const created = await this.db.query<{ id: string }>('INSERT INTO dealer_levels(code,name,sort_order) VALUES ($1,$2,$3) RETURNING id', [dto.code.trim(), dto.name.trim(), dto.sortOrder]); await this.audit(actor, 'dealer_level.created', created.rows[0].id); return created.rows[0]; }
     catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer level code and order must be unique'); throw error; }
   }
+  async updateLevel(levelId:string,name:string,actor:RequestUser) { const result=await this.db.query<{id:string}>('UPDATE dealer_levels SET name=$1 WHERE id=$2 RETURNING id',[name.trim(),levelId]); if(!result.rowCount) throw new NotFoundException('Bayi seviyesi bulunamadı'); await this.audit(actor,'dealer_level.updated',levelId); return result.rows[0]; }
+  async setLevel(dealerId:string,levelId:string|null|undefined,actor:RequestUser) { if(levelId) { const level=await this.db.query('SELECT 1 FROM dealer_levels WHERE id=$1 AND is_active=true',[levelId]); if(!level.rowCount) throw new NotFoundException('Aktif bayi seviyesi bulunamadı'); } const result=await this.db.query<{id:string}>('UPDATE dealers SET dealer_level_id=$1,updated_at=now() WHERE id=$2 RETURNING id',[levelId??null,dealerId]); if(!result.rowCount) throw new NotFoundException('Bayi bulunamadı'); await this.audit(actor,'dealer.level_changed',dealerId); return result.rows[0]; }
   async updateStatus(dealerId: string, status: DealerStatus, actor: RequestUser) {
     const changed = await this.db.transaction(async client => {
       if (status === 'ACTIVE') {
