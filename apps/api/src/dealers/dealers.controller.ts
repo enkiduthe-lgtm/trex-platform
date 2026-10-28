@@ -20,6 +20,7 @@ export class DealersController {
   @Get('levels') levels() { return this.dealers.listLevels(); }
   @Get('price-groups') priceGroups() { return this.dealers.listPriceGroups(); }
   @Get('sales-report') salesReport(@Query('days') days?:string) { return this.dealers.salesReport(Number(days??30)); }
+  @Get('sales-report-detail') salesReportDetail(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('dealerId') dealerId?:string,@Query('product') product?:string,@Query('status') status?:string) { return this.dealers.salesReportDetail(dateFrom,dateTo,dealerId,product,status); }
   @Post('price-groups') createPriceGroup(@Body() dto: CreateDealerPriceGroupDto, @Req() req: UserRequest) { return this.dealers.createPriceGroup(dto, req.user); }
   @Post('levels') level(@Body() dto: CreateDealerLevelDto, @Req() req: UserRequest) { return this.dealers.createLevel(dto, req.user); }
   @Patch('levels/:id') updateLevel(@Param('id') id:string,@Body() dto:UpdateDealerLevelDto,@Req() req:UserRequest) { return this.dealers.updateLevel(id,dto.name,req.user); }

@@ -57,6 +57,17 @@ export class DealersService {
     ]);
     return {days:span,totals:totals.rows[0]??{order_count:0,revenue:'0'},dealers:rows.rows};
   }
+  async salesReportDetail(dateFrom?:string,dateTo?:string,dealerId?:string,product?:string,status?:string) {
+    return (await this.db.query(`SELECT d.id AS dealer_id,d.code AS dealer_code,d.company_name,l.name AS dealer_level_name,o.id AS order_id,o.order_number,o.created_at,o.status,o.total_amount,o.currency,
+      oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,COALESCE(payment.status::text,'') AS payment_status
+      FROM audit_logs a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=(a.metadata->>'dealerId')::uuid
+      JOIN order_items oi ON oi.order_id=o.id LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id
+      LEFT JOIN LATERAL (SELECT status FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC LIMIT 1) payment ON true
+      WHERE a.entity_type='order' AND a.action='order.dealer.created'
+        AND o.created_at>=COALESCE($1::date,'-infinity') AND o.created_at<COALESCE($2::date+1,'infinity')
+        AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%') AND ($5::text IS NULL OR o.status::text=$5)
+      ORDER BY o.created_at DESC,o.order_number,oi.id`,[dateFrom||null,dateTo||null,dealerId||null,product?.trim()||null,status||null])).rows;
+  }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }
   async createLevel(dto: CreateDealerLevelDto, actor: RequestUser) {
     const count = await this.db.query<{ count: string }>('SELECT count(*)::text AS count FROM dealer_levels');
