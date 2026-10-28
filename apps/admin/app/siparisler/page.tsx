@@ -212,8 +212,11 @@ function OrdersContent() {
                 + Yeni sipariş
               </Link>
             )}
-            <Link href="/finans/havaleler" className={styles.financeLink}>
-              Havale onayları →
+            <Link href="/siparisler/havaleler" className={styles.financeLink}>
+              Bekleyen Havaleler →
+            </Link>
+            <Link href="/siparisler/havaleler#giris" className={styles.financeLink}>
+              Gelen Havale Girişi
             </Link>
           </div>
         </div>
@@ -395,7 +398,7 @@ function OrdersContent() {
                       {order.status === "PENDING_PAYMENT" && (
                         <Link
                           className={styles.approveLink}
-                          href={`/finans/havaleler?order=${encodeURIComponent(order.order_number)}`}
+                          href={`/siparisler/havaleler?order=${encodeURIComponent(order.order_number)}`}
                         >
                           <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
