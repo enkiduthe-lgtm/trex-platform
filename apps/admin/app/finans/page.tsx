@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { downloadXlsx } from "../lib/xlsx";
 type Account = {
   id: string;
   name: string;
@@ -182,19 +183,9 @@ export default function Finance() {
         t.counterparty_name ?? "",
         t.description,
       ]),
-    ]
-      .map((row) =>
-        row.map((value) => `"${value.replaceAll('"', '""')}"`).join(";"),
-      )
-      .join("\n");
-    const url = URL.createObjectURL(
-      new Blob([`\uFEFF${rows}`], { type: "text/csv;charset=utf-8;" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "trex-finans-hareketleri.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+      ["", "", "", "Toplam", shownTransactions.reduce((sum, transaction) => sum + Number(transaction.amount), 0).toFixed(2), "", ""],
+    ];
+    downloadXlsx("trex-finans-hareketleri.xlsx", "Para Hareketleri", rows);
   }
   return (
     <main>
@@ -474,7 +465,7 @@ export default function Finance() {
             onClick={exportTransactions}
             disabled={!shownTransactions.length}
           >
-            CSV indir
+            Excel&apos;e Aktar
           </button>
         </div>
         <div className="cards finance-transactions">
