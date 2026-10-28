@@ -23,6 +23,8 @@ export class OrdersController {
   reportSummary(@Query('days') days?:string) { return this.orders.reportSummary(Number(days ?? 30)); }
   @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN)
   reportOperations(@Query('days') days?:string) { return this.orders.operationalSummary(Number(days ?? 30)); }
+  @Get('sales-report') @RequireRoles(Roles.SUPER_ADMIN)
+  salesReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('channel') channel?:string) { return this.orders.salesReport(dateFrom,dateTo,channel); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   options(@Query('channel') channel?: string) { return this.adminOrders.options(undefined, channel); }
   @Get('notes') listNotes() { return this.orders.listNotes(); }
