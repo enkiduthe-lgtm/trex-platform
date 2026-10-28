@@ -12,8 +12,10 @@ import { AdminOrderService } from './admin-order.service';
 import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 type UserRequest=Request & {user:RequestUser};@Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
+class UpdateOrderNoteDto { @IsOptional() @IsString() @MaxLength(1000) note?: string; }
 export class OrdersController {
   constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService) {}
   @Get() list(@Query('channel') channel?:string) { return this.orders.list(channel); }
@@ -23,6 +25,7 @@ export class OrdersController {
   reportOperations(@Query('days') days?:string) { return this.orders.operationalSummary(Number(days ?? 30)); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   options(@Query('channel') channel?: string) { return this.adminOrders.options(undefined, channel); }
+  @Get('notes') listNotes() { return this.orders.listNotes(); }
   @Post() @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   create(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) { return this.adminOrders.create(dto,key,req.user); }
   @Get(':id') detail(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.detail(id); }
@@ -33,6 +36,8 @@ export class OrdersController {
   prices(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateAdminOrderPricesDto,@Req() req:UserRequest) { return this.adminOrders.updatePrices(id,dto,req.user); }
   @Patch(':id') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   edit(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateAdminOrderDto,@Req() req:UserRequest) { return this.adminOrders.update(id,dto,req.user); }
+  @Patch(':id/note') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  note(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateOrderNoteDto,@Req() req:UserRequest) { return this.orders.updateNote(id,dto.note,req.user.id); }
   @Patch(':id/status') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE)
   update(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateOrderStatusDto,@Req() req:UserRequest) { return this.orders.updateStatus(id,dto,req.user); }
   @Post(':id/cancel') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

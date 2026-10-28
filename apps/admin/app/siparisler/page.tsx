@@ -30,6 +30,7 @@ type Order = {
   tracking_number?: string | null;
   shipment_status?: string | null;
 };
+type OrderNote = { id: string; admin_note: string | null };
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
   PAID: "Onaylandı",
@@ -88,6 +89,8 @@ function OrdersContent() {
       .catch(() => setCanCreate(false));
   }, []);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
+  const [savingNote, setSavingNote] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -105,8 +108,11 @@ function OrdersContent() {
     setSelected([]);
   }, [searchParams]);
   const load = () =>
-    api<Order[]>("/admin/orders")
-      .then(setOrders)
+    Promise.all([api<Order[]>("/admin/orders"), api<OrderNote[]>("/admin/orders/notes")])
+      .then(([loadedOrders, loadedNotes]) => {
+        setOrders(loadedOrders);
+        setOrderNotes(Object.fromEntries(loadedNotes.map((item) => [item.id, item.admin_note ?? ""])));
+      })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi"),
       );
@@ -167,6 +173,19 @@ function OrdersContent() {
       actionLock.current = false;
       setPendingAction(null);
     }
+  }
+  async function saveOrderNote(order: Order) {
+    if (!canCreate || savingNote || pendingAction) return;
+    setSavingNote(order.id);
+    try {
+      const result = await api<OrderNote>(`/admin/orders/${order.id}/note`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: orderNotes[order.id] ?? "" }),
+      });
+      setOrderNotes((current) => ({ ...current, [order.id]: result.admin_note ?? "" }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sipariş açıklaması kaydedilemedi");
+    } finally { setSavingNote(null); }
   }
   function exportOrders() {
     const source = selected.length
@@ -327,6 +346,7 @@ function OrdersContent() {
                 <th>Tarih</th>
                 <th>Yazdır</th>
                 <th>İşlemler</th>
+                <th>Açıklama</th>
               </tr>
             </thead>
             <tbody>
@@ -437,6 +457,19 @@ function OrdersContent() {
                       {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
+                  </td>
+                  <td>
+                    {canCreate ? <textarea
+                      aria-label={`${order.order_number} açıklaması`}
+                      value={orderNotes[order.id] ?? ""}
+                      maxLength={1000}
+                      placeholder="Açıklama ekle"
+                      onChange={(event) => setOrderNotes((current) => ({ ...current, [order.id]: event.target.value }))}
+                      onBlur={() => void saveOrderNote(order)}
+                      disabled={savingNote === order.id}
+                      style={{ minWidth: 160, minHeight: 42, resize: "vertical" }}
+                    /> : <small>{orderNotes[order.id] || "—"}</small>}
+                    {savingNote === order.id && <small>Kaydediliyor…</small>}
                   </td>
                 </tr>
               ))}
