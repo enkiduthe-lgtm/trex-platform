@@ -30,6 +30,7 @@ export class FinanceController {
   @Patch('accounts/:id') updateAccount(@Param('id') id:string,@Body() dto: CreateFinanceAccountDto,@Req() req:UserRequest) { return this.finance.updateAccount(id,dto,req.user); }
   @Delete('accounts/:id') archiveAccount(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.archiveAccount(id,req.user); }
   @Get('transactions') transactions() { return this.finance.listTransactions(); }
+  @Get('reconciliation') reconciliation(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.finance.reconciliation(dateFrom,dateTo); }
 
   // Yönetici yalnızca bekleyen havaleyi görüp siparişle eşleştirebilir.
   @Get('pending-collections') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

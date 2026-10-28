@@ -68,6 +68,21 @@ export class FinanceService {
   async listTransactions() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
   }
+  async reconciliation(dateFrom?:string,dateTo?:string) {
+    const [accounts,unmatched]=await Promise.all([
+      this.db.query(`SELECT a.id,a.name,a.account_type,a.currency,
+        COALESCE(SUM(CASE WHEN t.kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') THEN t.amount ELSE 0 END),0)::text income,
+        COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') THEN t.amount ELSE 0 END),0)::text expense,
+        COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,
+        count(t.id) FILTER (WHERE t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity'))::int movement_count
+        FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id WHERE a.is_active=true GROUP BY a.id ORDER BY a.currency,a.name`,[dateFrom||null,dateTo||null]),
+      this.db.query(`SELECT t.id,t.account_id,a.name AS account_name,a.currency,t.amount,t.counterparty_name,t.reference_number,t.description,t.occurred_at
+        FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
+        WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL
+          AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') ORDER BY t.occurred_at DESC`,[dateFrom||null,dateTo||null]),
+    ]);
+    return {dateFrom:dateFrom||null,dateTo:dateTo||null,accounts:accounts.rows,unmatchedCollections:unmatched.rows};
+  }
   async listMarketplaceSettlements() {
     return (await this.db.query(`SELECT s.*,a.name AS account_name, a.currency FROM marketplace_settlements s JOIN finance_accounts a ON a.id=s.account_id ORDER BY s.occurred_at DESC LIMIT 100`)).rows;
   }
