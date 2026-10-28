@@ -40,7 +40,7 @@ const statusText: Record<string, string> = {
   CANCELLED: "İptal edildi",
 };
 const channelText: Record<string, string> = {
-  RETAIL: "Perakende Satış", WHOLESALE: "Toptan Satış", PUBLIC_WEB: "Site Satış", INSTAGRAM: "Instagram Satış", DEALER_PORTAL: "Bayi Satış", MARKETPLACE: "Pazaryeri Satış", ADMIN_ORDER: "Yönetici siparişi",
+  RETAIL: "Perakende", WHOLESALE: "Toptan", PUBLIC_WEB: "Site", INSTAGRAM: "Instagram", DEALER_PORTAL: "Sistem Bayi", MARKETPLACE: "Pazaryeri", ADMIN_ORDER: "Yönetici Siparişi",
 };
 const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
 const money = (value: string, currency: string) =>
