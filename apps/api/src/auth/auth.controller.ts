@@ -7,6 +7,7 @@ import { RequestUser } from './auth.types';
 import { AuthThrottleService } from './auth-throttle.service';
 import { DisableMfaDto, MfaCodeDto } from './dto/mfa.dto';
 import { MfaService } from './mfa.service';
+import { ConfirmPasswordResetDto, RequestPasswordResetDto } from './dto/password-reset.dto';
 
 type UserRequest = Request & { user: RequestUser };
 @Controller('auth')
@@ -15,13 +16,10 @@ export class AuthController {
   private cookie(res: Response, value: string, expiry: Date) { res.cookie('trex_session', value, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'lax', expires: expiry, path: '/v1/auth' }); }
   private metadata(req: Request) { return { ip: req.ip, userAgent: req.get('user-agent') }; }
   @Post('login') @HttpCode(200) async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { await this.throttle.login(req.ip ?? '', dto.email); const result = await this.auth.login(dto.email, dto.password, this.metadata(req), dto.mfaCode); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
+  @Post('password-reset/request') @HttpCode(200) requestPasswordReset(@Body() dto: RequestPasswordResetDto, @Req() req: Request) { return this.auth.requestPasswordReset(dto.email, this.metadata(req)); }
+  @Post('password-reset/confirm') @HttpCode(200) confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) { return this.auth.confirmPasswordReset(dto.token, dto.password); }
   @Post('refresh') @HttpCode(200) async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) { await this.throttle.refresh(req.ip ?? ''); const result = await this.auth.rotate(req.cookies?.trex_session ?? '', this.metadata(req)); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
-  @Post('logout') @HttpCode(204) async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const authorization = req.headers.authorization;
-    const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-    await this.auth.logout(req.cookies?.trex_session ?? '', accessToken);
-    res.clearCookie('trex_session', { path: '/v1/auth' });
-  }
+  @Post('logout') @HttpCode(204) async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) { const authorization = req.headers.authorization; const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]; await this.auth.logout(req.cookies?.trex_session ?? '', accessToken); res.clearCookie('trex_session', { path: '/v1/auth' }); }
   @Get('me') @UseGuards(JwtAuthGuard) me(@Req() req: UserRequest) { return { user: req.user }; }
   @Get('sessions') @UseGuards(JwtAuthGuard) sessions(@Req() req: UserRequest) { return this.auth.listSessions({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }); }
   @Post('sessions/revoke-others') @UseGuards(JwtAuthGuard) revokeOtherSessions(@Req() req: UserRequest) { return this.auth.revokeOtherSessions({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }); }
