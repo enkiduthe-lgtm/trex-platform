@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -27,6 +27,7 @@ export class CustomersController {
   @Delete(':id/tags/:tagId') removeTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.removeTag(id, tagId, req.user.id); }
   @Get(':id/notes') notes(@Param('id') id: string) { return this.customers.notes(id); }
   @Get(':id/orders') orders(@Param('id') id: string) { return this.customers.orders(id); }
+  @Get(':id/order-report') orderReport(@Param('id') id: string, @Query('dateFrom') dateFrom?: string, @Query('dateTo') dateTo?: string) { return this.customers.orderReport(id, dateFrom, dateTo); }
   @Get(':id/support-tickets') supportTickets(@Param('id') id: string) { return this.customers.supportTickets(id); }
   @Post(':id/notes') add(@Param('id') id: string, @Body() dto: NoteDto, @Req() req: UserRequest) { return this.customers.addNote(id, dto.body, req.user.id); }
   @Get(':id/loyalty') loyalty(@Param('id') id: string) { return this.customers.loyalty(id); }

@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { downloadXlsx } from "../lib/xlsx";
 import { createActionLock, createRequestGate } from '../lib/async-controls';
 import styles from "./customers.module.css";
 type Customer = {
@@ -27,6 +28,7 @@ type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; move
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
 type CustomerOrder = { id: string; order_number: string; status: string; total_amount: string; currency: string; created_at: string; item_count: number };
 type CustomerSupportTicket = { id: string; ticket_number: string; subject: string; status: string; priority: string; due_at: string; created_at: string; order_number: string | null };
+type CustomerOrderReportLine = { order_number: string; created_at: string; status: string; currency: string; sales_channel: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -52,6 +54,8 @@ export default function Customers() {
     [pointsReason, setPointsReason] = useState(""),
     [requestForm, setRequestForm] = useState({subject:'',body:'',priority:'NORMAL'}),
     [message, setMessage] = useState("");
+  const [orderReportFrom, setOrderReportFrom] = useState("");
+  const [orderReportTo, setOrderReportTo] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const notesGate = useRef(createRequestGate());
@@ -105,6 +109,22 @@ export default function Customers() {
     ].map(row => row.map(csv).join(';')).join('\n');
     const url = URL.createObjectURL(new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8;' }));
     const link = document.createElement('a'); link.href = url; link.download = 'trex-musteriler.csv'; link.click(); URL.revokeObjectURL(url);
+  }
+  async function exportCustomerOrders() {
+    if (!selected) return;
+    try {
+      const params = new URLSearchParams();
+      if (orderReportFrom) params.set('dateFrom', orderReportFrom);
+      if (orderReportTo) params.set('dateTo', orderReportTo);
+      const lines = await api<CustomerOrderReportLine[]>(`/admin/customers/${selected.id}/order-report${params.size ? `?${params}` : ''}`);
+      if (!lines.length) { setMessage('Bu tarih aralığında dışa aktarılacak sipariş satırı bulunamadı.'); return; }
+      const total = lines.reduce((sum, line) => sum + Number(line.line_total), 0);
+      downloadXlsx(`trex-${selected.id}-siparisler.xlsx`, 'Müşteri Siparişleri', [
+        ['Sipariş Tarihi', 'Sipariş Numarası', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Satış Kanalı'],
+        ...lines.map((line) => [new Date(line.created_at).toLocaleString('tr-TR'), line.order_number, line.product_name, line.sku, line.quantity, line.unit_amount, line.line_total, line.currency, line.payment_method || '—', line.status, line.sales_channel]),
+        ['', '', '', '', '', 'Toplam', total.toFixed(2), '', '', '', ''],
+      ]);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Sipariş raporu oluşturulamadı.'); }
   }
   async function open(customer: Customer) {
     if (saveLock.current.isLocked()) return;
@@ -355,6 +375,11 @@ export default function Customers() {
               </span>
             </div>
             <h3>Son siparişler</h3>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end',marginBottom:12,padding:'10px',border:'1px solid #e5e7eb',borderRadius:8}}>
+              <label style={{display:'grid',gap:4,fontSize:11}}>Başlangıç Tarihi<input type="date" value={orderReportFrom} onChange={(event) => setOrderReportFrom(event.target.value)} /></label>
+              <label style={{display:'grid',gap:4,fontSize:11}}>Bitiş Tarihi<input type="date" value={orderReportTo} onChange={(event) => setOrderReportTo(event.target.value)} /></label>
+              <button type="button" disabled={notesLoading} onClick={() => void exportCustomerOrders()}>Siparişleri Excel&apos;e Aktar</button>
+            </div>
             {customerOrders.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{customerOrders.slice(0,5).map(order => <Link key={order.id} href={`/siparisler/${order.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{order.order_number}</b><small style={{display:'block'}}>{order.item_count} ürün · {money(order.total_amount,order.currency)} · {order.status} · {new Date(order.created_at).toLocaleDateString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı sipariş bulunmuyor.</p>}
             <h3>Destek talepleri</h3>
             <p><Link href={`/destek?customer=${selected.id}`}>Bu müşteri için yeni destek talebi aç</Link></p>

@@ -102,6 +102,18 @@ export class CustomersService {
       WHERE o.customer_id=$1 GROUP BY o.id ORDER BY o.created_at DESC LIMIT 50`, [customerId])).rows;
   }
 
+  async orderReport(customerId: string, dateFrom?: string, dateTo?: string) {
+    return (await this.db.query(`SELECT o.order_number,o.created_at,o.status,o.currency,o.sales_channel,
+      oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
+      COALESCE(p.provider,'') AS payment_method
+      FROM orders o JOIN order_items oi ON oi.order_id=o.id
+      LEFT JOIN payments p ON p.checkout_id=o.checkout_id
+      WHERE o.customer_id=$1
+        AND ($2::date IS NULL OR o.created_at >= $2::date)
+        AND ($3::date IS NULL OR o.created_at < ($3::date + interval '1 day'))
+      ORDER BY o.created_at DESC,oi.id`, [customerId, dateFrom || null, dateTo || null])).rows;
+  }
+
   async supportTickets(customerId: string) {
     return (
       await this.db.query(
