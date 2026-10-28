@@ -57,11 +57,12 @@ const tabs = [
   { value: "CANCELLED", label: "İptal edilenler" },
   { value: "ALL", label: "Tüm siparişler" },
 ];
-function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "trash" | "check" }) {
+function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "trash" | "check" }) {
   const icon = {
     eye: <><path d="M2.5 12s3.3-5 9.5-5 9.5 5 9.5 5-3.3 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.2"/></>,
     edit: <><path d="m4 20 4.2-1 10-10-3.2-3.2-10 10L4 20Z"/><path d="m13.5 6.5 3.2 3.2"/></>,
     print: <><path d="M6 8V3h12v5M6 17H4V9h16v8h-2"/><path d="M7 14h10v7H7z"/></>,
+    barcode: <><path d="M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14"/></>,
     trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></>,
     check: <><path d="m5 12 4 4L19 6"/></>,
   }[name];
@@ -349,9 +350,14 @@ function OrdersContent() {
                     <time>{date(order.created_at)}</time>
                   </td>
                   <td>
-                    <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}`} title="Fatura, paket ve kargo çıktıları">
-                      <OrderIcon name="print" /><span>Çıktılar</span>
-                    </Link>
+                    <div className={styles.printActions}>
+                      <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}#fatura`} title="Fatura yazdır">
+                        <OrderIcon name="print" /><span>Fatura</span>
+                      </Link>
+                      <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}#barkod`} title="Sipariş barkodu yazdır">
+                        <OrderIcon name="barcode" /><span>Barkod</span>
+                      </Link>
+                    </div>
                   </td>
                   <td>
                     <div className={styles.actions}>
