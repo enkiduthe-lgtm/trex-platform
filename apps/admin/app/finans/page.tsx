@@ -195,7 +195,7 @@ export default function Finance() {
         <h1>Hesap bazlı finans</h1>
         <nav className="finance-nav" aria-label="Finans bölümleri">
           <Link href="/finans">Finans özeti</Link>
-          <Link href="/finans/havaleler">Bekleyen havaleler</Link>
+          <Link href="/siparisler/havaleler">Bekleyen havaleler</Link>
           <Link href="/finans/masraflar">Masraflar</Link>
           <Link href="/cari">Cari hesaplar</Link>
         </nav>
