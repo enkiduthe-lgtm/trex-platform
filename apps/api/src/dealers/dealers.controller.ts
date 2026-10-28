@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -19,6 +19,7 @@ export class DealersController {
   @Get() list() { return this.dealers.list(); }
   @Get('levels') levels() { return this.dealers.listLevels(); }
   @Get('price-groups') priceGroups() { return this.dealers.listPriceGroups(); }
+  @Get('sales-report') salesReport(@Query('days') days?:string) { return this.dealers.salesReport(Number(days??30)); }
   @Post('price-groups') createPriceGroup(@Body() dto: CreateDealerPriceGroupDto, @Req() req: UserRequest) { return this.dealers.createPriceGroup(dto, req.user); }
   @Post('levels') level(@Body() dto: CreateDealerLevelDto, @Req() req: UserRequest) { return this.dealers.createLevel(dto, req.user); }
   @Patch('levels/:id') updateLevel(@Param('id') id:string,@Body() dto:UpdateDealerLevelDto,@Req() req:UserRequest) { return this.dealers.updateLevel(id,dto.name,req.user); }

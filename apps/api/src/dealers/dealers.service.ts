@@ -46,6 +46,17 @@ export class DealersService {
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
+  async salesReport(days=30) {
+    const span=Math.min(Math.max(Number.isFinite(days)?Math.floor(days):30,1),365);
+    const [totals,rows]=await Promise.all([
+      this.db.query(`SELECT count(DISTINCT o.id)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue FROM orders o JOIN audit_logs a ON a.entity_type='order' AND a.entity_id=o.id AND a.action='order.dealer.created' WHERE o.created_at>=now()-($1::int*interval '1 day')`,[span]),
+      this.db.query(`SELECT d.id,d.code,d.company_name,l.name AS dealer_level_name,count(DISTINCT o.id)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue,COALESCE(AVG(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text average_order,COALESCE(SUM(oi.quantity) FILTER(WHERE o.status<>'CANCELLED'),0)::int item_count
+        FROM audit_logs a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=(a.metadata->>'dealerId')::uuid LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN order_items oi ON oi.order_id=o.id
+        WHERE a.entity_type='order' AND a.action='order.dealer.created' AND o.created_at>=now()-($1::int*interval '1 day')
+        GROUP BY d.id,l.name ORDER BY revenue DESC,d.company_name`,[span]),
+    ]);
+    return {days:span,totals:totals.rows[0]??{order_count:0,revenue:'0'},dealers:rows.rows};
+  }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }
   async createLevel(dto: CreateDealerLevelDto, actor: RequestUser) {
     const count = await this.db.query<{ count: string }>('SELECT count(*)::text AS count FROM dealer_levels');
