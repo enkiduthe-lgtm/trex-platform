@@ -10,9 +10,10 @@ import { AuditController } from './audit.controller';
 import { AuthThrottleService } from './auth-throttle.service';
 import { MfaService } from './mfa.service';
 import { StaffApplicationsController } from './staff-applications.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 @Global()
 @Module({
-  imports: [ConfigModule, JwtModule.registerAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ secret: config.getOrThrow<string>('JWT_SECRET'), signOptions: { expiresIn: '15m' } }) })],
+  imports: [ConfigModule, NotificationsModule, JwtModule.registerAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ secret: config.getOrThrow<string>('JWT_SECRET'), signOptions: { expiresIn: '15m' } }) })],
   controllers: [AuthController, AdminController, AuditController, StaffApplicationsController], providers: [AuthService, AuthThrottleService, MfaService, JwtAuthGuard, RolesGuard], exports: [JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
