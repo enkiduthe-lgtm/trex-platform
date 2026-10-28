@@ -51,8 +51,33 @@
 .uploadInput input { padding: 8px; border: 1px solid #d6c4ef; border-radius: 8px; background: #fcfaff; }
 .uploadInput small { color: #756d80; font-size: 11px; font-weight: normal; }
 .imageModalCard footer button { padding: 9px 13px; border-radius: 7px; }
+.detailModalCard { display: grid; width: min(760px, 100%); gap: 16px; padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(33, 13, 72, .3); }
+.detailModalCard header, .detailModalCard header > div, .detailModalCard footer { display: flex; align-items: center; }
+.detailModalCard header { justify-content: space-between; }
+.detailModalCard header > div { gap: 10px; }
+.detailModalCard h2, .detailModalCard p { margin: 0; }
+.detailModalCard h2 { color: #42206f; font-size: 18px; }
+.detailModalCard header p { margin-top: 3px; color: #6d6478; font-size: 12px; }
+.detailModalCard footer { justify-content: flex-end; gap: 8px; }
+.detailModalCard footer button { padding: 9px 13px; border-radius: 7px; }
+.detailBody { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; }
+.detailImage { display: grid; min-height: 210px; place-items: center; overflow: hidden; border: 1px dashed #d9c2fb; border-radius: 12px; background: #faf8ff; }
+.detailImage img { width: 100%; height: 210px; object-fit: contain; background: #fff; }
+.detailImage > span { display: grid; place-items: center; gap: 8px; color: #7e54b7; font-size: 38px; }
+.detailImage small { font-size: 12px; }
+.detailGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.detailGrid > div { padding: 10px; border: 1px solid #e2ebe5; border-radius: 9px; background: #fbfdfc; }
+.detailGrid dt { color: #71827b; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.detailGrid dd { margin: 5px 0 0; color: #315343; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.detailWide { grid-column: 1 / -1; }
+.descriptionCard { padding: 12px; border: 1px solid #e2ebe5; border-radius: 10px; background: #fbfdfc; }
+.descriptionCard h3 { margin: 0 0 6px; color: #315343; font-size: 12px; }
+.descriptionCard p { color: #53675e; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.productNameButton { display: block; padding: 0; border: 0; background: transparent; color: #315343; font: inherit; font-size: 12px; font-weight: 700; text-align: left; cursor: pointer; }
+.productNameButton:hover { color: #6b2eb5; text-decoration: underline; }
 
 @media (max-width: 760px) { .actions { flex-direction: column; } .actions a, .actions button { width: 64px; } }
+@media (max-width: 600px) { .detailBody { grid-template-columns: 1fr; } .detailImage { min-height: 180px; } .detailImage img { height: 180px; } .detailGrid { grid-template-columns: 1fr; } }
 .titleRow {
   display: flex;
   justify-content: space-between;

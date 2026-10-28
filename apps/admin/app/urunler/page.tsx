@@ -249,6 +249,7 @@ export default function Products() {
   const [newOpen, setNewOpen] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [imageProduct, setImageProduct] = useState<Product | null>(null);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [failedImages, setFailedImages] = useState<Record<string, true>>({});
@@ -933,6 +934,66 @@ export default function Products() {
             </div>
           </div>
         )}
+        {detailProduct && (
+          <div
+            className={styles.imageModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${detailProduct.name} ürün detayı`}
+          >
+            <div className={styles.detailModalCard}>
+              <header>
+                <div>
+                  <span className={styles.modalIcon}>▦</span>
+                  <div>
+                    <h2>Ürün Detayı</h2>
+                    <p>{detailProduct.name}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.close}
+                  onClick={() => setDetailProduct(null)}
+                  aria-label="Pencereyi kapat"
+                >
+                  ×
+                </button>
+              </header>
+              <div className={styles.detailBody}>
+                <div className={styles.detailImage}>
+                  {detailProduct.image_url && !failedImages[detailProduct.id] ? (
+                    <img
+                      src={`${apiBaseUrl}/assets/product/${detailProduct.id}`}
+                      alt={`${detailProduct.name} görseli`}
+                      onError={() => markImageUnavailable(detailProduct)}
+                    />
+                  ) : (
+                    <span>🖼<small>Ürün Görseli Yok</small></span>
+                  )}
+                </div>
+                <dl className={styles.detailGrid}>
+                  <div><dt>Ürün Kodu</dt><dd>{detailProduct.sku}</dd></div>
+                  <div><dt>Barkod</dt><dd>{detailProduct.barcode ?? "—"}</dd></div>
+                  <div><dt>Stok</dt><dd>{detailProduct.available_quantity ?? 0} Adet</dd></div>
+                  <div><dt>Durum</dt><dd>{detailProduct.status === "ACTIVE" ? "Yayında" : "Taslak"}</dd></div>
+                  <div className={styles.detailWide}><dt>Ürün Bağlantısı</dt><dd>/{detailProduct.slug}</dd></div>
+                </dl>
+              </div>
+              <section className={styles.descriptionCard}>
+                <h3>Ürün Açıklaması</h3>
+                <p>{detailProduct.description?.trim() || "Bu ürün için kayıtlı açıklama bulunmuyor."}</p>
+              </section>
+              <footer>
+                <button type="button" className={styles.secondaryAction} onClick={() => setDetailProduct(null)}>
+                  Kapat
+                </button>
+                <button type="button" onClick={() => { setDetailProduct(null); setImageProduct(detailProduct); }}>
+                  Görseli Yönet
+                </button>
+              </footer>
+            </div>
+          </div>
+        )}
         <div className={styles.tableWrap}>
           <table>
             <thead>
@@ -997,7 +1058,14 @@ export default function Products() {
                       </button>
                     </td>
                     <td>
-                      <b>{product.name}</b>
+                      <button
+                        type="button"
+                        className={styles.productNameButton}
+                        onClick={() => setDetailProduct(product)}
+                        title="Ürün Detayını Aç"
+                      >
+                        {product.name}
+                      </button>
                       <small>Kodu: {product.sku}</small>
                       <small>
                         Barkod: {product.barcode ?? "—"} · /{product.slug}
