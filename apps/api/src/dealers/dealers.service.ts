@@ -28,24 +28,24 @@ export class DealersService {
     if (dto.password.length < 12) throw new ConflictException('Şifre en az 12 karakter olmalıdır');
     const code = `APP-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
     const email = dto.email.trim().toLowerCase();
-    const iban = dto.iban.replace(/\s/g, '').toUpperCase();
+    const iban = dto.iban?.replace(/\s/g, '').toUpperCase() || null;    const accountHolder = dto.accountHolder?.trim() || null;    const companyName = dto.companyName?.trim() || `Bireysel bayi · ${dto.contactName.trim()}`;
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     try {
       const application = await this.db.transaction(async client => {
-        const result = await client.query<{ id: string }>(`INSERT INTO dealers(code,company_name,tax_number,status,contact_name,authorized_full_name,contact_email,contact_phone,city,region,company_address,tax_office,monthly_sales_target,sales_channels,social_media) VALUES ($1,$2,$3,'RECEIVED',$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [code, dto.companyName.trim(), dto.taxNumber.trim(), dto.contactName.trim(), email, dto.phone.trim(), dto.city.trim(), dto.district.trim() || dto.region?.trim() || null, dto.address.trim(), dto.taxOffice?.trim() || null, dto.monthlySalesTarget, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
+        const result = await client.query<{ id: string }>(`INSERT INTO dealers(code,company_name,tax_number,status,contact_name,authorized_full_name,contact_email,contact_phone,city,region,company_address,tax_office,monthly_sales_target,sales_channels,social_media) VALUES ($1,$2,$3,'RECEIVED',$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [code, companyName, dto.taxNumber?.trim() || null, dto.contactName.trim(), email, dto.phone.trim(), dto.city.trim(), dto.district.trim() || dto.region?.trim() || null, dto.address.trim(), dto.taxOffice?.trim() || null, dto.monthlySalesTarget, dto.salesChannels?.trim() || null, dto.socialMedia?.trim() || null]);
         const dealerId = result.rows[0].id;
-        await client.query('INSERT INTO dealer_bank_accounts(dealer_id,account_holder,iban,is_primary) VALUES($1,$2,$3,true)', [dealerId, dto.accountHolder.trim(), iban]);
+        if (iban && accountHolder) await client.query('INSERT INTO dealer_bank_accounts(dealer_id,account_holder,iban,is_primary) VALUES($1,$2,$3,true)', [dealerId, accountHolder, iban]);
         const user = await client.query<{ id: string }>("INSERT INTO users(email,password_hash,role,is_active) VALUES($1,$2,'DEALER',false) RETURNING id", [email, passwordHash]);
         await client.query('INSERT INTO dealer_user_accounts(dealer_id,user_id) VALUES($1,$2)', [dealerId, user.rows[0].id]);
         return { applicationId: dealerId, status: 'RECEIVED' };
       });
       await this.email(email, 'TREX Tea bayi başvurunuz alındı', 'Başvurunuz alındı. Yönetici onayı sonrasında seçtiğiniz e-posta ve şifreyle giriş yapabilirsiniz.');
       const admins = await this.db.query<{ email: string }>("SELECT email FROM users WHERE role='SUPER_ADMIN' AND is_active=true");
-      await Promise.all(admins.rows.map(admin => this.email(admin.email, 'Yeni bayi başvurusu', `${dto.companyName.trim()} adlı firmadan bayi başvurusu geldi.`)));
+      await Promise.all(admins.rows.map(admin => this.email(admin.email, 'Yeni bayi başvurusu', `${companyName} adlı firmadan bayi başvurusu geldi.`)));
       return application;
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
-  async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
+  async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }
   async createLevel(dto: CreateDealerLevelDto, actor: RequestUser) {
     const count = await this.db.query<{ count: string }>('SELECT count(*)::text AS count FROM dealer_levels');
@@ -56,8 +56,8 @@ export class DealersService {
   async updateStatus(dealerId: string, status: DealerStatus, actor: RequestUser) {
     const changed = await this.db.transaction(async client => {
       if (status === 'ACTIVE') {
-        const bank = await client.query('SELECT 1 FROM dealer_bank_accounts WHERE dealer_id=$1 AND is_primary=true', [dealerId]);
-        if (!bank.rowCount) throw new ConflictException('Bayi onayı için birincil IBAN kaydı gereklidir');
+        
+        // IBAN bilgisi isteğe bağlıdır; bayi onayı ve sipariş için engel olmaz.
       }
       const updated = await client.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 RETURNING id,status', [status, dealerId]);
       if (!updated.rowCount) throw new NotFoundException('Dealer not found');
