@@ -206,12 +206,10 @@ export default function Finance() {
           <Link href="/finans">Finans özeti</Link>
           <Link href="/finans/havaleler">Bekleyen havaleler</Link>
           <Link href="/finans/masraflar">Masraflar</Link>
-          <Link href="/finans/butce">Bütçe ve nakit akışı</Link>
           <Link href="/cari">Cari hesaplar</Link>
         </nav>
         <p>
-          <Link href="/finans/paytr">PayTR Kasası ve komisyon ayarı →</Link> ·{" "}
-          <Link href="/finans/butce">Bütçe ve nakit akışı →</Link>
+          <Link href="/finans/paytr">PayTR Kasası ve komisyon ayarı →</Link>
         </p>
         <p>
           Özet kartları yalnız TL hesaplarını içerir. Euro ve dolar bakiyeleri
