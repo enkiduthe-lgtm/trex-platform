@@ -156,14 +156,29 @@ export class WarehouseService {
       return row.rows[0];
     } catch (error:unknown) { if ((error as {code?:string}).code==='23505') throw new ConflictException('Bu depo kodu zaten kullanılıyor'); throw error; }
   }
+  private async resolveReceiptWarehouse(client: any, warehouseId?: string) {
+    if (warehouseId) {
+      const selected = await client.query<{ id: string }>('SELECT id FROM warehouses WHERE id=$1 AND is_active=true', [warehouseId]);
+      if (!selected.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
+      return selected.rows[0].id;
+    }
+    const current = await client.query<{ id: string; is_active: boolean }>("SELECT id,is_active FROM warehouses WHERE code='GENEL_STOK' FOR UPDATE");
+    if (current.rowCount) {
+      if (!current.rows[0].is_active) await client.query('UPDATE warehouses SET is_active=true WHERE id=$1', [current.rows[0].id]);
+      return current.rows[0].id;
+    }
+    const created = await client.query<{ id: string }>("INSERT INTO warehouses(code,name,is_active) VALUES ('GENEL_STOK','Genel Stok',true) RETURNING id");
+    return created.rows[0].id;
+  }
   async receiveStock(dto:ReceiveStockDto,userId:string) { return this.db.transaction(async client=>{
-    const exists=await client.query('SELECT 1 FROM products WHERE id=$1',[dto.productId]); if(!exists.rowCount) throw new NotFoundException('Ürün bulunamadı');
-    const warehouse=await client.query('SELECT 1 FROM warehouses WHERE id=$1 AND is_active=true',[dto.warehouseId]); if(!warehouse.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
-    const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,dto.warehouseId,dto.quantity]);
-    await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)',[dto.productId,dto.warehouseId,dto.lotCode.trim(),dto.expiryDate ?? null,dto.quantity,dto.locationCode?.trim() || null]);
-    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by) VALUES ($1,$2,'RECEIPT',$3,$4,$5)",[dto.productId,dto.warehouseId,dto.quantity,'stock_receipt',userId]);
-    await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.received','inventory',`${dto.productId}:${dto.warehouseId}`,JSON.stringify({quantity:dto.quantity,lotCode:dto.lotCode,expiryDate:dto.expiryDate ?? null,locationCode:dto.locationCode ?? null,note:dto.note ?? null})]);
-    return inventory.rows[0];
+    const exists=await client.query('SELECT 1 FROM products WHERE id=$1 AND is_active=true',[dto.productId]); if(!exists.rowCount) throw new NotFoundException('Aktif ürün bulunamadı');
+    const warehouseId=await this.resolveReceiptWarehouse(client,dto.warehouseId);
+    const lotCode=dto.lotCode?.trim() || `GENEL-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${String(Date.now()).slice(-6)}`;
+    const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,warehouseId,dto.quantity]);
+    await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)',[dto.productId,warehouseId,lotCode,dto.expiryDate ?? null,dto.quantity,dto.locationCode?.trim() || null]);
+    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by,created_at) VALUES ($1,$2,'RECEIPT',$3,$4,$5,COALESCE($6::timestamptz,now()))",[dto.productId,warehouseId,dto.quantity,'stock_receipt',userId,dto.receivedAt ?? null]);
+    await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.received','inventory',`${dto.productId}:${warehouseId}`,JSON.stringify({quantity:dto.quantity,lotCode,receivedAt:dto.receivedAt ?? null,expiryDate:dto.expiryDate ?? null,locationCode:dto.locationCode ?? null,note:dto.note ?? null})]);
+    return {...inventory.rows[0],warehouseId};
   }); }
   async listPicks() { return (await this.db.query(`SELECT ps.id, ps.status, ps.created_at, o.order_number, w.name AS warehouse_name, u.email AS assigned_email, pk.package_barcode,pk.packed_at, COALESCE(SUM(pi.expected_quantity),0) AS expected_items, COALESCE(SUM(pi.picked_quantity),0) AS picked_items FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id JOIN warehouses w ON w.id=ps.warehouse_id LEFT JOIN users u ON u.id=ps.assigned_to LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id LEFT JOIN picking_items pi ON pi.picking_session_id=ps.id GROUP BY ps.id,o.order_number,w.name,u.email,pk.package_barcode,pk.packed_at ORDER BY ps.created_at DESC LIMIT 50`)).rows; }
   async listPickQueue() { return (await this.db.query(`SELECT o.id,o.order_number,w.name AS warehouse_name,COALESCE(SUM(oi.quantity),0) AS item_count
