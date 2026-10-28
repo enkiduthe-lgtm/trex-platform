@@ -930,6 +930,15 @@ button {
 .finance-workspace .finance-transactions .button-row { justify-content:flex-end; }
 .finance-workspace > .form-card,.stock-workspace > .form-card,.dealer-workspace > .form-card { max-width:none; border-radius:10px; }
 .finance-workspace h2,.dealer-workspace h2,.stock-workspace h2 { color:#432c4e; }
+.dealer-tabs { display:flex; gap:10px; align-items:center; margin:18px 0 12px; border-bottom:1px solid #e7ddec; padding-bottom:12px; }
+.dealer-tabs button { min-width:180px; }
+.dealer-tabs button.active { background:#7d1aa4; border-color:#7d1aa4; color:#fff; }
+.dealer-tabs span { display:inline-flex; min-width:20px; height:20px; padding:0 6px; margin-left:6px; align-items:center; justify-content:center; border-radius:999px; background:#f2e8f6; color:#61217e; font-size:12px; }
+.dealer-tabs button.active span { background:#fff; color:#61217e; }
+.dealer-toolbar { max-width:none !important; display:grid; grid-template-columns:minmax(280px,1fr) minmax(220px,320px); gap:14px; margin:0 0 16px; }
+.dealer-application-form { max-width:none !important; margin-top:16px; }
+.dealer-application-form .two-columns { margin:14px 0; }
+@media (max-width:720px) { .dealer-tabs { overflow-x:auto; } .dealer-tabs button { min-width:155px; } .dealer-toolbar { grid-template-columns:1fr; } }
 .finance-nav { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fff; }
 .finance-nav a { padding:8px 11px; border:1px solid #e2cceb; border-radius:7px; background:#fcf7fe; color:#68158b; font-size:12px; font-weight:700; }
 .finance-nav a:hover { background:#7d1aa4; border-color:#7d1aa4; color:#fff; }
