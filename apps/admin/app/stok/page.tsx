@@ -26,13 +26,17 @@ export default function Inventory() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [location, setLocation] = useState({ code: '', name: '' });
-  const [receipt, setReceipt] = useState({ productId: '', warehouseId: '', quantity: '', lotCode: '', expiryDate: '', locationCode: '', note: '' });
+  const [receipt, setReceipt] = useState({ productId: '', quantity: '', receivedAt: new Date().toISOString().slice(0, 10), note: '' });
   const [transfer, setTransfer] = useState({ stockKey: '', destinationWarehouseId: '', quantity: '', note: '' });
 
   const load = () => Promise.all([
     api<Dashboard>('/admin/warehouse/dashboard'), api<Stock[]>('/admin/warehouse/stock'), api<Movement[]>('/admin/warehouse/movements'), api<Transfer[]>('/admin/warehouse/transfers'), api<Product[]>('/admin/products'), api<Location[]>('/admin/warehouse/locations'),
   ]).then(([d, s, m, t, p, l]) => { setDashboard(d); setStock(s); setMovements(m); setTransfers(t); setProducts(p); setLocations(l); }).catch(error => setMessage(error instanceof Error ? error.message : 'Stok verileri yüklenemedi'));
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const productId = new URLSearchParams(window.location.search).get('productId');
+    if (productId) setReceipt(current => ({ ...current, productId }));
+  }, []);
 
   const incoming = useMemo(() => movements.filter(item => ['RECEIPT', 'RETURN_QUARANTINE', 'TRANSFER_IN'].includes(item.movement_type)), [movements]);
   const outgoing = useMemo(() => movements.filter(item => ['FULFILLMENT', 'TRANSFER_OUT'].includes(item.movement_type)), [movements]);
@@ -48,7 +52,7 @@ export default function Inventory() {
     event.preventDefault(); setBusy(true); setMessage('');
     try {
       await api('/admin/warehouse/receipts', { method: 'POST', body: JSON.stringify({ ...receipt, quantity: Number(receipt.quantity), note: receipt.note || undefined }) });
-      setReceipt(current => ({ ...current, quantity: '', lotCode: '', expiryDate: '', locationCode: '', note: '' })); setMessage('Stok girişi kaydedildi.'); await load();
+      setReceipt(current => ({ ...current, quantity: '', note: '' })); setMessage('Stok girişi kaydedildi.'); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Stok girişi kaydedilemedi'); }
     finally { setBusy(false); }
   }

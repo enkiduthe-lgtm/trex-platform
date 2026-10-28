@@ -1045,7 +1045,7 @@ export default function Products() {
                           title="Görsel yükle"
                         >
                           <span>🖼</span>
-                          <small>Görsel</small>
+                          <small>Görsel Yükle</small>
                         </button>
                         {role === "SUPER_ADMIN" && <button
                           type="button"
@@ -1060,14 +1060,14 @@ export default function Products() {
                           title="Fiyat ve maliyet"
                         >
                           <span>₺</span>
-                          <small>Fiyat</small>
+                          <small>Fiyat Gir/Değiştir</small>
                         </button>}
                         <button type="button" className={styles.statusAction} onClick={() => void updateProductStatus(product, product.status === "ACTIVE" ? "DRAFT" : "ACTIVE")} title={product.status === "ACTIVE" ? "Ürünü taslağa al" : "Ürünü yayına al"}>
                           <span>{product.status === "ACTIVE" ? "◌" : "●"}</span>
-                          <small>{product.status === "ACTIVE" ? "Taslak" : "Yayına al"}</small>
+                          <small>{product.status === "ACTIVE" ? "Yayından Kaldır" : "Yayına Al"}</small>
                         </button>
-                        <Link className={styles.stockAction} href="/stok" title="Stok ve depo yönetimini aç">
-                          <span>▦</span><small>Stok</small>
+                        <Link className={styles.stockAction} href={`/stok?productId=${product.id}`} title="Bu ürün için stok girişi aç">
+                          <span>▦</span><small>Stok Gir</small>
                         </Link>
                       </div>
                     </td>
