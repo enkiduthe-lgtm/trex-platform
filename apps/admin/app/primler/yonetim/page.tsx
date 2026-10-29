@@ -1,5 +1,5 @@
 'use client';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AdminNav } from '../../components/admin-nav';
 import { api } from '../../lib/api';
@@ -16,14 +16,22 @@ export default function ManagementCommissionPage(){
  const [people,setPeople]=useState({executiveCount:3,executiveIds:[] as string[],directorId:''});
  const [rate,setRate]=useState({productId:'',channelGroup:'RETAIL',executiveAmount:'',directorAmount:''});
  const [account,setAccount]=useState(''),[financeAccounts,setFinanceAccounts]=useState<{id:string;name:string;currency:string}[]>([]);
- async function load(selectedMonth:string){try{const result=await api<Data>(`/admin/commissions/channel-pools${selectedMonth?`?month=${selectedMonth}`:''}`);setData(result);if(result.settings)setPeople({executiveCount:result.settings.executive_count,executiveIds:result.settings.executive_ids,directorId:result.settings.director_id});if(result.canSeeAll){const legacy=await api<{accounts:{id:string;name:string;currency:string}[]}>('/admin/commissions');setFinanceAccounts(legacy.accounts.filter(a=>a.currency==='TRY'));}}catch(e){setMessage(e instanceof Error?e.message:'Bilgiler Alınamadı');}}
+ const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[needsLogin,setNeedsLogin]=useState(false);const loadId=useRef(0);
+ async function load(selectedMonth:string){const id=++loadId.current;setLoading(true);setLoadError('');setNeedsLogin(false);setData(null);try{
+  const result=await api<Data>(`/admin/commissions/channel-pools${selectedMonth?`?month=${selectedMonth}`:''}`);
+  const legacy=result.canSeeAll?await api<{accounts:{id:string;name:string;currency:string}[]}>('/admin/commissions'):null;
+  if(id!==loadId.current)return;setData(result);setFinanceAccounts(legacy?.accounts.filter(a=>a.currency==='TRY')??[]);
+  if(result.settings)setPeople({executiveCount:result.settings.executive_count,executiveIds:result.settings.executive_ids,directorId:result.settings.director_id});
+ }catch(e){if(id!==loadId.current)return;const text=e instanceof Error?e.message:'Bilgiler Alınamadı';const expired=/invalid access token|invalid or expired|session.*expired|401/i.test(text);setNeedsLogin(expired);setLoadError(expired?'Oturumunuzun Süresi Doldu. Prim Ayarlarını Görmek İçin Yeniden Giriş Yapın.':text==='Insufficient role'?'Bu Hesabın Prim Paneline Erişim Yetkisi Yok.':text);}finally{if(id===loadId.current)setLoading(false);}}
  useEffect(()=>{void load(month)},[month]);
  async function save(path:string,body:unknown){setBusy(path);try{await api(`/admin/commissions/${path}`,{method:'POST',body:JSON.stringify(body)});setMessage(path.startsWith('entries/')?'Prim Ödemesi Kaydedildi.':'Kaydedildi. Yeni Ayarlar Sonraki Siparişlerde Geçerli; Geçmiş Hakedişler Korundu.');await load(month);}catch(e){setMessage(e instanceof Error?e.message:'İşlem Tamamlanamadı');}finally{setBusy('');}}
  const entries=data?.entries??[];
  const net=entries.reduce((total,e)=>total+Number(e.amount),0),paid=entries.filter(e=>e.status==='PAID'&&e.entry_kind==='EARN').reduce((n,e)=>n+Number(e.staff_paid_amount??e.amount),0);
  function editRate(row:Rate){setRate({productId:row.product_id,channelGroup:row.channel_group,executiveAmount:row.executive_amount,directorAmount:row.director_amount});document.getElementById('rate-form')?.scrollIntoView({behavior:'smooth',block:'center'});}
+ if(loading||!data)return <main className={styles.page}><AdminNav/><section className={styles.content}><article className={styles.card}><h1>Prim Ayarları Ve Hakedişler</h1><div className={styles.notice} role={loadError?'alert':'status'}>{loading?'Prim Bilgileri Yükleniyor…':loadError||'Prim Bilgileri Alınamadı.'}</div>{!loading&&<nav className={styles.actions}>{needsLogin?<Link href="/giris?next=%2Fprimler%2Fyonetim">Yeniden Giriş Yap</Link>:<button type="button" onClick={()=>void load(month)}>Tekrar Dene</button>}</nav>}</article></section></main>;
  return <main className={styles.page}><AdminNav/><section className={styles.content}>
-  <header className={styles.header}><div><h1>{data?.canSeeAll?'Yönetici Ve Müdür Primleri':'Prim Hakedişlerim'}</h1></div><nav className={styles.actions}><Link href="/primler">Önceki Prim Kayıtları</Link>{data?.canSeeAll&&<Link href="/primler/bayi">Bayi Primleri</Link>}</nav></header>
+  <header className={styles.header}><div><h1>{data.canManage?'Prim Ayarları':data.canSeeAll?'Yönetici Ve Müdür Primleri':'Prim Hakedişlerim'}</h1></div><nav className={styles.actions}>{data.canManage&&<a href="#rate-form">Ürün Ve Kanal Primini Ayarla</a>}<Link href="/primler">Önceki Prim Kayıtları</Link>{data.canSeeAll&&<Link href="/primler/bayi">Bayi Primleri</Link>}</nav></header>
+  {!data.canManage&&<div className={styles.notice}>Bu Ekranda Yetkiniz Kapsamındaki Hakedişler Gösterilir. Ürün, Kanal Ve Paylaşım Ayarlarını Yetkili Ana Hesap Düzenler.</div>}
   {message&&<div className={styles.notice} role="status">{message}</div>}
   <div className={styles.summary}><article><span>Seçilen Dönem Net Hakediş</span><strong>{money(net)}</strong></article><article><span>Ödendi Olarak Kaydedilen</span><strong>{money(paid)}</strong></article><article><span>Ödenmemiş Net Bakiye</span><strong>{money(net-paid)}</strong></article><article><label>Hakediş Ayı<input aria-label="Hakediş Ayı" type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label><button type="button" onClick={()=>setMonth('')}>Tüm Dönemler</button></article></div>
   {data?.canManage&&<>
