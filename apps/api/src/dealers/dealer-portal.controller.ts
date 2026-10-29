@@ -37,6 +37,22 @@ export class DealerPortalController {
     return result.rows;
   }
 
+  @Get('ledger')
+  async ledger(@Req() req: UserRequest) {
+    return (await this.db.query(`SELECT e.id,e.direction,e.amount,e.currency,e.description,e.reference_type,e.created_at
+      FROM dealer_user_accounts dua JOIN dealer_ledger_entries e ON e.dealer_id=dua.dealer_id
+      WHERE dua.user_id=$1 ORDER BY e.created_at DESC,e.id`, [req.user.id])).rows;
+  }
+
+  @Get('shipments')
+  async shipments(@Req() req: UserRequest) {
+    return (await this.db.query(`SELECT s.id,o.order_number,s.provider,s.tracking_number,s.status
+      FROM shipments s JOIN orders o ON o.id=s.order_id
+      WHERE EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id AND al.entity_type='order'
+        AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))
+      ORDER BY o.created_at DESC,s.id`, [req.user.id])).rows;
+  }
+
   @Get('creation-options')
   async creationOptions(@Req() req: UserRequest) {
     const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);

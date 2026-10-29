@@ -38,7 +38,7 @@ export class AdminOrderService {
           WHERE p.status='ACTIVE' ORDER BY p.name`, [salesChannel]);
     const [products, warehouses, customers] = await Promise.all([
       productQuery,
-      this.db.query('SELECT id,name FROM warehouses WHERE is_active=true ORDER BY name'),
+      this.db.query("SELECT id,name FROM warehouses WHERE is_active=true ORDER BY CASE WHEN code='GENEL_STOK' THEN 0 ELSE 1 END,name"),
       dealerId ? Promise.resolve({ rows: [] }) : this.db.query('SELECT id,email,first_name,last_name,phone FROM customers WHERE is_active=true ORDER BY first_name,last_name'),
     ]);
     return { products: products.rows, warehouses: warehouses.rows, customers: customers.rows };

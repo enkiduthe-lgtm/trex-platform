@@ -3,6 +3,21 @@ import { DealerPortalController } from './dealer-portal.controller';
 describe('DealerPortalController', () => {
   const request = { user: { id: 'dealer-user', email: 'dealer@example.com', role: 'DEALER', sessionId: 'session' } } as never;
 
+  it('restricts ledger movements to the authenticated dealer account', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [{ id: 'ledger' }] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await expect(controller.ledger(request)).resolves.toEqual([{ id: 'ledger' }]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('WHERE dua.user_id=$1'), ['dealer-user']);
+  });
+
+  it('restricts shipment records to orders created by the authenticated dealer', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await expect(controller.shipments(request)).resolves.toEqual([]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('al.actor_user_id=$1'), ['dealer-user']);
+    expect(query.mock.calls[0][0]).toContain('al.entity_id=o.id');
+  });
+
   it('allows an active dealer to accept the agreement without bank details', async () => {
     const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ dealer_id: 'dealer' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
