@@ -199,6 +199,34 @@ export class WarehouseService {
   }
   async criticalStock() { return (await this.db.query(`SELECT p.id, p.name, w.name AS warehouse_name, i.physical_quantity, i.reserved_quantity, i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id WHERE i.physical_quantity-i.reserved_quantity <= 5 ORDER BY available_quantity ASC, p.name LIMIT 100`)).rows; }
   async createPick(orderId:string,warehouseId:string,userId:string) { return this.db.transaction(async client=>{ const order=await client.query<{id:string;checkout_id:string}>("SELECT id,checkout_id FROM orders WHERE id=$1 AND status='PAID' FOR UPDATE",[orderId]); if(!order.rowCount) throw new NotFoundException('Paid order not found'); const existing=await client.query<{id:string}>('SELECT id FROM picking_sessions WHERE order_id=$1 LIMIT 1',[orderId]); if(existing.rows[0]) return {...existing.rows[0],replayed:true}; const reservation=await client.query('SELECT 1 FROM stock_reservations WHERE reference_type=\'checkout\' AND reference_id=$1 AND warehouse_id=$2 AND status=\'ACTIVE\' LIMIT 1',[order.rows[0].checkout_id,warehouseId]); if(!reservation.rowCount) throw new ConflictException('Siparişin aktif stok rezervasyonu seçilen depoda bulunmuyor'); const pick=await client.query<{id:string}>('INSERT INTO picking_sessions (order_id,warehouse_id,assigned_to,status) VALUES ($1,$2,$3,$4) RETURNING id',[orderId,warehouseId,userId,'IN_PROGRESS']); const items=await client.query<{id:string;quantity:number}>('SELECT id,quantity FROM order_items WHERE order_id=$1',[orderId]); for(const item of items.rows) await client.query('INSERT INTO picking_items (picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)',[pick.rows[0].id,item.id,item.quantity]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'warehouse.pick.started','picking_session',pick.rows[0].id,JSON.stringify({orderId,warehouseId,source:'manual'})]); return {...pick.rows[0],replayed:false}; }); }
+  async prepareOrder(orderId: string, userId: string) {
+    return this.db.transaction(async client => {
+      const order = (await client.query<{ checkout_id: string; status: string }>('SELECT checkout_id,status FROM orders WHERE id=$1 FOR UPDATE', [orderId])).rows[0];
+      if (!order) throw new NotFoundException('Sipariş Bulunamadı');
+      if (!['PAID', 'PROCESSING'].includes(order.status)) throw new ConflictException('Yalnızca Ödemesi Onaylanan Sipariş Hazırlanabilir');
+      const existing = (await client.query<{ id: string; status: string }>('SELECT id,status FROM picking_sessions WHERE order_id=$1 FOR UPDATE', [orderId])).rows[0];
+      if (existing?.status === 'COMPLETED') return { id: existing.id, status: 'COMPLETED', replayed: true };
+      if (order.status !== 'PAID' || (existing && !['OPEN', 'IN_PROGRESS'].includes(existing.status))) throw new ConflictException('Sipariş Hazırlama Aşamasında Değil');
+      const reservations = await client.query<{ warehouse_id: string; product_id: string; quantity: number }>("SELECT warehouse_id,product_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' FOR UPDATE", [order.checkout_id]);
+      const warehouses = [...new Set(reservations.rows.map(row => row.warehouse_id))];
+      const items = await client.query<{ id: string; product_id: string; quantity: number }>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id', [orderId]);
+      const expected = new Map<string, number>();
+      const reserved = new Map<string, number>();
+      for (const item of items.rows) expected.set(item.product_id, (expected.get(item.product_id) ?? 0) + Number(item.quantity));
+      for (const item of reservations.rows) reserved.set(item.product_id, (reserved.get(item.product_id) ?? 0) + Number(item.quantity));
+      if (warehouses.length !== 1 || !items.rows.length || expected.size !== reserved.size || [...expected].some(([id, quantity]) => reserved.get(id) !== quantity)) throw new ConflictException('Sipariş Ürünleri İçin Geçerli Stok Rezervasyonu Bulunamadı');
+      const pickId = existing?.id ?? (await client.query<{ id: string }>("INSERT INTO picking_sessions(order_id,warehouse_id,assigned_to,status) VALUES($1,$2,$3,'IN_PROGRESS') RETURNING id", [orderId, warehouses[0], userId])).rows[0].id;
+      if (!existing) {
+        for (const item of items.rows) await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity,picked_quantity) VALUES($1,$2,$3,$3)', [pickId, item.id, item.quantity]);
+      } else {
+        await client.query('UPDATE picking_items SET picked_quantity=expected_quantity WHERE picking_session_id=$1', [pickId]);
+      }
+      await client.query("UPDATE picking_sessions SET status='COMPLETED',completed_at=now() WHERE id=$1", [pickId]);
+      await client.query('INSERT INTO packing_sessions(picking_session_id,packed_by) SELECT $1,$2 WHERE NOT EXISTS(SELECT 1 FROM packing_sessions WHERE picking_session_id=$1)', [pickId, userId]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [userId, 'warehouse.order.prepared', 'order', orderId, JSON.stringify({ pickId, source: 'prepare_button' })]);
+      return { id: pickId, status: 'COMPLETED', replayed: false };
+    });
+  }
   async startQueuedPick(orderId:string,userId:string) { return this.db.transaction(async client=>{
     const order=await client.query<{id:string;checkout_id:string}>('SELECT id,checkout_id FROM orders WHERE id=$1 AND status=\'PAID\' FOR UPDATE',[orderId]);
     if(!order.rowCount) throw new NotFoundException('Hazırlanacak onaylı sipariş bulunamadı');

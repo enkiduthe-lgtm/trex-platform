@@ -45,6 +45,7 @@ export class WarehouseController {
   @Post('receipts') receiveStock(@Body() dto: ReceiveStockDto, @Req() req: UserRequest) { return this.warehouse.receiveStock(dto, req.user.id); }
   @Post('picks') createPick(@Body() dto: CreatePickDto, @Req() req: UserRequest) { return this.warehouse.createPick(dto.orderId, dto.warehouseId, req.user.id); }
   @Post('picks/queue/:orderId') startQueuedPick(@Param('orderId', ParseUUIDPipe) orderId:string, @Req() req: UserRequest) { return this.warehouse.startQueuedPick(orderId, req.user.id); }
+  @Post('orders/:orderId/prepare') prepareOrder(@Param('orderId', ParseUUIDPipe) orderId:string, @Req() req: UserRequest) { return this.warehouse.prepareOrder(orderId, req.user.id); }
   @Patch('picks/:pickId/items/:itemId') updatePickedQuantity(@Param('pickId') pickId:string, @Param('itemId') itemId:string, @Body() dto: UpdatePickItemDto, @Req() req: UserRequest) { return this.warehouse.updatePickedQuantity(pickId, itemId, dto.pickedQuantity, req.user.id); }
   @Post('picks/:id/scan') scanPickBarcode(@Param('id') id:string, @Body() dto: ScanPickItemDto, @Req() req: UserRequest) { return this.warehouse.scanPickBarcode(id, dto.barcode, req.user.id); }
   @Post('picks/:id/complete') completePick(@Param('id') id:string, @Req() req: UserRequest) { return this.warehouse.completePick(id, req.user.id); }

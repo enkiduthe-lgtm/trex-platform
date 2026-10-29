@@ -61,6 +61,7 @@ type Detail = {
     last_event_at: string | null;
   }[];
   fulfillment: {
+    picking_id: string;
     picking_status: string;
     picking_started_at: string;
     picking_completed_at: string | null;
@@ -167,11 +168,15 @@ export default function OrderDetail() {
     setOperationBusy(true);
     setError("");
     try {
-      const pick = await api<{ id: string }>(
-        `/admin/warehouse/picks/queue/${id}`,
-        { method: "POST" },
-      );
-      window.location.assign(`/depo-operasyon?pick=${encodeURIComponent(pick.id)}`);
+      if (data?.fulfillment?.picking_status === 'COMPLETED') {
+        await api(`/admin/warehouse/picks/${data.fulfillment.picking_id}/pack`, { method: 'POST' });
+        setOperationMessage('Paket Hazırlandı Ve Barkod Oluşturuldu.');
+      } else {
+        await api(`/admin/warehouse/orders/${id}/prepare`, { method: 'POST' });
+        setOperationMessage('Sipariş Ürünleri Hazırlandı.');
+      }
+      await refreshOrder();
+      setOperationBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Hazırlama başlatılamadı");
       setOperationBusy(false);
@@ -474,13 +479,13 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>1</span>
                   <strong>Hazırla</strong>
                   <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
-                  {canEdit && data.status === "PAID" && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlama açılıyor…" : "Hazırlamayı başlat"}</button>}
+                  {canEdit && data.status === "PAID" && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
                 </li>
                 <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>2</span>
                   <strong>Paketle / barkod bas</strong>
                   <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
-                  {canEdit && data.status === "PROCESSING" && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket hazırlanıyor…" : "Paketle ve barkod oluştur"}</button>}
+                  {canEdit && ['PAID','PROCESSING'].includes(data.status) && data.fulfillment?.picking_status === 'COMPLETED' && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
                   {data.fulfillment?.package_barcode && <button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Barkodu yazdır</button>}
                 </li>
                 <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>

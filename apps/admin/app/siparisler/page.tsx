@@ -29,6 +29,7 @@ type Order = {
   shipping_provider?: string | null;
   tracking_number?: string | null;
   shipment_status?: string | null;
+  preparation_status?: string | null;
 };
 type OrderNote = { id: string; admin_note: string | null };
 const statusText: Record<string, string> = {
@@ -79,13 +80,15 @@ function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "tra
 function OrdersContent() {
   const searchParams = useSearchParams();
   const [canCreate, setCanCreate] = useState(false);
+  const [canPrepare, setCanPrepare] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const actionLock = useRef(false);
   useEffect(() => {
     api<{ user: { role: string } }>("/auth/me")
-      .then((data) =>
-        setCanCreate(["ADMIN", "SUPER_ADMIN"].includes(data.user.role)),
-      )
+      .then((data) => {
+        setCanCreate(["ADMIN", "SUPER_ADMIN"].includes(data.user.role));
+        setCanPrepare(["ADMIN", "SUPER_ADMIN", "WAREHOUSE"].includes(data.user.role));
+      })
       .catch(() => setCanCreate(false));
   }, []);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -173,6 +176,27 @@ function OrdersContent() {
       actionLock.current = false;
       setPendingAction(null);
     }
+  }
+  async function prepareOrder(order: Order, stage: 'prepare' | 'pack' | 'ship' = 'prepare') {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setPendingAction(order.id);
+    setMessage('');
+    try {
+      if (stage === 'pack') {
+        const detail = await api<{ fulfillment: { picking_id: string; picking_status: string } | null }>(`/admin/orders/${order.id}`);
+        if (!detail.fulfillment || detail.fulfillment.picking_status !== 'COMPLETED') throw new Error('Önce Sipariş Ürünlerini Hazırlayın.');
+        await api(`/admin/warehouse/picks/${detail.fulfillment.picking_id}/pack`, { method: 'POST' });
+      } else if (stage === 'ship') {
+        await api(`/admin/orders/${order.id}/shipment`, { method: 'POST' });
+      } else {
+        await api(`/admin/warehouse/orders/${order.id}/prepare`, { method: 'POST' });
+      }
+      await load();
+      setMessage(`${order.order_number}: ${stage === 'pack' ? 'Paket Hazırlandı Ve Barkod Oluşturuldu.' : stage === 'ship' ? 'Kargo Kaydı Oluşturuldu.' : 'Ürünler Hazırlandı. Paketleme İşlemine Geçebilirsiniz.'}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Sipariş Hazırlanamadı');
+    } finally { actionLock.current = false; setPendingAction(null); }
   }
   async function saveOrderNote(order: Order) {
     if (!canCreate || savingNote || pendingAction) return;
@@ -443,17 +467,18 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
                       )}
-                      {order.status === "PAID" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Hazırla</span></Link>}
-                      {order.status === "PROCESSING" && (
-                        <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}>
+                      {canPrepare && order.status === "PAID" && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
+                      {canPrepare && order.status === "PROCESSING" && !['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && (
+                        <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>
                           <OrderIcon name="check" /><span>Kargoya Ver</span>
-                        </Link>
+                        </button>
                       )}
                       {order.status === "SHIPPED" && (
                         <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}>
                           <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
+                      {order.status === 'PROCESSING' && ['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Kargo Kaydı / Takip</span></Link>}
                       {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
