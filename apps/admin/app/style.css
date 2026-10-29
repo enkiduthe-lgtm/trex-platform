@@ -956,6 +956,9 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
 .dealer-tabs span { display:inline-flex; min-width:20px; height:20px; padding:0 6px; margin-left:6px; align-items:center; justify-content:center; border-radius:999px; background:#f2e8f6; color:#61217e; font-size:12px; }
 .dealer-tabs button.active span { background:#fff; color:#61217e; }
 .dealer-toolbar { max-width:none !important; display:grid; grid-template-columns:minmax(280px,1fr) minmax(220px,320px); gap:14px; margin:0 0 16px; }
+.finance-workspace>.dealer-toolbar { grid-template-columns:minmax(180px,1fr) minmax(180px,1fr) auto; align-items:end; }
+.finance-workspace>.dealer-toolbar .button-row { display:flex; gap:8px; flex-wrap:wrap; }
+@media(max-width:800px){.finance-workspace>.dealer-toolbar{grid-template-columns:1fr}.finance-workspace>.dealer-toolbar .button-row>*{flex:1}}
 .dealer-application-form { max-width:none !important; margin-top:16px; }
 .dealer-application-form .two-columns { margin:14px 0; }
 @media (max-width:720px) { .dealer-tabs { overflow-x:auto; } .dealer-tabs button { min-width:155px; } .dealer-toolbar { grid-template-columns:1fr; } }
