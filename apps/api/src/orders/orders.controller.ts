@@ -14,8 +14,9 @@ import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
-type UserRequest=Request & {user:RequestUser};@Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
+type UserRequest=Request & {user:RequestUser};
 class UpdateOrderNoteDto { @IsOptional() @IsString() @MaxLength(1000) note?: string; }
+@Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
 export class OrdersController {
   constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService) {}
   @Get() list(@Query('channel') channel?:string) { return this.orders.list(channel); }
