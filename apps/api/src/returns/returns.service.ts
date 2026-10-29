@@ -88,7 +88,7 @@ export class ReturnsService {
         await client.query('INSERT INTO return_refunds(return_id,payment_id,amount,currency,created_by) VALUES($1,$2,$3,$4,$5)',[returnId,walletPayment.id,dto.amount,returned.rows[0].currency,actorId]);
         if(dto.amount+Number(bounds.refunded)>=Number(spend.amount))await client.query("UPDATE payments SET status='REFUNDED' WHERE id=$1",[walletPayment.id]);
         await client.query("UPDATE returns SET status='REFUNDED',completed_at=now() WHERE id=$1",[returnId]);
-        await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client);
+        await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client,returnId);
         return {returnId,status:'REFUNDED',financeTransactionId:null,orderId:returned.rows[0].order_id};
       }
       if(!dto.accountId)throw new ConflictException('Nakit İade İçin Ödeme Hesabı Seçin');
@@ -101,7 +101,7 @@ export class ReturnsService {
       await client.query(`INSERT INTO return_refunds(return_id,payment_id,finance_transaction_id,amount,currency,created_by) VALUES($1,$2,$3,$4,$5,$6)`,[returnId,payment.rows[0]?.id??null,transaction.rows[0].id,dto.amount,returned.rows[0].currency,actorId]);
       if(payment.rows[0] && Math.abs(Number(payment.rows[0].amount)-dto.amount)<0.0001) await client.query("UPDATE payments SET status='REFUNDED' WHERE id=$1",[payment.rows[0].id]);
       await client.query("UPDATE returns SET status='REFUNDED',completed_at=now() WHERE id=$1",[returnId]);
-      await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client);
+      await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client,returnId);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.refunded','return',returnId,JSON.stringify({amount:dto.amount,accountId:dto.accountId,transactionId:transaction.rows[0].id})]);
       return {returnId,status:'REFUNDED',financeTransactionId:transaction.rows[0].id,orderId:returned.rows[0].order_id};
     });

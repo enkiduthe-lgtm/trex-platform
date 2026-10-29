@@ -1,11 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { dealerWallet, moneyCents } from '../commissions/dealer-wallet';
-import { PoolClient } from 'pg';
+import { dealerWallet, moneyCents, WalletClient } from '../commissions/dealer-wallet';
 @Injectable()
 export class DealerPayoutsService {
  constructor(private readonly db:DatabaseService) {}
- private async dealerForUser(userId:string,client:DatabaseService|PoolClient=this.db) {
+ private async dealerForUser(userId:string,client:WalletClient=this.db) {
   const row=(await client.query<{dealer_id:string}>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1',[userId])).rows[0];
   if(!row)throw new NotFoundException('Bayi Hesabı Bulunamadı');return row.dealer_id;
  }

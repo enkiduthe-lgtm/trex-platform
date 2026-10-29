@@ -21,3 +21,7 @@ CREATE TABLE dealer_prim_refunds (
 CREATE UNIQUE INDEX dealer_prim_cancel_refund_unique ON dealer_prim_refunds(order_id) WHERE return_id IS NULL;
 -- Internal commission refunds return wallet credit, so there is no bank cash transaction.
 ALTER TABLE return_refunds ALTER COLUMN finance_transaction_id DROP NOT NULL;
+ALTER TABLE commission_entries ADD COLUMN return_id uuid REFERENCES returns(id);
+DROP INDEX commission_entries_reversal_source_unique;
+CREATE UNIQUE INDEX commission_entries_reversal_source_unique ON commission_entries(source_entry_id) WHERE entry_kind='REVERSAL' AND return_id IS NULL;
+CREATE UNIQUE INDEX commission_entries_return_source_unique ON commission_entries(source_entry_id,return_id) WHERE entry_kind='REVERSAL' AND return_id IS NOT NULL;
