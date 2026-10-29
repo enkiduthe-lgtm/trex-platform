@@ -144,10 +144,12 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       const order=(await client.query<{checkout_id:string;status:string;sales_channel:string}>('SELECT checkout_id,status,sales_channel FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.status==='CANCELLED') return {id,status:'CANCELLED',replayed:true};
-      if(order.sales_channel!=='ADMIN_ORDER'||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Bu sipariş güvenli iptal kapsamı dışında; iade akışını kullanın');
+      if(!['ADMIN_ORDER','DEALER_PORTAL'].includes(order.sales_channel)||!['PENDING_PAYMENT','PAID','PROCESSING'].includes(order.status)) throw new ConflictException('Bu sipariş güvenli iptal kapsamı dışında; iade akışını kullanın');
+      if(actor.role==='DEALER' && !(await client.query("SELECT 1 FROM audit_logs WHERE entity_id=$1 AND entity_type='order' AND actor_user_id=$2 AND action='order.dealer.created'",[id,actor.id])).rowCount)throw new NotFoundException('Sipariş Bulunamadı');
       await client.query('SELECT id FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id]);
       const payment=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
-      if(!payment||payment.status!=='PENDING'||!['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) throw new ConflictException('Tahsil edilmiş sipariş için iade işlemi gerekli');
+      const isCommission=payment?.provider==='dealer_commission'&&payment.status==='SUCCEEDED';
+      if(!payment||(!isCommission&&(payment.status!=='PENDING'||!['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)))) throw new ConflictException('Tahsil edilmiş sipariş için iade işlemi gerekli');
       const collected=await client.query('SELECT id FROM finance_transactions WHERE order_id=$1 AND approved_at IS NOT NULL LIMIT 1',[id]);
       if(collected.rowCount) throw new ConflictException('Kısmi tahsilat yapılmış sipariş için iade işlemi gerekli');
       await client.query('SELECT id FROM picking_sessions WHERE order_id=$1 FOR UPDATE',[id]);
@@ -164,8 +166,14 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
         releasedQuantity+=reservation.quantity;
       }
       await client.query("UPDATE picking_sessions SET status='CANCELLED' WHERE order_id=$1 AND status IN ('OPEN','IN_PROGRESS','COMPLETED')",[id]);
-      await client.query("UPDATE payments SET status='FAILED' WHERE id=$1",[payment.id]);
-      await client.query("UPDATE payment_attempts SET status='FAILED' WHERE payment_id=$1",[payment.id]);
+      if(isCommission){
+        const spend=(await client.query<{dealer_id:string;amount:string}>('SELECT dealer_id,amount FROM dealer_commission_spends WHERE order_id=$1',[id])).rows[0];
+        if(!spend)throw new ConflictException('Prim Kullanımı Doğrulanamadı');
+        await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[spend.dealer_id]);
+        await client.query('INSERT INTO dealer_prim_refunds(dealer_id,order_id,amount,created_by) VALUES($1,$2,$3,$4)',[spend.dealer_id,id,spend.amount,actor.id]);
+      }
+      await client.query('UPDATE payments SET status=$1 WHERE id=$2',[isCommission?'REFUNDED':'FAILED',payment.id]);
+      await client.query('UPDATE payment_attempts SET status=$1 WHERE payment_id=$2',[isCommission?'REFUNDED':'FAILED',payment.id]);
       await client.query("UPDATE checkout_sessions SET status='EXPIRED' WHERE id=$1",[order.checkout_id]);
       await client.query("UPDATE orders SET status='CANCELLED' WHERE id=$1",[id]);
       await client.query("INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,'CANCELLED',$2)",[id,actor.id]);

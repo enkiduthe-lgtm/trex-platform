@@ -25,7 +25,7 @@ export class ReturnsService {
     });
   }
 
-  async listAdmin() { return (await this.db.query(`SELECT r.id,r.status,r.reason,r.requested_at,r.received_at,r.approved_at,r.rejected_at,r.completed_at,o.id AS order_id,o.order_number,o.total_amount,o.currency,COALESCE(SUM(ri.quantity),0) AS item_count,COALESCE(SUM(ri.quantity*oi.unit_amount),0) AS refundable_amount,
+  async listAdmin() { return (await this.db.query(`SELECT (SELECT provider FROM payments WHERE checkout_id=o.checkout_id LIMIT 1) AS payment_provider,r.id,r.status,r.reason,r.requested_at,r.received_at,r.approved_at,r.rejected_at,r.completed_at,o.id AS order_id,o.order_number,o.total_amount,o.currency,COALESCE(SUM(ri.quantity),0) AS item_count,COALESCE(SUM(ri.quantity*oi.unit_amount),0) AS refundable_amount,
     COALESCE(json_agg(json_build_object('id',ri.id,'product_name',oi.product_name,'sku',oi.sku,'quantity',ri.quantity)) FILTER (WHERE ri.id IS NOT NULL),'[]'::json) AS items,
     rr.amount AS refund_amount,rr.currency AS refund_currency,fa.name AS refund_account_name,last_action.action AS last_action,last_action.created_at AS last_action_at,last_action.actor_email AS last_action_actor_email
     FROM returns r JOIN orders o ON o.id=r.order_id LEFT JOIN return_items ri ON ri.return_id=r.id LEFT JOIN order_items oi ON oi.id=ri.order_item_id LEFT JOIN return_refunds rr ON rr.return_id=r.id LEFT JOIN finance_transactions ft ON ft.id=rr.finance_transaction_id LEFT JOIN finance_accounts fa ON fa.id=ft.account_id
@@ -76,6 +76,22 @@ export class ReturnsService {
     const result=await this.db.transaction(async client=>{
       const returned=await client.query<{order_id:string;total_amount:string;currency:string;order_number:string;checkout_id:string}>(`SELECT r.order_id,o.total_amount,o.currency,o.order_number,o.checkout_id FROM returns r JOIN orders o ON o.id=r.order_id WHERE r.id=$1 AND r.status='INSPECTED' FOR UPDATE`,[returnId]);
       if(!returned.rowCount) throw new ConflictException('Yalnızca incelenmiş iadeler için ödeme iadesi yapılabilir');
+      await client.query("SELECT id FROM dealers WHERE id=(SELECT (metadata->>'dealerId')::uuid FROM audit_logs WHERE entity_type='order' AND entity_id=$1 AND action='order.dealer.created' ORDER BY created_at LIMIT 1) FOR UPDATE",[returned.rows[0].order_id]);
+      const walletPayment=(await client.query<{id:string;amount:string}>("SELECT id,amount FROM payments WHERE checkout_id=$1 AND provider='dealer_commission' AND status='SUCCEEDED' FOR UPDATE",[returned.rows[0].checkout_id])).rows[0];
+      if(walletPayment){
+        const spend=(await client.query<{dealer_id:string;amount:string}>('SELECT dealer_id,amount FROM dealer_commission_spends WHERE order_id=$1',[returned.rows[0].order_id])).rows[0];
+        if(!spend)throw new ConflictException('Prim Kullanım Kaydı Bulunamadı');
+        await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[spend.dealer_id]);
+        const bounds=(await client.query<{maximum:string;refunded:string}>('SELECT (SELECT COALESCE(SUM(ri.quantity*oi.unit_amount),0) FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1)::text AS maximum,(SELECT COALESCE(SUM(amount),0) FROM dealer_prim_refunds WHERE order_id=$2)::text AS refunded',[returnId,returned.rows[0].order_id])).rows[0];
+        if(dto.amount>Number(bounds.maximum)||dto.amount+Number(bounds.refunded)>Number(spend.amount))throw new ConflictException('Prim İadesi İade Edilen Ürün Veya Kullanılan Prim Tutarını Aşamaz');
+        await client.query('INSERT INTO dealer_prim_refunds(dealer_id,order_id,return_id,amount,created_by) VALUES($1,$2,$3,$4,$5)',[spend.dealer_id,returned.rows[0].order_id,returnId,dto.amount,actorId]);
+        await client.query('INSERT INTO return_refunds(return_id,payment_id,amount,currency,created_by) VALUES($1,$2,$3,$4,$5)',[returnId,walletPayment.id,dto.amount,returned.rows[0].currency,actorId]);
+        if(dto.amount+Number(bounds.refunded)>=Number(spend.amount))await client.query("UPDATE payments SET status='REFUNDED' WHERE id=$1",[walletPayment.id]);
+        await client.query("UPDATE returns SET status='REFUNDED',completed_at=now() WHERE id=$1",[returnId]);
+        await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client);
+        return {returnId,status:'REFUNDED',financeTransactionId:null,orderId:returned.rows[0].order_id};
+      }
+      if(!dto.accountId)throw new ConflictException('Nakit İade İçin Ödeme Hesabı Seçin');
       const account=await client.query<{id:string;currency:string}>('SELECT id,currency FROM finance_accounts WHERE id=$1 AND is_active=true FOR UPDATE',[dto.accountId]);
       if(!account.rowCount || account.rows[0].currency.trim()!==returned.rows[0].currency.trim()) throw new ConflictException('İade hesabı siparişle aynı para biriminde aktif bir hesap olmalıdır');
       const max=await client.query<{amount:string}>(`SELECT COALESCE(SUM(ri.quantity*oi.unit_amount),0)::text AS amount FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1`,[returnId]);
@@ -85,10 +101,10 @@ export class ReturnsService {
       await client.query(`INSERT INTO return_refunds(return_id,payment_id,finance_transaction_id,amount,currency,created_by) VALUES($1,$2,$3,$4,$5,$6)`,[returnId,payment.rows[0]?.id??null,transaction.rows[0].id,dto.amount,returned.rows[0].currency,actorId]);
       if(payment.rows[0] && Math.abs(Number(payment.rows[0].amount)-dto.amount)<0.0001) await client.query("UPDATE payments SET status='REFUNDED' WHERE id=$1",[payment.rows[0].id]);
       await client.query("UPDATE returns SET status='REFUNDED',completed_at=now() WHERE id=$1",[returnId]);
+      await this.commissions?.reverseForOrder(returned.rows[0].order_id,actorId,'İade Finansal Olarak Tamamlandı',client);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.refunded','return',returnId,JSON.stringify({amount:dto.amount,accountId:dto.accountId,transactionId:transaction.rows[0].id})]);
       return {returnId,status:'REFUNDED',financeTransactionId:transaction.rows[0].id,orderId:returned.rows[0].order_id};
     });
-    await this.commissions?.reverseForOrder(result.orderId,actorId,'İade finansal olarak tamamlandı');
     return result;
   }
 }

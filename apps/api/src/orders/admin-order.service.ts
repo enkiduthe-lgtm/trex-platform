@@ -6,6 +6,7 @@ import { CreateAdminOrderDto } from './dto/create-admin-order.dto';
 import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
+import { dealerWallet,moneyCents } from '../commissions/dealer-wallet';
 
 const manualSalesChannels = ['RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'] as const;
 type ManualSalesChannel = typeof manualSalesChannels[number];
@@ -48,6 +49,7 @@ export class AdminOrderService {
       throw new BadRequestException('Sipariş işlem anahtarı gerekli');
     }
     const salesChannel = dealerId ? 'DEALER_PORTAL' : dto.salesChannel;
+    if(dto.paymentMethod==='COMMISSION'&&(!dealerId||actor.role!=='DEALER'))throw new ForbiddenException('Primle Ödeme Yalnız Bayinin Kendi Panelinden Yapılabilir');
     if (!salesChannel || !manualSalesChannels.includes(salesChannel)) throw new BadRequestException('Satış kanalı seçimi gerekli');
     if ([dto.recipientName,dto.phone,dto.city,dto.district,dto.addressLine].some(value => !value.trim())) {
       throw new BadRequestException('Teslimat bilgileri boş bırakılamaz');
@@ -73,7 +75,7 @@ export class AdminOrderService {
         const order = await client.query('SELECT id,order_number,status,total_amount,currency FROM orders WHERE id=$1', [prior.rows[0].resource_id]);
         return { ...order.rows[0], replayed: true };
       }
-      const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR SHARE", [dealerId]) : null;
+      const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR UPDATE", [dealerId]) : null;
       if (dealerId && !dealer?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
       if (dealerId && !dealer?.rows[0].dealer_level_id) throw new ForbiddenException('Sipariş İçin Bayi Seviyesi Atanmalı.');
       if (dealerId && currency !== 'TRY') throw new BadRequestException('Bayi Seviye Fiyatları TL Üzerinden Uygulanır.');
@@ -103,15 +105,18 @@ export class AdminOrderService {
       }
       if (totalCents <= 0n) throw new BadRequestException('Sipariş toplamı sıfırdan büyük olmalı');
       const total = `${totalCents / 100n}.${(totalCents % 100n).toString().padStart(2,'0')}`;
+      const isCommission=dto.paymentMethod==='COMMISSION';
+      if(isCommission){const balance=await dealerWallet(client,dealerId!,currency);if(moneyCents(balance.available)<totalCents)throw new ConflictException('Kesinleşmiş Kullanılabilir Prim Siparişin Tamamına Yetmiyor');}
       // COD may be prepared before collection, but its payment stays PENDING.
       const isCod = dto.paymentMethod === 'COD_CARD' || dto.paymentMethod === 'COD_CASH';
-      const orderStatus = isCod ? 'PROCESSING' : 'PENDING_PAYMENT';
+      const orderStatus = isCommission ? 'PAID' : isCod ? 'PROCESSING' : 'PENDING_PAYMENT';
       const cart = await client.query<{ id: string }>("INSERT INTO carts(customer_id,session_key_hash,currency,expires_at) VALUES ($1,$2,$3,now()+interval '30 days') RETURNING id", [dto.customerId ?? null,createHash('sha256').update(randomBytes(48)).digest('hex'),currency]);
       const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions(cart_id,status,total_amount,contact_email,contact_name,currency,expires_at,completed_at) VALUES ($1,'COMPLETED',$2,$3,$4,$5,now()+interval '30 days',now()) RETURNING id", [cart.rows[0].id,total,dto.contactEmail.trim().toLowerCase(),dto.recipientName.trim(),currency]);
       const checkoutId = checkout.rows[0].id;
       const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
       const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,$7::sales_channel_code) RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dealerId ? null : (dto.customerId ?? null),total,orderStatus,currency,salesChannel]);
       const orderId = order.rows[0].id;
+      if(isCommission)await client.query('INSERT INTO dealer_commission_spends(dealer_id,order_id,amount,created_by) VALUES($1,$2,$3,$4)',[dealerId,orderId,total,actor.id]);
       const address = [dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode?.trim() || null];
       await client.query('INSERT INTO checkout_addresses(checkout_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [checkoutId,...address]);
       await client.query('INSERT INTO order_addresses(order_id,recipient_name,phone,city,district,address_line,postal_code) VALUES ($1,$2,$3,$4,$5,$6,$7)', [orderId,...address]);
@@ -126,10 +131,11 @@ export class AdminOrderService {
         const pick = await client.query<{ id:string }>("INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') RETURNING id", [orderId,dto.warehouseId]);
         await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) SELECT $1,id,quantity FROM order_items WHERE order_id=$2', [pick.rows[0].id,orderId]);
       }
-      const provider = dto.paymentMethod === 'TRANSFER' ? 'bank_transfer' : dto.paymentMethod === 'HAND_CASH' ? 'cash' : dto.paymentMethod === 'COD_CARD' ? 'cash_on_delivery_card' : 'cash_on_delivery_cash';
+      const provider = isCommission ? 'dealer_commission' : dto.paymentMethod === 'TRANSFER' ? 'bank_transfer' : dto.paymentMethod === 'HAND_CASH' ? 'cash' : dto.paymentMethod === 'COD_CARD' ? 'cash_on_delivery_card' : 'cash_on_delivery_cash';
       const reference = `${provider}_${randomUUID()}`;
       const payment = await client.query<{ id: string }>("INSERT INTO payments(checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id", [checkoutId,provider,reference,total,currency]);
       await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
+      if(isCommission){await client.query("UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE id=$1",[payment.rows[0].id]);await client.query("UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id=$1",[payment.rows[0].id]);}
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$3,$2)', [orderId,actor.id,orderStatus]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ commissionModel: dealerId ? 'DEALER_MARGIN_V1' : undefined,dealerLevelId: dealer?.rows[0].dealer_level_id ?? null,dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);

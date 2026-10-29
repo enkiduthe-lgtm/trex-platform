@@ -9,6 +9,7 @@ import { RequestUser } from '../auth/auth.types';
 import { OrdersService } from '../orders/orders.service';
 import { AdminOrderService } from '../orders/admin-order.service';
 import { CreateAdminOrderDto } from '../orders/dto/create-admin-order.dto';
+import { dealerWallet } from '../commissions/dealer-wallet';
 
 type UserRequest = Request & { user: RequestUser };
 
@@ -59,10 +60,10 @@ export class DealerPortalController {
 
   @Get('commission-balances')
   async commissionBalances(@Req() req: UserRequest) {
-    return (await this.db.query(`SELECT e.currency,SUM(e.amount)::text AS amount
-      FROM dealer_user_accounts dua JOIN commission_entries e ON e.dealer_id=dua.dealer_id
-      WHERE dua.user_id=$1 AND e.status IN ('CONFIRMED','AVAILABLE')
-      GROUP BY e.currency ORDER BY e.currency`, [req.user.id])).rows;
+    const account=(await this.db.query<{dealer_id:string}>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1',[req.user.id])).rows[0];
+    if(!account)throw new NotFoundException('Bayi Hesabı Bulunamadı');
+    const currencies=(await this.db.query<{currency:string}>("SELECT DISTINCT currency FROM commission_entries WHERE dealer_id=$1 UNION SELECT 'TRY' ORDER BY currency",[account.dealer_id])).rows;
+    return Promise.all(currencies.map(async row=>({currency:row.currency,amount:(await dealerWallet(this.db,account.dealer_id,row.currency)).available})));
   }
 
   @Get('shipments')

@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { downloadXlsx } from '../lib/xlsx';
 type Item = { id: string; product_name: string; sku: string; quantity: number };
 type ReturnRow = {
+  payment_provider: string;
   id: string;
   status: string;
   reason: string;
@@ -331,7 +332,7 @@ export default function Returns() {
                     <form
                       onSubmit={(event) =>
                         submit(event, row.id, "refund", {
-                          accountId,
+                          accountId: row.payment_provider === "dealer_commission" ? undefined : accountId,
                           amount: Number(refund),
                           referenceNumber: note(row.id) || undefined,
                         })
@@ -342,7 +343,7 @@ export default function Returns() {
                         {money(row.refundable_amount, row.currency)}
                       </p>
                       <label>
-                        Çıkış hesabı
+                        {row.payment_provider === "dealer_commission" ? "Prim Bakiyesine İade (Nakit Çıkışı Yok)" : "Çıkış Hesabı"}
                         <select
                           required
                           value={accountId}
@@ -387,7 +388,7 @@ export default function Returns() {
                         />
                       </label>
                       <button disabled={busy !== null}>
-                        Finans iadesini kaydet
+                        {row.payment_provider === "dealer_commission" ? "Prim Bakiyesine Geri Ver" : "Finans İadesini Kaydet"}
                       </button>
                     </form>
                   )}
