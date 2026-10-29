@@ -716,7 +716,8 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
   border-color: #e1c9eb !important;
   color: #6a3a79 !important;
 }
-[class*="action"],
+button[class*="action"],
+a[class*="action"],
 [class*="financeLink"],
 [class*="catalogLinks"] a,
 [class*="rowButton"],
@@ -751,7 +752,8 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
   border-color: #d5b5e1 !important;
 }
 [class*="newOrder"] button,
-[class*="action"] {
+button[class*="action"],
+a[class*="action"] {
   background: #9125bb !important;
   color: #fff !important;
 }

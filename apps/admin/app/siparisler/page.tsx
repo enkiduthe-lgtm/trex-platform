@@ -254,7 +254,7 @@ function OrdersContent() {
             <p>SİPARİŞ OPERASYONU</p>
             <h1>Siparişler</h1>
           </div>
-          <div className={styles.actions}>
+          <div className={styles.headerActions}>
             {canCreate && (
               <Link href="/siparisler/yeni" className={styles.financeLink}>
                 + Yeni sipariş
@@ -451,6 +451,7 @@ function OrdersContent() {
                         ) && (
                           <button
                             type="button"
+                            className={styles.cancelAction}
                             disabled={pendingAction !== null}
                             onClick={() => void cancelOrder(order)}
                           >
