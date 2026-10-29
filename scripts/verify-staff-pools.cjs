@@ -7,7 +7,7 @@ const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};},async transaction(work){await pg.exec('BEGIN');try{const r=await work(db);await pg.exec('COMMIT');return r;}catch(e){await pg.exec('ROLLBACK');throw e;}}};
  await pg.exec(`CREATE TABLE users(id uuid PRIMARY KEY,email text,role text,is_active boolean DEFAULT true);
- CREATE TABLE products(id uuid PRIMARY KEY,name text,sku text,is_active boolean DEFAULT true);
+ CREATE TABLE products(id uuid PRIMARY KEY,name text,sku text,status text DEFAULT 'ACTIVE');
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,sales_channel text,status text,currency text,created_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),product_id uuid REFERENCES products(id),product_name text,sku text,quantity integer,currency text);
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,is_active boolean,currency text,name text DEFAULT 'Test Bank');
@@ -39,9 +39,9 @@ async function main(){
  // 3-way division distributes the rounding cent once, preserving the exact pool.
  const first=(await db.query("SELECT amount FROM commission_entries WHERE order_id=$1 AND staff_role='EXECUTIVE' ORDER BY recipient_user_id",[uuid(20)])).rows;
  assert.equal(first[0].amount,'1122.34');assert.equal(first[1].amount,'1122.33');assert.equal(first[2].amount,'1122.33');
- const executive={id:executives[0],role:'ADMIN'},own=await service.view(executive);
+ const managementView=await service.view(master);assert.equal(managementView.rates.length,6);assert.equal(managementView.products.length,2);const executive={id:executives[0],role:'ADMIN'},own=await service.view(executive);
  assert.equal(own.entries.length,6);assert.equal(own.rates.length,0);assert.equal(own.settings,null);assert(!JSON.stringify(own).includes('private-director'));assert(own.entries.every(e=>e.recipient_user_id===executive.id));
- const privilegedExecutive=await service.view({...executive,role:'SUPER_ADMIN'});assert.equal(privilegedExecutive.canSeeAll,false);assert.equal(privilegedExecutive.canManage,false);assert(privilegedExecutive.entries.every(e=>e.recipient_user_id===executive.id));
+ const privilegedExecutive=await service.view({...executive,role:'SUPER_ADMIN'});assert.equal(privilegedExecutive.canSeeAll,true);assert.equal(privilegedExecutive.canManage,true);assert(privilegedExecutive.entries.some(e=>e.staff_role==='DIRECTOR'));
  const ownDirector=await service.view({id:director,role:'ADMIN'});assert(ownDirector.entries.every(e=>e.staff_role==='DIRECTOR'));
  await assert.rejects(()=>service.rate({productId:product,channelGroup:'RETAIL',executiveAmount:100,directorAmount:100},executive));
  await assert.rejects(()=>service.settings({executiveCount:3,executiveIds:executives,directorId:director},executive));
@@ -64,7 +64,7 @@ async function main(){
  const foreignOrder=uuid(70),foreignItem=uuid(71);await db.query("INSERT INTO orders VALUES($1,'USD-TEST','RETAIL','DELIVERED','USD',now()+interval '1 minute')",[foreignOrder]);await db.query("INSERT INTO order_items VALUES($1,$2,$3,'Tea','TEA',1,'USD')",[foreignItem,foreignOrder,product]);await commissions.awardForDeliveredOrder(foreignOrder,master.id);
  const foreignPrim=(await db.query("SELECT amount,currency FROM commission_entries WHERE order_id=$1 AND staff_role='DIRECTOR'",[foreignOrder])).rows[0];assert.equal(foreignPrim.amount,'200.00');assert.equal(foreignPrim.currency,'TRY');
  const {FinanceService}=load(path.join(root,'apps/api/src/finance/finance.service.ts')),finance=new FinanceService(db);
- assert.equal((await finance.listTransactions({...executive,role:'SUPER_ADMIN'})).length,0);
+ assert.equal((await finance.listTransactions(executive)).length,0);
  assert.equal((await finance.listTransactions(master)).length,1);
  assert.equal((await finance.listTransactions({id:director,role:'ADMIN'})).length,1);
  await pg.close();console.log('Staff pool PostgreSQL checks passed: all six examples, exact 3-way split, unsplit director, versioned rates and recipients, idempotency, private participant views, forbidden settings/payments, partial returns and net payment.');

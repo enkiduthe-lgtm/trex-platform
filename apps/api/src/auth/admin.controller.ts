@@ -16,7 +16,7 @@ type UserRequest = Request & { user: RequestUser };
 export class AdminController {
   constructor(private readonly db: DatabaseService) {}
   @Get('ping') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) ping() { return { status: 'ok' }; }
-  @Get('staff') @RequireRoles(Roles.SUPER_ADMIN) async staff() { return (await this.db.query('SELECT id,email,role,is_active,created_at FROM users WHERE role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') ORDER BY created_at DESC')).rows; }
+  @Get('staff') @RequireRoles(Roles.SUPER_ADMIN) async staff() { return (await this.db.query('SELECT id,email,role,is_active,created_at FROM users WHERE role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') ORDER BY created_at DESC')).rows; }
   @Post('staff') @RequireRoles(Roles.SUPER_ADMIN) async createStaff(@Body() dto: CreateStaffUserDto, @Req() req: UserRequest) {
     try {
       const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
@@ -39,7 +39,8 @@ export class AdminController {
   @Patch('staff/:id/role') @RequireRoles(Roles.SUPER_ADMIN) async changeStaffRole(@Param('id') id: string, @Body() dto: ChangeStaffRoleDto, @Req() req: UserRequest) {
     if (id === req.user.id) throw new ConflictException('Kendi yetkinizi bu ekrandan değiştiremezsiniz');
     return this.db.transaction(async client => {
-      const changed = await client.query<{ id: string; role: string }>('UPDATE users SET role=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id,role', [dto.role, id]);
+      await client.query("SELECT id FROM users WHERE role='SUPER_ADMIN' ORDER BY id FOR UPDATE");
+      const changed = await client.query<{ id: string; role: string }>('UPDATE users SET role=$1,updated_at=now() WHERE id=$2 AND role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id,role', [dto.role, id]);
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
       await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [req.user.id, 'staff.role.changed', 'user', id, JSON.stringify({ role: dto.role })]);

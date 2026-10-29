@@ -10,6 +10,19 @@
   --bg: #faf6fc;
   --white: #fff;
 }
+.staff-workspace,.staff-workspace>.form-card{width:100%;max-width:none}
+.staff-workspace>.form-card{margin:18px 0}
+.staff-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:transparent!important;margin:12px 0}
+.staff-actions button,.staff-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:170px;padding:10px 14px;box-sizing:border-box;border:1px solid #c3b8d4;border-radius:7px;background:#fff;color:#382447;font-weight:600;text-decoration:none}
+.staff-workspace table input[type=checkbox]{width:20px;height:20px;accent-color:#6923a0}
+.staff-workspace .table-card{scroll-margin-top:20px}
+.dealer-level-editor table{table-layout:fixed;min-width:950px}
+.dealer-level-editor th:first-child{width:28%}
+.dealer-level-editor th:not(:first-child){width:18%}
+.dealer-level-editor td input,.dealer-level-editor td button{width:100%;box-sizing:border-box;min-height:44px}
+.dealer-level-editor .dealer-toolbar{display:grid;grid-template-columns:minmax(200px,1fr) 190px;gap:16px;align-items:end}
+.dealer-level-editor>label{display:block;max-width:none;margin:18px 0}
+@media(max-width:650px){.dealer-level-editor .dealer-toolbar{grid-template-columns:1fr}.staff-actions button,.staff-actions a{width:100%}}
 * {
   box-sizing: border-box;
 }
@@ -1043,3 +1056,4 @@ a[class*="action"] {
 .cards article small,.table-card small { color:#574c60; }
 .form-card input,.form-card textarea,.form-card select,.table-card input,.table-card select { color:#24162e;background:#fff; }
 .cards article a,.form-card a,.table-card a { color:#5a187c; }
+.login-page .login-role-switch{grid-template-columns:repeat(3,minmax(0,1fr))}.login-page .login-role-switch button{min-height:48px;padding:10px 12px}@media(max-width:600px){.login-page .login-role-switch{grid-template-columns:1fr}}

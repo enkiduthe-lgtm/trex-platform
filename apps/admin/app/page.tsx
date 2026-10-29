@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AdminNav } from './components/admin-nav';
 import { api } from './lib/api';
+import { useRouter } from 'next/navigation';
 type Dashboard={waiting:string;picking:string;packing:string;critical_stock:string;returns_pending:string};
 type Order={id:string;order_number:string;status:string;total_amount:string;currency:string;created_at:string;customer_email:string|null;customer_name?:string|null;item_count:string;shipping_provider?:string|null;shipment_status?:string|null};
 type Stock={id:string;name:string;warehouse_name:string;available_quantity:number};
@@ -12,9 +13,10 @@ const money=(n:number)=>n.toLocaleString('tr-TR',{style:'currency',currency:'TRY
 const labels:Record<Period,string>={today:'Bugün',yesterday:'Dün',week:'Bu hafta',month:'Bu ay',year:'Bu yıl',all:'Tüm zamanlar'};
 function inPeriod(date:string,period:Period){if(period==='all')return true;const target=new Date(date),now=new Date();const start=new Date(now);if(period==='today')start.setHours(0,0,0,0);if(period==='yesterday'){start.setDate(start.getDate()-1);start.setHours(0,0,0,0);const end=new Date(start);end.setDate(end.getDate()+1);return target>=start&&target<end;}if(period==='week'){start.setDate(start.getDate()-6);start.setHours(0,0,0,0);}if(period==='month'){start.setDate(1);start.setHours(0,0,0,0);}if(period==='year'){start.setMonth(0,1);start.setHours(0,0,0,0);}return target>=start;}
 export default function Admin(){
+ const router=useRouter();
  const [data,setData]=useState<Dashboard|null>(null),[orders,setOrders]=useState<Order[]>([]),[stock,setStock]=useState<Stock[]>([]),[support,setSupport]=useState<SupportSummary|null>(null),[message,setMessage]=useState(''),[period,setPeriod]=useState<Period>('today'),[updatedAt,setUpdatedAt]=useState<string|null>(null);
  const load=()=>{setMessage('');Promise.all([api<Dashboard>('/admin/warehouse/dashboard'),api<Order[]>('/admin/orders'),api<Stock[]>('/admin/warehouse/critical-stock'),api<SupportSummary>('/admin/support-tickets/summary')]).then(([d,o,s,t])=>{setData(d);setOrders(o);setStock(s);setSupport(t);setUpdatedAt(new Date().toISOString())}).catch(e=>setMessage(e instanceof Error?e.message:'Veriler yüklenemedi'));};
- useEffect(()=>{load();},[]);
+ useEffect(()=>{void api<{user:{role:string}}>('/auth/me').then(me=>{if(me.user.role==='DEALER')router.replace('/bayi-portal');else load();}).catch(()=>router.replace('/giris'));},[]);
  const filtered=useMemo(()=>orders.filter(order=>inPeriod(order.created_at,period)),[orders,period]);
  const revenue=useMemo(()=>filtered.filter(order=>order.status!=='CANCELLED').reduce((sum,order)=>sum+Number(order.total_amount),0),[filtered]);
  const chart=useMemo(()=>Array.from({length:7},(_,index)=>{const day=new Date();day.setDate(day.getDate()-(6-index));day.setHours(0,0,0,0);const next=new Date(day);next.setDate(next.getDate()+1);return {label:day.toLocaleDateString('tr-TR',{weekday:'short'}),amount:orders.filter(order=>{const date=new Date(order.created_at);return date>=day&&date<next&&order.status!=='CANCELLED';}).reduce((sum,order)=>sum+Number(order.total_amount),0)};}),[orders]);

@@ -2,5 +2,5 @@ import { IsIn } from 'class-validator';
 import { Roles } from '../roles';
 
 export class ChangeStaffRoleDto {
-  @IsIn([Roles.ADMIN, Roles.WAREHOUSE, Roles.FINANCE]) role!: 'ADMIN' | 'WAREHOUSE' | 'FINANCE';
+  @IsIn([Roles.SUPER_ADMIN, Roles.ADMIN]) role!: 'SUPER_ADMIN' | 'ADMIN';
 }

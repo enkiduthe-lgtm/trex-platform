@@ -68,11 +68,9 @@ export class DealersService {
         AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%') AND ($5::text IS NULL OR o.status::text=$5)
       ORDER BY o.created_at DESC,o.order_number,oi.id`,[dateFrom||null,dateTo||null,dealerId||null,product?.trim()||null,status||null])).rows;
   }
-  async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels ORDER BY sort_order')).rows; }
+  async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels WHERE is_active=true ORDER BY sort_order')).rows; }
   async createLevel(dto: CreateDealerLevelDto, actor: RequestUser) {
-    const count = await this.db.query<{ count: string }>('SELECT count(*)::text AS count FROM dealer_levels');
-    if (Number(count.rows[0].count) >= 4) throw new ConflictException('A maximum of four dealer levels can be configured');
-    try { const created = await this.db.query<{ id: string }>('INSERT INTO dealer_levels(code,name,sort_order) VALUES ($1,$2,$3) RETURNING id', [dto.code.trim(), dto.name.trim(), dto.sortOrder]); await this.audit(actor, 'dealer_level.created', created.rows[0].id); return created.rows[0]; }
+    try { return await this.db.transaction(async client=>{await client.query("SELECT pg_advisory_xact_lock(hashtext('dealer-level-count'))");const count=await client.query<{count:string}>('SELECT count(*)::text AS count FROM dealer_levels WHERE is_active=true');if(Number(count.rows[0].count)>=3)throw new ConflictException('En Fazla Üç Aktif Bayi Seviyesi Tanımlanabilir');const created=await client.query<{id:string}>('INSERT INTO dealer_levels(code,name,sort_order) VALUES($1,$2,$3) RETURNING id',[dto.code.trim(),dto.name.trim(),dto.sortOrder]);await client.query("INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,'dealer_level.created','dealer',$2)",[actor.id,created.rows[0].id]);return created.rows[0];}); }
     catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Dealer level code and order must be unique'); throw error; }
   }
   async updateLevel(levelId:string,name:string,actor:RequestUser) { const result=await this.db.query<{id:string}>('UPDATE dealer_levels SET name=$1 WHERE id=$2 RETURNING id',[name.trim(),levelId]); if(!result.rowCount) throw new NotFoundException('Bayi seviyesi bulunamadı'); await this.audit(actor,'dealer_level.updated',levelId); return result.rows[0]; }

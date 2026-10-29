@@ -11,7 +11,8 @@ export class StaffChannelService {
  async access(actor:RequestUser){
   const participant=await this.db.query<{executive:boolean;director:boolean}>(`SELECT COALESCE(bool_or($1::uuid=ANY(executive_ids)),false) AS executive,COALESCE(bool_or(director_id=$1),false) AS director FROM staff_prim_settings`,[actor.id]);
   const restricted=participant.rows[0].executive||participant.rows[0].director;
-  return {canManage:actor.role==='SUPER_ADMIN'&&!restricted,canSeeAll:['SUPER_ADMIN','FINANCE'].includes(actor.role)&&!restricted};
+  // SUPER_ADMIN is the business Müdür role and always retains control of settings.
+  return {canManage:actor.role==='SUPER_ADMIN',canSeeAll:actor.role==='SUPER_ADMIN'||(actor.role==='FINANCE'&&!restricted)};
  }
  async settings(dto:{executiveCount:number;executiveIds:string[];directorId:string},actor:RequestUser){
   if(!(await this.access(actor)).canManage)throw new ForbiddenException('Bu Ayarı Yalnız Yetkili Merkez Hesabı Değiştirebilir');
@@ -29,7 +30,7 @@ export class StaffChannelService {
  async rate(dto:{productId:string;channelGroup:string;executiveAmount:number;directorAmount:number},actor:RequestUser){
   if(!(await this.access(actor)).canManage)throw new ForbiddenException('Prim Tutarlarını Yalnız Yetkili Merkez Hesabı Değiştirebilir');
   return this.db.transaction(async client=>{
-   if(!(await client.query('SELECT id FROM products WHERE id=$1 AND is_active=true',[dto.productId])).rowCount)throw new BadRequestException('Aktif Ürün Seçin');
+   if(!(await client.query("SELECT id FROM products WHERE id=$1 AND status='ACTIVE'",[dto.productId])).rowCount)throw new BadRequestException('Aktif Ürün Seçin');
    await client.query("SELECT pg_advisory_xact_lock(hashtext('staff-prim-rates'))");
    const row=await client.query('INSERT INTO staff_prim_rates(product_id,channel_group,executive_amount,director_amount,created_by) VALUES($1,$2,$3,$4,$5) RETURNING id',[dto.productId,dto.channelGroup,dto.executiveAmount,dto.directorAmount,actor.id]);
    await client.query("INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,'commission.staff.rate','staff_prim_rate',$2,$3)",[actor.id,row.rows[0].id,JSON.stringify(dto)]);
@@ -50,7 +51,7 @@ export class StaffChannelService {
    this.db.query<Settings>('SELECT id,executive_count,executive_ids,director_id FROM staff_prim_settings ORDER BY created_at DESC,id DESC LIMIT 1'),
    this.db.query(`SELECT DISTINCT ON(r.product_id,r.channel_group) r.*,p.name AS product_name,p.sku FROM staff_prim_rates r JOIN products p ON p.id=r.product_id ORDER BY r.product_id,r.channel_group,r.created_at DESC,r.id DESC`),
    this.db.query("SELECT id,email FROM users WHERE is_active=true AND role IN ('SUPER_ADMIN','ADMIN','FINANCE') ORDER BY email"),
-   this.db.query('SELECT id,name,sku FROM products WHERE is_active=true ORDER BY name')]);
+   this.db.query("SELECT id,name,sku FROM products WHERE status='ACTIVE' ORDER BY name")]);
   return {...permissions,settings:settings.rows[0]??null,rates:rates.rows,users:users.rows,products:products.rows,entries:entries.rows};
  }
  async authorizeEntry(id:string,actor:RequestUser){

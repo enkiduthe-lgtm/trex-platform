@@ -1,6 +1,7 @@
 'use client';
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
+// Keep refresh cookies first-party on both the custom domain and Render preview host.
+export const apiBaseUrl = '/v1';
 export const tokenKey = 'trex_admin_access_token';
 export function getToken() { return typeof window === 'undefined' ? null : window.localStorage.getItem(tokenKey); }
 export function setToken(token: string) { window.localStorage.setItem(tokenKey, token); }
@@ -9,7 +10,12 @@ export async function logout() {
   await api<void>('/auth/logout', { method: 'POST' });
   clearToken();
 }
-async function refreshAccessToken() {
+let refreshInFlight:Promise<boolean>|null=null;
+function refreshAccessToken(){
+  if(!refreshInFlight)refreshInFlight=performRefresh().catch(()=>false).finally(()=>{refreshInFlight=null;});
+  return refreshInFlight;
+}
+async function performRefresh() {
   const response = await fetch(`${apiBaseUrl}/auth/refresh`, { method: 'POST', credentials: 'include' });
   if (!response.ok) return false;
   const body = await response.json().catch(() => null);
@@ -28,7 +34,7 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   });
   // Access tokens are intentionally short-lived. Renew once through the secure
   // refresh-cookie flow so an active panel session does not appear empty.
-  if (response.status === 401 && !retried && path !== '/auth/refresh' && await refreshAccessToken()) return api<T>(path, init, true);
+  if (response.status === 401 && !retried && !['/auth/refresh','/auth/login'].includes(path) && await refreshAccessToken()) return api<T>(path, init, true);
   if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message ?? `İşlem tamamlanamadı (${response.status})`); }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
