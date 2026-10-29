@@ -1023,6 +1023,7 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
 .login-page>section { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:100%; max-width:none; min-height:calc(100dvh - 48px); margin:0; padding:32px clamp(20px,4vw,64px); }
 .login-page section>.login-brand { width:160px; height:100px; margin:0; align-self:center; }
 .login-page section>h1,.login-page section>p { max-width:100%; margin:0; text-align:center; align-self:center; }
+.login-page>section>p:first-of-type,.login-page>section>p:not(:first-of-type) { width:100%; max-width:1100px; margin:0; text-align:center; align-self:center; }
 .login-page section>.login-role-switch,.login-page section>.login-choices { width:min(100%,1100px); margin:0; }
 .login-page section>.form-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:end; gap:20px; width:min(100%,1100px); max-width:none; min-height:0; margin:0; padding:28px; }
 .login-page .form-card label { min-width:0; margin:0; }

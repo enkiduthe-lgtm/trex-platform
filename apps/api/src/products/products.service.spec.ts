@@ -16,6 +16,17 @@ describe('ProductsService', () => {
     await expect(service.listPublic()).resolves.toEqual([]);
     expect(query.mock.calls[0][0]).toContain("status='ACTIVE'");
   });
+  it('generates a unique valid slug when the product form omits it', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [{ id: 'p1' }] });
+    const service = new ProductsService({ transaction: async (work: (client: unknown) => unknown) => work({ query }) } as never);
+    await service.create({ sku: 'SKU-1', name: 'İçim Çay Şişesi' }, actor);
+    await service.create({ sku: 'SKU-2', name: 'İçim Çay Şişesi' }, actor);
+    const first = query.mock.calls[0][1][2];
+    const second = query.mock.calls[2][1][2];
+    expect(first).toMatch(/^icim-cay-sisesi-[a-f0-9-]+$/);
+    expect(first.length).toBeLessThanOrEqual(160);
+    expect(second).not.toBe(first);
+  });
   function transactional(query: jest.Mock) {
     return new ProductsService({ transaction: async (work: (client: unknown) => unknown) => work({ query }) } as never);
   }

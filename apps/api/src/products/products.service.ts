@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -12,6 +13,11 @@ export interface Product { id: string; sku: string; barcode: string | null; slug
 @Injectable()
 export class ProductsService {
   constructor(private readonly db: DatabaseService) {}
+  private productSlug(dto: CreateProductDto) {
+    if (dto.slug) return dto.slug;
+    const name = dto.name.toLocaleLowerCase('tr-TR').replace(/ı/g, 'i').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120).replace(/-+$/g, '') || 'urun';
+    return `${name}-${randomUUID()}`;
+  }
   async delete(id:string,actor:RequestUser) {
     try { return await this.db.transaction(async client=>{
       const product=await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE',[id]);
@@ -35,7 +41,7 @@ export class ProductsService {
   async create(dto: CreateProductDto, actor: RequestUser) {
     try {
       return await this.db.transaction(async client => {
-        const result = await client.query<Product>('INSERT INTO products (sku, barcode, slug, name, description, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [dto.sku.trim(), dto.barcode?.trim() || null, dto.slug, dto.name.trim(), dto.description?.trim() || null, dto.status ?? 'DRAFT', actor.id]);
+        const result = await client.query<Product>('INSERT INTO products (sku, barcode, slug, name, description, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [dto.sku.trim(), dto.barcode?.trim() || null, this.productSlug(dto), dto.name.trim(), dto.description?.trim() || null, dto.status ?? 'DRAFT', actor.id]);
         await this.audit(client, actor, 'product.created', result.rows[0].id); return result.rows[0];
       });
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('SKU, barcode, or slug already exists'); throw error; }
@@ -62,7 +68,7 @@ export class ProductsService {
       return await this.db.transaction(async (client) => {
         const imported: Product[] = [];
         for (const dto of products) {
-          const result = await client.query<Product>('INSERT INTO products (sku, barcode, slug, name, description, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [dto.sku.trim(), dto.barcode?.trim() || null, dto.slug, dto.name.trim(), dto.description?.trim() || null, dto.status ?? 'DRAFT', actor.id]);
+          const result = await client.query<Product>('INSERT INTO products (sku, barcode, slug, name, description, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [dto.sku.trim(), dto.barcode?.trim() || null, this.productSlug(dto), dto.name.trim(), dto.description?.trim() || null, dto.status ?? 'DRAFT', actor.id]);
           const product = result.rows[0];
           await client.query('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES ($1,$2,$3,$4)', [actor.id, 'product.imported', 'product', product.id]);
           imported.push(product);

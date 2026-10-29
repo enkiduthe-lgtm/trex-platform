@@ -258,7 +258,6 @@ export default function Products() {
   const [form, setForm] = useState({
     name: "",
     sku: "",
-    slug: "",
     barcode: "",
     description: "",
     status: "DRAFT",
@@ -336,7 +335,6 @@ export default function Products() {
       setForm({
         name: "",
         sku: "",
-        slug: "",
         barcode: "",
         description: "",
         status: "DRAFT",
@@ -664,16 +662,6 @@ export default function Products() {
                   value={form.sku}
                   onChange={(e) =>
                     setForm((data) => ({ ...data, sku: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Site adresi (slug)
-                <input
-                  required
-                  value={form.slug}
-                  onChange={(e) =>
-                    setForm((data) => ({ ...data, slug: e.target.value }))
                   }
                 />
               </label>
