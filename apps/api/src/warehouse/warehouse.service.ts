@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
@@ -156,7 +157,7 @@ export class WarehouseService {
       return row.rows[0];
     } catch (error:unknown) { if ((error as {code?:string}).code==='23505') throw new ConflictException('Bu depo kodu zaten kullanılıyor'); throw error; }
   }
-  private async resolveReceiptWarehouse(client: any, warehouseId?: string) {
+  private async resolveReceiptWarehouse(client: PoolClient, warehouseId?: string) {
     if (warehouseId) {
       const selected = await client.query<{ id: string }>('SELECT id FROM warehouses WHERE id=$1 AND is_active=true', [warehouseId]);
       if (!selected.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
