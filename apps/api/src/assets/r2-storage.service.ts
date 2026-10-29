@@ -14,7 +14,8 @@ export class R2StorageService {
   async put(key: string, body: Buffer, contentType: string) {
     const client = this.client();
     await client.send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET, Key: key, Body: body, ContentType: contentType, CacheControl: 'public, max-age=31536000, immutable' }));
-    return `${process.env.R2_PUBLIC_BASE_URL!.replace(/\/$/, '')}/${key}`;
+    const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
+    return publicBase ? `${publicBase}/${key}` : '';
   }
 
   async get(key: string) {

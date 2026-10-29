@@ -668,6 +668,10 @@ button {
 /* Paylaşılan tam genişlikte tablo ve işlem düzeni. */
 .table-card { width:100%; max-width:none; margin:18px 0; border:1px solid #ded6e3; border-radius:10px; background:#fff; overflow:hidden; padding:16px; }
 .table-wrap { width:100%; overflow-x:auto; }
+main section table { width:100%; border-collapse:collapse; background:#fff; }
+main section table th,main section table td { padding:12px 14px; border:1px solid #e5e0e9; text-align:left; vertical-align:middle; }
+main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
+.stock-workspace .form-card { max-width:none; width:100%; }
 .table-wrap table { width:100%; min-width:800px; border-collapse:collapse; table-layout:auto; }
 .table-wrap th,.table-wrap td { padding:13px 15px; border-bottom:1px solid #e5e0e9; text-align:left; vertical-align:middle; line-height:1.5; }
 .table-wrap th { background:#f4f0f7; color:#513662; font-size:12px; white-space:nowrap; }

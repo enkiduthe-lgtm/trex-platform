@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
 import styles from "../orders.module.css";
@@ -146,6 +146,12 @@ export default function OrderDetail() {
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
+  const autoPrinted = useRef(false);
+  useEffect(() => {
+    if (!data || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
+    autoPrinted.current = true;
+    printPackageBarcode(data.fulfillment?.package_barcode || data.order_number);
+  }, [data]);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -237,7 +243,7 @@ export default function OrderDetail() {
       });
       cursor += 2;
     }
-    const label = window.open("", "_blank", "popup=yes,width=720,height=440");
+    const label = new URLSearchParams(window.location.search).get('print') === 'barcode' ? window : window.open("", "_blank", "popup=yes,width=720,height=440");
     if (!label) {
       setError("Yazdırma penceresi engellendi. Tarayıcıdan açılır pencereye izin verin.");
       return;

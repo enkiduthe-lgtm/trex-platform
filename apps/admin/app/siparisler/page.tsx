@@ -397,7 +397,7 @@ function OrdersContent() {
                       <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}#fatura`} title="Fatura yazdır">
                         <OrderIcon name="print" /><span>Fatura</span>
                       </Link>
-                      <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}#barkod`} title="Sipariş barkodu yazdır">
+                      <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}?print=barcode`} target="_blank" rel="noopener noreferrer" title="Sipariş Barkodu Yazdır">
                         <OrderIcon name="barcode" /><span>Barkod</span>
                       </Link>
                     </div>

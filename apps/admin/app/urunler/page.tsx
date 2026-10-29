@@ -896,7 +896,7 @@ export default function Products() {
               <div className={styles.imagePreview}>
                 {(imagePreview || imageProduct.image_url) && !(imageProduct.image_url && !imagePreview && failedImages[imageProduct.id]) ? (
                   <img
-                    src={imagePreview || `${apiBaseUrl}/assets/product/${imageProduct.id}`}
+                    src={imagePreview || `${apiBaseUrl}/assets/product/${imageProduct.id}?v=${encodeURIComponent(imageProduct.image_url ?? '')}`}
                     alt={`${imageProduct.name} önizlemesi`}
                     onError={() => markImageUnavailable(imageProduct)}
                   />
@@ -963,7 +963,7 @@ export default function Products() {
                 <div className={styles.detailImage}>
                   {detailProduct.image_url && !failedImages[detailProduct.id] ? (
                     <img
-                      src={`${apiBaseUrl}/assets/product/${detailProduct.id}`}
+                      src={`${apiBaseUrl}/assets/product/${detailProduct.id}?v=${encodeURIComponent(detailProduct.image_url ?? '')}`}
                       alt={`${detailProduct.name} görseli`}
                       onError={() => markImageUnavailable(detailProduct)}
                     />
@@ -1048,7 +1048,7 @@ export default function Products() {
                       >
                         {product.image_url && !failedImages[product.id] ? (
                           <img
-                            src={`${apiBaseUrl}/assets/product/${product.id}`}
+                            src={`${apiBaseUrl}/assets/product/${product.id}?v=${encodeURIComponent(product.image_url ?? '')}`}
                             alt={`${product.name} görseli`}
                             onError={() => markImageUnavailable(product)}
                           />
