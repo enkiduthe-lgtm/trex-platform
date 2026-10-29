@@ -46,15 +46,15 @@ export class DealerPortalController {
 
   @Post('orders')
   async createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
-    const account = await this.db.query<{ dealer_id:string }>("SELECT dua.dealer_id FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1 AND d.status='ACTIVE' AND dua.agreement_accepted_at IS NOT NULL AND EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true)", [req.user.id]);
+    const account = await this.db.query<{ dealer_id:string }>("SELECT dua.dealer_id FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1 AND d.status='ACTIVE' AND dua.agreement_accepted_at IS NOT NULL", [req.user.id]);
     if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
     return this.adminOrders.create({ ...dto, salesChannel: 'DEALER_PORTAL', customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
   }
 
   @Post('agreement/accept')
   async acceptAgreement(@Req() req: UserRequest) {
-    const result = await this.db.query("UPDATE dealer_user_accounts dua SET agreement_accepted_at=now() FROM dealers d WHERE dua.dealer_id=d.id AND dua.user_id=$1 AND d.status='ACTIVE' AND EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) RETURNING dua.dealer_id", [req.user.id]);
-    if (!result.rowCount) throw new ConflictException('Sözleşme onayı için aktif bayi ve birincil IBAN kaydı gereklidir');
+    const result = await this.db.query("UPDATE dealer_user_accounts dua SET agreement_accepted_at=now() FROM dealers d WHERE dua.dealer_id=d.id AND dua.user_id=$1 AND d.status='ACTIVE' RETURNING dua.dealer_id", [req.user.id]);
+    if (!result.rowCount) throw new ConflictException('Sözleşme Onayı İçin Aktif Bir Bayi Hesabı Gereklidir');
     return { accepted: true };
   }
 
