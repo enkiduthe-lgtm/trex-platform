@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { downloadXlsx } from '../lib/xlsx';
 type Config = { provider: string; ready: boolean; missing: string[] };
 type Shipment = {
   id: string;
@@ -39,7 +40,6 @@ const status: Record<string, string> = {
   FAILED: "Başarısız",
   CANCELLED: "İptal edildi",
 };
-const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function Shipping() {
   const [config, setConfig] = useState<Config | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -139,8 +139,7 @@ export default function Shipping() {
       ['Sipariş no', 'Kargo firması', 'Takip no', 'Durum', 'Alıcı', 'İlçe', 'İl', 'Sorun notu', 'Oluşturulma'],
       ...visibleShipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR')]),
     ];
-    const url = URL.createObjectURL(new Blob([`\uFEFF${rows.map(row => row.map(csv).join(';')).join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'trex-kargo-gonderileri.csv'; link.click(); URL.revokeObjectURL(url);
+    downloadXlsx('trex-kargo-gonderileri.xlsx', 'Kargo Gönderileri', rows);
   }
   return (
     <main>
@@ -244,7 +243,7 @@ export default function Shipping() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <h2>Son gönderiler</h2>
           <label>Durum <select value={shipmentFilter} onChange={(event) => setShipmentFilter(event.target.value as typeof shipmentFilter)}><option value="ALL">Tümü</option><option value="ACTIVE">Aktif gönderiler</option><option value="DELIVERED">Teslim edildi</option><option value="FAILED">Sorunlu</option><option value="CANCELLED">İptal edildi</option></select></label>
-          <button type="button" disabled={!visibleShipments.length} onClick={exportShipments}>CSV indir</button>
+          <button type="button" disabled={!visibleShipments.length} onClick={exportShipments}>Excel&apos;e Aktar</button>
         </div>
         <div className="cards">
           {visibleShipments.length ? (

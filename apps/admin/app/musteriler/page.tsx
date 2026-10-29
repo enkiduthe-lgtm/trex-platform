@@ -31,7 +31,6 @@ type CustomerSupportTicket = { id: string; ticket_number: string; subject: strin
 type CustomerOrderReportLine = { order_number: string; created_at: string; status: string; currency: string; sales_channel: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
-const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 function CustomerAmounts({ customer }: { customer: Customer }) {
   return <>{customer.totals_by_currency.map(total => <span style={{display:'block'}} key={total.currency}>{money(total.amount, total.currency)} <small>{total.currency}</small></span>)}{!customer.totals_by_currency.length && money('0')}</>;
 }
@@ -106,9 +105,8 @@ export default function Customers() {
         customer.tags.map(tag => tag.name).join(' | '),
         new Date(customer.created_at).toLocaleString('tr-TR'),
       ]),
-    ].map(row => row.map(csv).join(';')).join('\n');
-    const url = URL.createObjectURL(new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'trex-musteriler.csv'; link.click(); URL.revokeObjectURL(url);
+    ];
+    downloadXlsx('trex-musteriler.xlsx', 'Müşteriler', lines);
   }
   async function exportCustomerOrders() {
     if (!selected) return;
@@ -286,7 +284,7 @@ export default function Customers() {
             <option value="SILVER">Gümüş</option>
             <option value="GOLD">Altın</option>
           </select>
-          <button type="button" className={styles.rowButton} onClick={exportCustomers} disabled={!shown.length}>CSV indir</button>
+          <button type="button" className={styles.rowButton} onClick={exportCustomers} disabled={!shown.length}>Excel&apos;e Aktar</button>
         </div>
         <form id="etiketler" onSubmit={createTag} className={styles.toolbar} style={{marginTop:12}}>
           <span>🏷</span>

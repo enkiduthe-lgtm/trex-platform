@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { downloadXlsx } from '../lib/xlsx';
 type Item = { id: string; product_name: string; sku: string; quantity: number };
 type ReturnRow = {
   id: string;
@@ -38,7 +39,6 @@ const labels: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
-const csv = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export default function Returns() {
   const [rows, setRows] = useState<ReturnRow[]>([]),
     [warehouses, setWarehouses] = useState<Warehouse[]>([]),
@@ -105,8 +105,7 @@ export default function Returns() {
         new Date(row.requested_at).toLocaleString('tr-TR'),
       ]),
     ];
-    const url = URL.createObjectURL(new Blob([`\uFEFF${rows.map(row => row.map(csv).join(';')).join('\n')}`], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'trex-iadeler.csv'; link.click(); URL.revokeObjectURL(url);
+    downloadXlsx('trex-iadeler.xlsx', 'İadeler', rows);
   }
   async function act(id: string, action: string, body: unknown = {}) {
     setBusy(`${id}:${action}`);
@@ -188,7 +187,7 @@ export default function Returns() {
               </option>
             ))}
           </select>
-          <button type="button" disabled={!shown.length} onClick={exportReturns}>CSV indir</button>
+          <button type="button" disabled={!shown.length} onClick={exportReturns}>Excel&apos;e Aktar</button>
         </div>
         <div className="cards">
           {shown.length ? (
