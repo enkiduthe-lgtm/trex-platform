@@ -1027,6 +1027,10 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
 .login-page section>.form-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:end; gap:20px; width:min(100%,1100px); max-width:none; min-height:0; margin:0; padding:28px; }
 .login-page .form-card label { min-width:0; margin:0; }
 .login-page .form-card input { width:100%; min-height:46px; }
+.login-page .form-card .login-field { display:grid; grid-template-rows:42px 46px; gap:8px; padding:0; margin:0; align-self:stretch; }
+.login-field-caption { display:flex; flex-direction:column; justify-content:flex-end; gap:3px; line-height:17px; font-size:13px; }
+.login-field-caption small { display:block; margin:0; line-height:14px; font-size:10px; }
+.login-page .form-card .login-field input { display:block; height:46px; min-height:46px; max-height:46px; margin:0; padding:10px 12px; box-sizing:border-box; line-height:24px; }
 .login-page .form-card>button,.login-page .form-card>p,.login-page .form-card>.full { grid-column:1 / -1; }
 .login-page .form-card>button { width:100%; min-height:46px; margin:0; }
 @media(max-width:900px){.login-page section>.form-card{grid-template-columns:1fr}.login-page>section{padding:24px 16px}.login-page{padding:12px}.login-page section>.login-brand{width:140px;height:84px}}
