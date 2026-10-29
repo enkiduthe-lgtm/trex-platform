@@ -7,6 +7,7 @@ import { api, apiBaseUrl } from "../lib/api";
 import styles from "./products.module.css";
 
 type Product = {
+  version: number;
   id: string;
   sku: string;
   barcode: string | null;
@@ -20,6 +21,10 @@ type Product = {
 type Level = { id: string; name: string };
 type PriceGroup = { id: string; name: string };
 type Price = {
+  dealer_level_id: string | null;
+  currency: string;
+  starts_at: string;
+  ends_at: string | null;
   id: string;
   product_id: string;
   amount: string;
@@ -250,6 +255,18 @@ export default function Products() {
   const [priceOpen, setPriceOpen] = useState(false);
   const [imageProduct, setImageProduct] = useState<Product | null>(null);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState('');
+  async function saveProduct(event: FormEvent) {
+    event.preventDefault(); if (!editing || editBusy) return;
+    setEditBusy(true); setEditError('');
+    try {
+      await api(`/admin/products/${editing.id}`, { method: 'PATCH', body: JSON.stringify({ version: editing.version, name: editing.name.trim(), barcode: editing.barcode || null, description: editing.description || null, status: editing.status }) });
+      setEditing(null); setDetailProduct(null); setMessage('Ürün Güncellendi.'); await load();
+    } catch (error) { setEditError(error instanceof Error ? error.message : 'Ürün Güncellenemedi.'); }
+    finally { setEditBusy(false); }
+  }
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [failedImages, setFailedImages] = useState<Record<string, true>>({});
@@ -282,7 +299,7 @@ export default function Products() {
       const [a, b, g, c, d] = await Promise.all([
         api<Product[]>("/admin/products"),
         api<Level[]>("/admin/dealers/levels"),
-        api<PriceGroup[]>("/admin/dealers/price-groups"),
+        Promise.resolve([] as PriceGroup[]),
         api<Price[]>("/admin/prices"),
         owner ? api<Cost[]>("/admin/product-costs") : Promise.resolve([] as Cost[]),
       ]);
@@ -314,7 +331,7 @@ export default function Products() {
     [products, status, query],
   );
   const globalPrice = (id: string) =>
-    prices.find((item) => item.product_id === id && item.scope === "GLOBAL");
+    prices.find((item) => item.product_id === id && item.scope === "GLOBAL" && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
   const latestCost = (id: string) =>
     costs.find((item) => item.product_id === id);
   const toggle = (id: string) =>
@@ -595,6 +612,7 @@ export default function Products() {
         {selected.length > 0 && (
           <div className={styles.selection}>
             <b>{selected.length} ürün seçildi</b>
+            <button type="button" disabled={selected.length !== 1 || deleting} onClick={() => { setEditError(''); setEditing(products.find(item => item.id === selected[0]) ?? null); }}>Ürünü Düzenle</button>
             <button
               type="button"
               disabled={deleting}
@@ -742,7 +760,7 @@ export default function Products() {
                 >
                   <option value="GLOBAL">Site satış fiyatı</option>
                   <option value="DEALER_LEVEL">Bayi seviye fiyatı</option>
-                  <option value="DEALER_PRICE_GROUP">Bayi fiyat grubu</option>
+
                 </select>
               </label>
               {price.scope === "DEALER_LEVEL" && (
@@ -767,28 +785,7 @@ export default function Products() {
                   </select>
                 </label>
               )}
-              {price.scope === "DEALER_PRICE_GROUP" && (
-                <label>
-                  Bayi fiyat grubu
-                  <select
-                    required
-                    value={price.dealerPriceGroupId}
-                    onChange={(e) =>
-                      setPrice((data) => ({
-                        ...data,
-                        dealerPriceGroupId: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Grup seç</option>
-                    {priceGroups.map((group) => (
-                      <option value={group.id} key={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+
               <label>
                 Tutar (TL)
                 <input
@@ -979,6 +976,8 @@ export default function Products() {
                   <div><dt>Barkod</dt><dd>{detailProduct.barcode ?? "—"}</dd></div>
                   <div><dt>Stok</dt><dd>{detailProduct.available_quantity ?? 0} Adet</dd></div>
                   <div><dt>Durum</dt><dd>{detailProduct.status === "ACTIVE" ? "Yayında" : "Taslak"}</dd></div>
+                  <div><dt>Ürün Adı</dt><dd>{detailProduct.name}</dd></div>
+                  <div><dt>Satış Fiyatı</dt><dd>{globalPrice(detailProduct.id) ? money(globalPrice(detailProduct.id)!.amount) : 'Tanımlanmamış'}</dd></div>
                   <div className={styles.detailWide}><dt>Ürün Bağlantısı</dt><dd>/{detailProduct.slug}</dd></div>
                 </dl>
               </div>
@@ -986,7 +985,12 @@ export default function Products() {
                 <h3>Ürün Açıklaması</h3>
                 <p>{detailProduct.description?.trim() || "Bu ürün için kayıtlı açıklama bulunmuyor."}</p>
               </section>
+              <section className={styles.descriptionCard}><h3>Bayi Seviye Fiyatları</h3><table><thead><tr><th>Seviye Adı</th><th>Ürün Fiyatı</th></tr></thead><tbody>{levels.map(level => {
+                const currentPrice = prices.find(item => item.product_id === detailProduct.id && item.scope === 'DEALER_LEVEL' && item.dealer_level_id === level.id && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
+                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? Number(currentPrice.amount).toLocaleString('tr-TR', { style: 'currency', currency: currentPrice.currency }) : 'Seviyeye Özel Fiyat Tanımlanmamış'}</td></tr>;
+              })}</tbody></table></section>
               <footer>
+                <button type="button" onClick={() => { setEditError(''); setEditing(detailProduct); setDetailProduct(null); }}>Ürünü Düzenle</button>
                 <button type="button" className={styles.secondaryAction} onClick={() => setDetailProduct(null)}>
                   Kapat
                 </button>
@@ -997,6 +1001,7 @@ export default function Products() {
             </div>
           </div>
         )}
+        {editing && <div className={styles.imageModal} role="dialog" aria-modal="true" aria-label="Ürünü Düzenle"><form className={styles.detailModalCard} onSubmit={saveProduct}><header><h2>Ürünü Düzenle</h2><button type="button" disabled={editBusy} onClick={() => setEditing(null)}>Kapat</button></header>{editError && <p role="alert">{editError}</p>}<label>Ürün Adı<input required maxLength={240} value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} /></label><label>SKU<input readOnly value={editing.sku} /></label><label>Barkod<input maxLength={64} value={editing.barcode ?? ''} onChange={e => setEditing({ ...editing, barcode: e.target.value })} /></label><label>Durum<select value={editing.status} onChange={e => setEditing({ ...editing, status: e.target.value })}><option value="DRAFT">Taslak</option><option value="ACTIVE">Yayında</option><option value="ARCHIVED">Arşiv</option></select></label><label>Ürün Açıklaması<textarea rows={8} maxLength={10000} value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} /></label><footer><button disabled={editBusy}>{editBusy ? 'Kaydediliyor…' : 'Ürünü Güncelle'}</button></footer></form></div>}
         <div className={styles.tableWrap}>
           <table>
             <thead>

@@ -1037,3 +1037,9 @@ a[class*="action"] {
 .login-page .form-card>button,.login-page .form-card>p,.login-page .form-card>.full { grid-column:1 / -1; }
 .login-page .form-card>button { width:100%; min-height:46px; margin:0; }
 @media(max-width:900px){.login-page section>.form-card{grid-template-columns:1fr}.login-page>section{padding:24px 16px}.login-page{padding:12px}.login-page section>.login-brand{width:140px;height:84px}}
+/* Card content stays readable independently of the purple navigation theme. */
+.cards article,.form-card,.table-card { color:#302039; }
+.cards article h2,.cards article strong,.cards article p,.form-card label,.table-card td { color:#302039; }
+.cards article small,.table-card small { color:#574c60; }
+.form-card input,.form-card textarea,.form-card select,.table-card input,.table-card select { color:#24162e;background:#fff; }
+.cards article a,.form-card a,.table-card a { color:#5a187c; }
