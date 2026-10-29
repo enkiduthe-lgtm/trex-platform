@@ -23,7 +23,7 @@ export class PublicAssetsController {
   async productImage(@Param('productId', ParseUUIDPipe) productId: string, @Res() response: Response) {
     const image = await this.assets.productImage(productId);
     response.setHeader('Content-Type', image.mimeType);
-    response.setHeader('Cache-Control', 'public, max-age=86400');
+    response.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate');
     response.send(image.buffer);
   }
 }

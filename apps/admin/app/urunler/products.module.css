@@ -388,4 +388,7 @@
 .mediaAction { background: #f1e9ff !important; color: #6b2eb5 !important; border-color: #cfb4f5 !important; }
 .priceAction { background: #fff2d9 !important; color: #a36000 !important; border-color: #f1d59f !important; }
 .siteAction { background: #e2f8ed !important; color: #197d52 !important; border-color: #aee4c6 !important; }
+.actions { display:grid; grid-template-columns:repeat(2, minmax(126px,1fr)); gap:8px; min-width:268px; }
+.actions a,.actions button { width:100%; min-width:0; height:42px; margin:0; padding:8px 10px; border:1px solid #d3c1dd !important; border-radius:7px; background:#f6f1f9 !important; color:#603276 !important; font-size:12px; line-height:1.2; text-align:center; box-shadow:none; }
+.actions small { font-size:11px; }
 @media (max-width: 760px) { .actions { flex-direction: column; } .actions a, .actions button { width: 64px; } }
