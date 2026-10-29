@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -8,10 +8,15 @@ import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto';
 import { CreateCommissionRuleV5Dto, PayCommissionDto, ReverseCommissionDto } from './dto/commission-operation.dto';
 import { CommissionsService } from './commissions.service';
 import { RequestUser } from '../auth/auth.types';
+import { StaffChannelService } from './staff-channel.service';
+import { StaffRateDto, StaffSettingsDto } from './dto/staff-channel.dto';
 type UserRequest = Request & { user: RequestUser };
 @Controller('admin/commissions') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE)
 export class CommissionsController {
-  constructor(private readonly commissions: CommissionsService) {}
+  constructor(private readonly commissions: CommissionsService,private readonly staffChannels:StaffChannelService) {}
+  @Get('channel-pools') channelPools(@Req() req:UserRequest,@Query('month') month?:string){return this.staffChannels.view(req.user,month);}
+  @Post('channel-pools/settings') settings(@Body() dto:StaffSettingsDto,@Req() req:UserRequest){return this.staffChannels.settings(dto,req.user);}
+  @Post('channel-pools/rates') rate(@Body() dto:StaffRateDto,@Req() req:UserRequest){return this.staffChannels.rate(dto,req.user);}
   @Get() list() { return this.commissions.list(); }
   @Post('rules') createRule(@Body() dto: CreateCommissionRuleDto) { return this.commissions.createRule(dto); }
   @Post('staff-rules') createStaffRule(@Body() dto: CreateCommissionRuleV5Dto, @Req() req: UserRequest) { return this.commissions.createStaffRule(dto, req.user); }
