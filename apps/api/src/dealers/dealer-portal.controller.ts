@@ -37,6 +37,19 @@ export class DealerPortalController {
     return result.rows;
   }
 
+  @Get('orders/:id')
+  async orderDetail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
+    const order = await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at
+      FROM orders o WHERE o.id=$2 AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id
+        AND al.entity_type='order' AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))`, [req.user.id,id]);
+    if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');
+    const [items,address] = await Promise.all([
+      this.db.query('SELECT id,product_name,sku,quantity,unit_amount,(quantity*unit_amount)::text AS line_total FROM order_items WHERE order_id=$1 ORDER BY id', [id]),
+      this.db.query('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [id]),
+    ]);
+    return { ...order.rows[0], items: items.rows, address: address.rows[0] ?? null };
+  }
+
   @Get('ledger')
   async ledger(@Req() req: UserRequest) {
     return (await this.db.query(`SELECT e.id,e.direction,e.amount,e.currency,e.description,e.reference_type,e.created_at

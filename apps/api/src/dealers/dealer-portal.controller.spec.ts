@@ -3,6 +3,25 @@ import { DealerPortalController } from './dealer-portal.controller';
 describe('DealerPortalController', () => {
   const request = { user: { id: 'dealer-user', email: 'dealer@example.com', role: 'DEALER', sessionId: 'session' } } as never;
 
+  it('does not read product or address details for an order the dealer does not own', async () => {
+    const query = jest.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await expect(controller.orderDetail('other-order', request)).rejects.toThrow('Sipariş Bulunamadı');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][1]).toEqual(['dealer-user', 'other-order']);
+    expect(query.mock.calls[0][0]).toContain('al.actor_user_id=$1');
+  });
+
+  it('returns the saved order prices and delivery address for an owned order', async () => {
+    const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'order' }] })
+      .mockResolvedValueOnce({ rows: [{ unit_amount: '20.00', quantity: 2 }] })
+      .mockResolvedValueOnce({ rows: [{ recipient_name: 'Recipient' }] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await expect(controller.orderDetail('order', request)).resolves.toEqual({ id: 'order', items: [{ unit_amount: '20.00', quantity: 2 }], address: { recipient_name: 'Recipient' } });
+    expect(query.mock.calls[1][1]).toEqual(['order']);
+    expect(query.mock.calls[2][1]).toEqual(['order']);
+  });
+
   it('calculates balances over all eligible movements separately per currency', async () => {
     const query = jest.fn().mockResolvedValue({ rows: [{ currency: 'TRY', amount: '123.45' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
