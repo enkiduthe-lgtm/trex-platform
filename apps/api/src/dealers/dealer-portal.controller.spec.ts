@@ -3,6 +3,25 @@ import { DealerPortalController } from './dealer-portal.controller';
 describe('DealerPortalController', () => {
   const request = { user: { id: 'dealer-user', email: 'dealer@example.com', role: 'DEALER', sessionId: 'session' } } as never;
 
+  it('calculates balances over all eligible movements separately per currency', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [{ currency: 'TRY', amount: '123.45' }] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await expect(controller.commissionBalances(request)).resolves.toEqual([{ currency: 'TRY', amount: '123.45' }]);
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toContain('WHERE dua.user_id=$1');
+    expect(sql).toContain("e.status IN ('CONFIRMED','AVAILABLE')");
+    expect(sql).toContain('GROUP BY e.currency');
+    expect(sql).not.toContain('LIMIT');
+    expect(query.mock.calls[0][1]).toEqual(['dealer-user']);
+  });
+
+  it('uses an ownership existence check so repeated audit entries cannot duplicate orders', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+    const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
+    await controller.listOrders(request);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM orders o WHERE EXISTS'), ['dealer-user']);
+  });
+
   it('restricts ledger movements to the authenticated dealer account', async () => {
     const query = jest.fn().mockResolvedValue({ rows: [{ id: 'ledger' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);

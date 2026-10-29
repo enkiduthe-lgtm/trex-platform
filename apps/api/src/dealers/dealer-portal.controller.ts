@@ -27,7 +27,7 @@ export class DealerPortalController {
 
   @Get('orders')
   async listOrders(@Req() req: UserRequest) {
-    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at FROM audit_logs al JOIN orders o ON o.id=al.entity_id WHERE al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order' ORDER BY o.created_at DESC", [req.user.id]);
+    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at FROM orders o WHERE EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order') ORDER BY o.created_at DESC", [req.user.id]);
     return result.rows;
   }
 
@@ -42,6 +42,14 @@ export class DealerPortalController {
     return (await this.db.query(`SELECT e.id,e.direction,e.amount,e.currency,e.description,e.reference_type,e.created_at
       FROM dealer_user_accounts dua JOIN dealer_ledger_entries e ON e.dealer_id=dua.dealer_id
       WHERE dua.user_id=$1 ORDER BY e.created_at DESC,e.id`, [req.user.id])).rows;
+  }
+
+  @Get('commission-balances')
+  async commissionBalances(@Req() req: UserRequest) {
+    return (await this.db.query(`SELECT e.currency,SUM(e.amount)::text AS amount
+      FROM dealer_user_accounts dua JOIN commission_entries e ON e.dealer_id=dua.dealer_id
+      WHERE dua.user_id=$1 AND e.status IN ('CONFIRMED','AVAILABLE')
+      GROUP BY e.currency ORDER BY e.currency`, [req.user.id])).rows;
   }
 
   @Get('shipments')
