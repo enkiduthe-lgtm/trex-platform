@@ -6,6 +6,7 @@ import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 import { downloadXlsx } from '../lib/xlsx';
 import styles from './reports.module.css';
+import { salesGroups } from '../lib/sales-groups';
 
 type Row = { status?: string; sales_channel?: string; label?: string; count: number; amount: string };
 type Report = { days: number; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
@@ -55,7 +56,10 @@ export default function Reports() {
       <p>Hazır Olmayan Raporlar Henüz Oluşturulamaz. Detaylı Satış Raporunda Tarih, Ürün, Müşteri, Kanal Ve Durum Filtreleri Kullanılabilir.</p>
       <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead>
       <tbody><tr><td><b>Detaylı Satış Raporu</b><small>Sipariş Ve Ürün Satırları; Para Birimine Göre Ayrı Toplamlar.</small></td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
-      {shownCatalog.map(([name, description, category]) => <tr key={name}><td><b>{name}</b><small>{description}</small></td><td>{category}</td><td>Geliştirme Bekliyor</td><td><button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button></td></tr>)}
+      {shownCatalog.map(([name, description, category]) => {
+        const reportGroup = Object.entries(salesGroups).find(([, title]) => title === name)?.[0];
+        return <tr key={name}><td><b>{name}</b><small>{reportGroup ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{reportGroup ? 'Hazır' : 'Geliştirme Bekliyor'}</td><td>{reportGroup ? <Link href={`/raporlar/satis?group=${reportGroup}`}>Raporu Aç</Link> : <button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button>}</td></tr>;
+      })}
       </tbody></table></div>
     </section>
     <div className="cards"><article><p>SİPARİŞ</p><h2>{data?.totals.order_count ?? '—'}</h2><p>Seçilen dönem</p></article><article><p>SATIŞ CİROSU</p><h2>{data ? money(data.totals.revenue) : '—'}</h2><p>İptaller hariç</p></article><article><p>ORTALAMA SEPET</p><h2>{data ? money(data.totals.average_order) : '—'}</h2><p>Sipariş başına</p></article><article><p>PARA GİRİŞİ</p><h2>{data ? money(data.financial.income) : '—'}</h2><Link href="/finans">Finansı aç →</Link></article><article><p>PARA ÇIKIŞI</p><h2>{data ? money(data.financial.expense) : '—'}</h2><Link href="/finans">Masrafları aç →</Link></article><article><p>NET HAREKET</p><h2>{data ? money(data.financial.net) : '—'}</h2><p>Giriş − çıkış</p></article></div>
