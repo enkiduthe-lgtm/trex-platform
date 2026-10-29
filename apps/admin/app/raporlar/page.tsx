@@ -34,7 +34,6 @@ export default function Reports() {
   const [operations, setOperations] = useState<Operations | null>(null);
   const [message, setMessage] = useState('');
   const [reportSearch, setReportSearch] = useState('');
-  const [selectedReport, setSelectedReport] = useState<string | null>(null);
   useEffect(() => {
     setMessage('');
     void Promise.all([api<Report>(`/admin/orders/report-summary?days=${days}`), api<Operations>(`/admin/orders/report-operations?days=${days}`)])
@@ -48,15 +47,17 @@ export default function Reports() {
     downloadXlsx(`trex-yonetim-raporu-${days}-gun.xlsx`, 'Yönetim Raporu', rows);
   }
   const shownCatalog = reportCatalog.filter(([name, description, category]) => `${name} ${description} ${category}`.toLocaleLowerCase('tr-TR').includes(reportSearch.toLocaleLowerCase('tr-TR')));
-  const selectedMeta = reportCatalog.find(([name]) => name === selectedReport);
-  function openReport(name: string) {
-    setSelectedReport(name);
-    setMessage(`${name} açıldı. Seçili dönem özeti bu sayfada görüntüleniyor.`);
-  }
   return <main><AdminNav /><section className={styles.page}>
     <p>RAPORLAR / SATIŞ VE FİNANS ÖZETİ</p><h1>Yönetim raporları</h1><p>Satış, para hareketi ve operasyon kayıtlarından oluşturulan dönem özeti.</p>
     <div className="period-toolbar"><div>{[7, 30, 90, 365].map((value) => <button className={days === value ? 'selected' : ''} key={value} onClick={() => setDays(value)}>Son {value} gün</button>)}</div><div className="button-row"><Link href="/raporlar/ozel">Özel Raporu Aç</Link><button type="button" disabled={!data} onClick={exportReport}>Excel&apos;e Aktar</button></div></div>{message && <p role="alert">{message}</p>}
-    <section className={styles.catalog} aria-labelledby="catalog-title"><div className={styles.catalogHeader}><div><p>RAPOR KATALOĞU</p><h2 id="catalog-title">Raporlar <small>({reportCatalog.length})</small></h2></div><label><span>⌕</span><input value={reportSearch} onChange={(event) => setReportSearch(event.target.value)} placeholder="Rapor ara..." /></label></div><div className={styles.tableWrap}><table><thead><tr><th>Rapor adı</th><th>Kategori</th><th>Oluşturma</th><th>İşlem</th></tr></thead><tbody>{shownCatalog.map(([name, description, category])=><tr key={name} className={selectedReport===name?styles.selectedRow:''}><td><b>{name}</b><small>{description}</small></td><td><span>{category}</span></td><td>Canlı veri</td><td><button type="button" onClick={()=>openReport(name)}>Raporu aç</button></td></tr>)}</tbody></table>{!shownCatalog.length&&<p className={styles.empty}>Aramanıza uygun rapor bulunamadı.</p>}</div>{selectedMeta && <section className={styles.selectedReport}><div><p>SEÇİLİ RAPOR</p><h2>{selectedMeta[0]}</h2><span>{selectedMeta[1]}</span></div><div className={styles.selectedNumbers}><article><small>Seçili dönem</small><b>{days} gün</b></article><article><small>Sipariş</small><b>{data?.totals.order_count ?? '—'}</b></article><article><small>Satış cirosu</small><b>{data ? money(data.totals.revenue) : '—'}</b></article></div><button type="button" onClick={exportReport} disabled={!data}>Bu Raporu Excel&apos;e Aktar</button></section>}</section>
+    <section className={styles.catalog} aria-labelledby="catalog-title">
+      <div className={styles.catalogHeader}><h2 id="catalog-title">Rapor Kataloğu</h2><label>Rapor Ara<input value={reportSearch} onChange={event => setReportSearch(event.target.value)} /></label></div>
+      <p>Hazır Olmayan Raporlar Henüz Oluşturulamaz. Detaylı Satış Raporunda Tarih, Ürün, Müşteri, Kanal Ve Durum Filtreleri Kullanılabilir.</p>
+      <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead>
+      <tbody><tr><td><b>Detaylı Satış Raporu</b><small>Sipariş Ve Ürün Satırları; Para Birimine Göre Ayrı Toplamlar.</small></td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
+      {shownCatalog.map(([name, description, category]) => <tr key={name}><td><b>{name}</b><small>{description}</small></td><td>{category}</td><td>Geliştirme Bekliyor</td><td><button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button></td></tr>)}
+      </tbody></table></div>
+    </section>
     <div className="cards"><article><p>SİPARİŞ</p><h2>{data?.totals.order_count ?? '—'}</h2><p>Seçilen dönem</p></article><article><p>SATIŞ CİROSU</p><h2>{data ? money(data.totals.revenue) : '—'}</h2><p>İptaller hariç</p></article><article><p>ORTALAMA SEPET</p><h2>{data ? money(data.totals.average_order) : '—'}</h2><p>Sipariş başına</p></article><article><p>PARA GİRİŞİ</p><h2>{data ? money(data.financial.income) : '—'}</h2><Link href="/finans">Finansı aç →</Link></article><article><p>PARA ÇIKIŞI</p><h2>{data ? money(data.financial.expense) : '—'}</h2><Link href="/finans">Masrafları aç →</Link></article><article><p>NET HAREKET</p><h2>{data ? money(data.financial.net) : '—'}</h2><p>Giriş − çıkış</p></article></div>
     <h2>Operasyon yükü</h2><div className="cards"><article><p>AÇIK İADE</p><h2>{operations?.returns_open ?? '—'}</h2><Link href="/iadeler">İadeleri aç →</Link></article><article><p>TAŞIMADA</p><h2>{operations?.shipments_active ?? '—'}</h2><Link href="/kargo">Kargoyu aç →</Link></article><article><p>SORUNLU KARGO</p><h2>{operations?.shipments_failed ?? '—'}</h2><Link href="/kargo">Gönderileri aç →</Link></article><article><p>GECİKEN DESTEK</p><h2>{operations?.support_overdue ?? '—'}</h2><Link href="/destek?overdue=true">Destek talepleri →</Link></article></div>
     <div className="form-card"><h2>Günlük satış cirosu</h2><div className="chart">{data?.daily.map((row) => <i key={row.label} style={{ height: `${Math.max(5, Math.round(Number(row.amount) / max * 100))}%` }} title={`${row.label}: ${money(row.amount)}`} />)}</div><div className="chart-labels">{data?.daily.map((row) => <span key={row.label}>{row.label}</span>)}</div></div>
