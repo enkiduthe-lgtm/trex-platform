@@ -1024,7 +1024,7 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
 .login-page section>.login-brand { width:160px; height:100px; margin:0; align-self:center; }
 .login-page section>h1,.login-page section>p { max-width:100%; margin:0; text-align:center; align-self:center; }
 .login-page section>.login-role-switch,.login-page section>.login-choices { width:min(100%,1100px); margin:0; }
-.login-page section>.form-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:start; gap:20px; width:min(100%,1100px); max-width:none; min-height:0; margin:0; padding:28px; }
+.login-page section>.form-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:end; gap:20px; width:min(100%,1100px); max-width:none; min-height:0; margin:0; padding:28px; }
 .login-page .form-card label { min-width:0; margin:0; }
 .login-page .form-card input { width:100%; min-height:46px; }
 .login-page .form-card>button,.login-page .form-card>p,.login-page .form-card>.full { grid-column:1 / -1; }
