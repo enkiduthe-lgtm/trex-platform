@@ -30,15 +30,29 @@ export class CurrentAccountsService {
       ORDER BY last_movement_at DESC NULLS LAST,p.party_name`);
     return result.rows;
   }
-  async detail(partyType: PartyType, partyId: string) {
+  async detail(partyType: PartyType, partyId: string,dateFrom?:string,dateTo?:string) {
     if (partyType !== 'DEALER' && partyType !== 'CUSTOMER') throw new BadRequestException('Geçersiz cari hesap türü');
+    for(const date of [dateFrom,dateTo])if(date&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))throw new BadRequestException('Geçerli Bir Tarih Seçin');
+    if(dateFrom&&dateTo&&dateFrom>dateTo)throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz');
     await this.exists(partyType, partyId);
     const column = this.column(partyType);
-    const [balances, entries] = await Promise.all([
-      this.db.query(`SELECT currency,COALESCE(SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END),0)::text balance FROM current_account_entries WHERE party_type=$1 AND ${column}=$2 GROUP BY currency ORDER BY currency`, [partyType, partyId]),
-      this.db.query(`SELECT id,direction,entry_type,amount::text amount,currency,source_type,source_id,description,due_at,created_at FROM current_account_entries WHERE party_type=$1 AND ${column}=$2 ORDER BY created_at DESC LIMIT 200`, [partyType, partyId]),
-    ]);
-    return { partyType, partyId, balances: balances.rows, entries: entries.rows };
+    return this.db.transaction(async client=>{
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const params=[partyType,partyId,dateFrom||null,dateTo||null];
+      const balances=await client.query(`SELECT currency,
+       COALESCE(SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END),0)::text balance,
+       COALESCE(SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) FILTER(WHERE created_at<COALESCE($3::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz)),0)::text opening_balance,
+       COALESCE(SUM(amount) FILTER(WHERE direction='DEBIT' AND created_at>=COALESCE($3::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz) AND created_at<COALESCE(($4::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz)),0)::text period_debit,
+       COALESCE(SUM(amount) FILTER(WHERE direction='CREDIT' AND created_at>=COALESCE($3::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz) AND created_at<COALESCE(($4::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz)),0)::text period_credit,
+       COALESCE(SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) FILTER(WHERE created_at<COALESCE(($4::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz)),0)::text closing_balance
+       FROM current_account_entries WHERE party_type=$1 AND ${column}=$2 GROUP BY currency ORDER BY currency`,params);
+      const entries=await client.query(`WITH history AS (
+       SELECT id,direction,entry_type,amount::text amount,currency,source_type,source_id,description,due_at,created_at,
+       SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) OVER(PARTITION BY currency ORDER BY created_at,id ROWS UNBOUNDED PRECEDING)::text running_balance
+       FROM current_account_entries WHERE party_type=$1 AND ${column}=$2
+      ) SELECT * FROM history WHERE created_at>=COALESCE($3::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz) AND created_at<COALESCE(($4::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz) ORDER BY created_at,id`,params);
+      return {partyType,partyId,dateFrom:dateFrom||null,dateTo:dateTo||null,balances:balances.rows,entries:entries.rows};
+    });
   }
   async create(dto: CreateCurrentAccountEntryDto, actor: RequestUser) {
     const partyType = dto.partyType;

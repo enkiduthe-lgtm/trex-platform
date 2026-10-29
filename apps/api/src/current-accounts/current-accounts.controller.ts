@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -12,6 +12,6 @@ type UserRequest = Request & { user: RequestUser };
 export class CurrentAccountsController {
   constructor(private readonly accounts: CurrentAccountsService) {}
   @Get() summary() { return this.accounts.summary(); }
-  @Get(':partyType/:partyId') detail(@Param('partyType') partyType: 'DEALER' | 'CUSTOMER', @Param('partyId') partyId: string) { return this.accounts.detail(partyType, partyId); }
+  @Get(':partyType/:partyId') detail(@Param('partyType') partyType: 'DEALER' | 'CUSTOMER', @Param('partyId',new ParseUUIDPipe()) partyId: string,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.accounts.detail(partyType, partyId,dateFrom,dateTo); }
   @Post('entries') create(@Body() dto: CreateCurrentAccountEntryDto, @Req() req: UserRequest) { return this.accounts.create(dto, req.user); }
 }
