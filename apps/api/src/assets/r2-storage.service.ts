@@ -7,7 +7,7 @@ export class R2StorageService {
     const accountId = process.env.R2_ACCOUNT_ID;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    if (!accountId || !accessKeyId || !secretAccessKey || !process.env.R2_BUCKET) throw new ServiceUnavailableException('Media storage is not configured');
+    if (!accountId || !accessKeyId || !secretAccessKey || !process.env.R2_BUCKET) throw new ServiceUnavailableException('Görsel Depolama Ayarları Eksik. R2 Hesabı, Erişim Anahtarları Ve Kova Adı Kontrol Edilmeli.');
     return new S3Client({ region: 'auto', endpoint: `https://${accountId}.r2.cloudflarestorage.com`, credentials: { accessKeyId, secretAccessKey } });
   }
 

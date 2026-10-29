@@ -411,7 +411,7 @@ export default function Products() {
       setMessage("Görsel JPG, PNG veya WebP formatında olmalıdır.");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > 2_000_000) {
       setMessage("Görsel en fazla 2 MB olabilir.");
       return;
     }
