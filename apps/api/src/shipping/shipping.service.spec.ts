@@ -16,7 +16,7 @@ describe('ShippingService', () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('pk.package_barcode'));
   });
   it('records a manual status transition as an event and audit entry',async()=>{
-    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED',contact_email:'buyer@example.com',order_number:'2026-1'}]}).mockResolvedValue({rows:[]});
+    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED',order_status:'PROCESSING',contact_email:'buyer@example.com',order_number:'2026-1'}]}).mockResolvedValue({rows:[]});
     const notifications={recordOrderStatus:jest.fn()};
     const service=new ShippingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never,{} as never,{} as never,notifications as never);
     await expect(service.updateStatus('order',{status:'IN_TRANSIT'} as never,'actor')).resolves.toEqual({id:'shipment',status:'IN_TRANSIT'});

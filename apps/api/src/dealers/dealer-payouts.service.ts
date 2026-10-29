@@ -15,7 +15,7 @@ export class DealerPayoutsService {
    this.db.query('SELECT id,amount,currency,status,due_date,created_at,paid_at,reference_number,note FROM dealer_prim_requests WHERE dealer_id=$1 ORDER BY created_at DESC',[id]),
    this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC',[id]),
    this.db.query('SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.note,o.order_number,oi.product_name,oi.sku,oi.quantity,oi.unit_amount FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id WHERE e.dealer_id=$1 ORDER BY e.created_at DESC,e.id',[id]),
-   this.db.query(`SELECT to_char(o.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS month,o.currency,count(*)::int AS order_count,SUM(o.total_amount)::text AS amount FROM orders o WHERE o.status NOT IN ('CANCELLED','REFUNDED') AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id AND a.entity_type='order' AND a.action='order.dealer.created' AND a.metadata->>'dealerId'=$1::text) GROUP BY month,o.currency ORDER BY month DESC`,[id]),
+   this.db.query(`SELECT to_char(o.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS month,o.currency,count(*)::int AS order_count,SUM(GREATEST(o.total_amount-COALESCE((SELECT SUM(rr.amount) FROM return_refunds rr JOIN returns r ON r.id=rr.return_id WHERE r.order_id=o.id),0),0))::text AS amount FROM orders o WHERE o.status<>'CANCELLED' AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id AND a.entity_type='order' AND a.action='order.dealer.created' AND a.metadata->>'dealerId'=$1::text) GROUP BY month,o.currency ORDER BY month DESC`,[id]),
    this.db.query(`SELECT s.id,s.amount,'TRY' AS currency,s.created_at,o.order_number,'SPEND' AS kind FROM dealer_commission_spends s JOIN orders o ON o.id=s.order_id WHERE s.dealer_id=$1 UNION ALL SELECT f.id,f.amount,'TRY',f.created_at,o.order_number,'REFUND' FROM dealer_prim_refunds f JOIN orders o ON o.id=f.order_id WHERE f.dealer_id=$1 ORDER BY created_at DESC`,[id]),
   ]);
   return {balance,requests:requests.rows,deductions:deductions.rows,earnings:earnings.rows,sales:sales.rows,spends:spends.rows};
@@ -29,12 +29,13 @@ export class DealerPayoutsService {
    const balance=await dealerWallet(client,dealerId);
    if(moneyCents(amount.toFixed(2))>moneyCents(balance.eligible))throw new ConflictException('Önceki Aylardan Talep Edilebilir Prim Yetersiz');
    const bank=(await client.query<{account_holder:string;iban:string}>('SELECT account_holder,iban FROM dealer_bank_accounts WHERE dealer_id=$1 AND is_primary=true',[dealerId])).rows[0];
-   if(!bank)throw new ConflictException('Nakit Prim Talebi İçin Yöneticiye IBAN Ve Hesap Adınızı Kaydettirin. Ürün Siparişinde IBAN Gerekmez.');
+   if(!bank?.iban?.trim()||!bank.account_holder?.trim())throw new ConflictException('Nakit Prim Talebi İçin Yöneticiye IBAN Ve Hesap Adınızı Kaydettirin. Ürün Siparişinde IBAN Gerekmez.');
    return (await client.query("INSERT INTO dealer_prim_requests(request_key,dealer_id,amount,account_holder,iban,requested_by,due_date) VALUES($1,$2,$3,$4,$5,$6,(date_trunc('month',now() AT TIME ZONE 'Europe/Istanbul')+CASE WHEN extract(day FROM now() AT TIME ZONE 'Europe/Istanbul')>5 THEN interval '1 month' ELSE interval '0 month' END+interval '4 days')::date) RETURNING id",[requestKey,dealerId,amount,bank.account_holder,bank.iban,userId])).rows[0];
   });
  }
  async list() {return (await this.db.query('SELECT r.*,d.company_name,d.code AS dealer_code FROM dealer_prim_requests r JOIN dealers d ON d.id=r.dealer_id ORDER BY r.due_date,r.created_at')).rows;}
  async returnFee(returnId:string,amount:number,note:string,actorId:string) {
+  if(!note.trim())throw new ConflictException('Gerçek Kargo Bedelinin Açıklaması Gerekli');
   return this.db.transaction(async client=>{
    const returned=(await client.query<{order_id:string;currency:string;dealer_id:string}>(`SELECT r.order_id,o.currency,(SELECT (a.metadata->>'dealerId')::uuid FROM audit_logs a WHERE a.entity_id=o.id AND a.entity_type='order' AND a.action='order.dealer.created' ORDER BY a.created_at LIMIT 1) AS dealer_id FROM returns r JOIN orders o ON o.id=r.order_id WHERE r.id=$1 AND r.status IN ('RECEIVED','INSPECTED','REFUNDED')`,[returnId])).rows[0];
    if(!returned?.dealer_id)throw new ConflictException('Teslim Alınmış Bayi İadesi Bulunamadı');
@@ -53,12 +54,13 @@ export class DealerPayoutsService {
   });
  }
  async pay(id:string,accountId:string,reference:string,actorId:string) {
+  if(!reference.trim())throw new ConflictException('Havale Referansı Gerekli');
   return this.db.transaction(async client=>{
    const target=(await client.query<{dealer_id:string}>('SELECT dealer_id FROM dealer_prim_requests WHERE id=$1',[id])).rows[0];if(!target)throw new NotFoundException('Talep Bulunamadı');
    await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[target.dealer_id]);
-   const row=(await client.query<{dealer_id:string;status:string;amount:string;currency:string;account_holder:string;due:boolean;finance_transaction_id:string|null}>("SELECT *,due_date<=(now() AT TIME ZONE 'Europe/Istanbul')::date AS due FROM dealer_prim_requests WHERE id=$1 FOR UPDATE",[id])).rows[0];
+   const row=(await client.query<{dealer_id:string;status:string;amount:string;currency:string;account_holder:string;due:boolean;payment_day:boolean;finance_transaction_id:string|null}>("SELECT *,due_date<=(now() AT TIME ZONE 'Europe/Istanbul')::date AS due,extract(day FROM now() AT TIME ZONE 'Europe/Istanbul')=5 AS payment_day FROM dealer_prim_requests WHERE id=$1 FOR UPDATE",[id])).rows[0];
    if(row.status==='PAID')return {id,financeTransactionId:row.finance_transaction_id,replayed:true};
-   if(row.status!=='APPROVED'||!row.due)throw new ConflictException('Onaylı Talep Ödeme Gününden Önce Ödenemez');
+   if(row.status!=='APPROVED'||!row.due||!row.payment_day)throw new ConflictException('Onaylı Prim Talepleri Yalnız Ayın 5’inde Ödenebilir. Ödenmeyen Tutar Sonraki Aya Devreder.');
    const balance=await dealerWallet(client,row.dealer_id,row.currency,id);
    if(moneyCents(row.amount)>moneyCents(balance.available)||moneyCents(row.amount)>moneyCents(balance.eligible))throw new ConflictException('İade Veya Kesinti Sonrası Prim Yetersiz. Talebi Reddedip Uygun Tutarla Yeniden Oluşturun.');
    const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND currency=$2 AND is_active=true FOR UPDATE',[accountId,row.currency]);if(!account.rowCount)throw new ConflictException('Aynı Para Biriminde Aktif Ödeme Hesabı Seçin');

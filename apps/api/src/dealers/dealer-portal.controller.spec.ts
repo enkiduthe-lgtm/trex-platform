@@ -23,15 +23,19 @@ describe('DealerPortalController', () => {
   });
 
   it('calculates balances over all eligible movements separately per currency', async () => {
-    const query = jest.fn().mockResolvedValue({ rows: [{ currency: 'TRY', amount: '123.45' }] });
+    const query = jest.fn().mockResolvedValueOnce({ rows: [{ dealer_id: 'dealer' }] })
+      .mockResolvedValueOnce({ rows: [{ currency: 'TRY' }] })
+      .mockResolvedValueOnce({ rows: [{ available: '123.45', eligible: '100.00' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
     await expect(controller.commissionBalances(request)).resolves.toEqual([{ currency: 'TRY', amount: '123.45' }]);
-    const sql = query.mock.calls[0][0] as string;
-    expect(sql).toContain('WHERE dua.user_id=$1');
+    const sql = query.mock.calls[2][0] as string;
+    expect(query.mock.calls[0][0]).toContain('WHERE user_id=$1');
     expect(sql).toContain("e.status IN ('CONFIRMED','AVAILABLE')");
-    expect(sql).toContain('GROUP BY e.currency');
+    expect(sql).toContain('dealer_prim_deductions');
+    expect(sql).toContain('dealer_commission_spends');
     expect(sql).not.toContain('LIMIT');
     expect(query.mock.calls[0][1]).toEqual(['dealer-user']);
+    expect(query.mock.calls[2][1]).toEqual(['dealer','TRY',null]);
   });
 
   it('uses an ownership existence check so repeated audit entries cannot duplicate orders', async () => {

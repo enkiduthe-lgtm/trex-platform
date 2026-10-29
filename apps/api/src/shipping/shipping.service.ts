@@ -6,10 +6,11 @@ import { ShippingProvider } from './shipping-provider.interface';
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CommissionsService } from '../commissions/commissions.service';
 interface Address { recipient_name: string; phone: string; city: string; district: string; address_line: string; postal_code: string | null; }
 @Injectable()
 export class ShippingService {
-  constructor(private readonly db: DatabaseService, private readonly mock: MockShippingProvider, private readonly aras: ArasShippingProvider, private readonly notifications?: NotificationsService) {}
+  constructor(private readonly db: DatabaseService, private readonly mock: MockShippingProvider, private readonly aras: ArasShippingProvider, private readonly notifications?: NotificationsService,private readonly commissions?:CommissionsService) {}
   private provider(): { name: 'mock' | 'aras'; client: ShippingProvider } {
     if (process.env.SHIPPING_PROVIDER === 'aras') return { name: 'aras', client: this.aras };
     assertMockIntegrationAllowed('SHIPPING_PROVIDER');
@@ -26,7 +27,36 @@ export class ShippingService {
     WHERE o.status='PROCESSING' AND s.id IS NULL
     ORDER BY o.created_at ASC LIMIT 100`)).rows; }
   async detail(orderId: string) { const shipment=await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE s.order_id=$1`,[orderId]); if(!shipment.rows[0]) return null; const events=await this.db.query('SELECT id,status,provider_event_id,description,occurred_at FROM shipment_events WHERE shipment_id=$1 ORDER BY occurred_at DESC,id DESC',[shipment.rows[0].id]); return {...shipment.rows[0],events:events.rows}; }
-  async updateStatus(orderId:string,dto:UpdateShipmentStatusDto,userId:string){const changed=await this.db.transaction(async client=>{const result=await client.query<{id:string;status:string;contact_email:string|null;order_number:string}>('SELECT s.id,s.status,cs.contact_email,o.order_number FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE s.order_id=$1 FOR UPDATE',[orderId]);const shipment=result.rows[0];if(!shipment)throw new NotFoundException('Gönderi kaydı bulunamadı');const allowed:Record<string,string[]>={CREATED:['IN_TRANSIT','FAILED','CANCELLED'],IN_TRANSIT:['DELIVERED','FAILED'],FAILED:[],DELIVERED:[],CANCELLED:[]};if(!allowed[shipment.status]?.includes(dto.status))throw new ConflictException(`Gönderi ${shipment.status} durumundan ${dto.status} durumuna geçirilemez`);await client.query(`UPDATE shipments SET status=$1,dispatched_at=CASE WHEN $1='IN_TRANSIT' THEN COALESCE(dispatched_at,now()) ELSE dispatched_at END,delivered_at=CASE WHEN $1='DELIVERED' THEN COALESCE(delivered_at,now()) ELSE delivered_at END,failure_reason=CASE WHEN $1='FAILED' THEN COALESCE($2,failure_reason,'Teslimat sorunu bildirildi') ELSE NULL END,updated_at=now() WHERE id=$3`,[dto.status,dto.description?.trim()||null,shipment.id]);await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4)',[shipment.id,dto.status,`manual:${dto.status}:${Date.now()}`,dto.description?.trim()||'Yönetim panelinden durum güncellendi']);await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'shipment.status_updated','shipment',shipment.id,JSON.stringify({from:shipment.status,to:dto.status,description:dto.description??null})]);return {id:shipment.id,status:dto.status,recipient:shipment.contact_email,orderNumber:shipment.order_number};});const notificationStatus=changed.status==='IN_TRANSIT'?'SHIPPED':changed.status==='DELIVERED'?'DELIVERED':changed.status==='FAILED'?'DELIVERY_EXCEPTION':null;if(notificationStatus)await this.notifications?.recordOrderStatus(changed.recipient,changed.orderNumber,notificationStatus);return {id:changed.id,status:changed.status};}
+  async updateStatus(orderId:string,dto:UpdateShipmentStatusDto,userId:string){
+    const changed=await this.db.transaction(async client=>{
+      const result=await client.query<{id:string;status:string;order_status:string;contact_email:string|null;order_number:string}>('SELECT s.id,s.status,o.status AS order_status,cs.contact_email,o.order_number FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE s.order_id=$1 FOR UPDATE OF s,o',[orderId]);
+      const shipment=result.rows[0];if(!shipment)throw new NotFoundException('Gönderi Kaydı Bulunamadı');
+      const replayed=shipment.status===dto.status;
+      const allowed:Record<string,string[]>={CREATED:['IN_TRANSIT','FAILED','CANCELLED'],IN_TRANSIT:['DELIVERED','FAILED'],FAILED:[],DELIVERED:[],CANCELLED:[]};
+      if(!replayed&&!allowed[shipment.status]?.includes(dto.status))throw new ConflictException('Bu Gönderi Durum Geçişine İzin Verilmiyor');
+      const nextOrder=dto.status==='IN_TRANSIT'?'SHIPPED':dto.status==='DELIVERED'?'DELIVERED':null;
+      if(nextOrder&& !['PROCESSING','SHIPPED','DELIVERED'].includes(shipment.order_status))throw new ConflictException('Ödeme Ve Hazırlık Kontrolü Tamamlanmadan Kargo İlerletilemez');
+      if(nextOrder&&shipment.order_status!==nextOrder){
+        if(shipment.order_status==='DELIVERED')throw new ConflictException('Teslim Edilmiş Sipariş Geri Alınamaz');
+        await client.query('UPDATE orders SET status=$1 WHERE id=$2',[nextOrder,orderId]);
+        await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES($1,$2,$3)',[orderId,nextOrder,userId]);
+      }
+      if(!replayed){
+        await client.query("UPDATE shipments SET status=$1,dispatched_at=CASE WHEN $1='IN_TRANSIT' THEN COALESCE(dispatched_at,now()) ELSE dispatched_at END,delivered_at=CASE WHEN $1='DELIVERED' THEN COALESCE(delivered_at,now()) ELSE delivered_at END,failure_reason=CASE WHEN $1='FAILED' THEN COALESCE($2,failure_reason,'Teslimat Sorunu') ELSE NULL END,updated_at=now() WHERE id=$3",[dto.status,dto.description?.trim()||null,shipment.id]);
+        await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4)',[shipment.id,dto.status,'manual:'+dto.status+':'+Date.now(),dto.description?.trim()||'Yönetim Panelinden Durum Güncellendi']);
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'shipment.status_updated','shipment',shipment.id,JSON.stringify({from:shipment.status,to:dto.status})]);
+      }
+      if(dto.status==='DELIVERED'&&this.commissions){
+        await this.commissions.awardForDeliveredOrder(orderId,userId,client);
+        const dealer=(await client.query<{dealer_id:string}>("SELECT COALESCE((a.metadata->>'dealerId')::uuid,dua.dealer_id) AS dealer_id FROM audit_logs a LEFT JOIN dealer_user_accounts dua ON dua.user_id=a.actor_user_id WHERE a.entity_type='order' AND a.entity_id=$1 AND a.action IN ('order.dealer.created','order.admin.created') ORDER BY a.created_at LIMIT 1",[orderId])).rows[0];
+        if(dealer?.dealer_id){const items=await client.query<{id:string;product_id:string;quantity:number}>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id',[orderId]);for(const item of items.rows)await this.commissions.confirmForOrderItem({dealerId:dealer.dealer_id,orderId,orderItemId:item.id,productId:item.product_id,quantity:item.quantity},client);}
+      }
+      return {id:shipment.id,status:dto.status,recipient:shipment.contact_email,orderNumber:shipment.order_number,replayed};
+    });
+    const notification=changed.status==='IN_TRANSIT'?'SHIPPED':changed.status==='DELIVERED'?'DELIVERED':changed.status==='FAILED'?'DELIVERY_EXCEPTION':null;
+    if(notification&&!changed.replayed)await this.notifications?.recordOrderStatus(changed.recipient,changed.orderNumber,notification);
+    return {id:changed.id,status:changed.status};
+  }
   async create(orderId: string, userId?: string) {
     const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null }>('SELECT id,status,tracking_number FROM shipments WHERE order_id=$1', [orderId]);
     if (existing.rows[0]?.status === 'CREATED') return { shipmentId: existing.rows[0].id, trackingNumber: existing.rows[0].tracking_number, replayed: true };

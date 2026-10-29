@@ -395,7 +395,7 @@ export default function Returns() {
                   {row.status === "REFUNDED" && (
                     <p>
                       <strong>
-                        {row.refund_account_name ?? "Finans hesabı"} üzerinden{" "}
+                        {row.payment_provider === 'dealer_commission' ? 'Prim Bakiyesi' : row.refund_account_name ?? 'Finans Hesabı'} üzerinden{" "}
                         {money(
                           row.refund_amount ?? "0",
                           row.refund_currency ?? row.currency,

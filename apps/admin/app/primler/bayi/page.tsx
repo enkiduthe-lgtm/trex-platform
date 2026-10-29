@@ -5,7 +5,7 @@ import { AdminNav } from '../../components/admin-nav';
 import { api } from '../../lib/api';
 type Row={id:string;company_name:string;dealer_code:string;amount:string;currency:string;status:string;due_date:string;account_holder:string;iban:string;created_at:string;paid_at:string|null;reference_number:string|null;note:string|null};
 type Account={id:string;name:string;currency:string;is_active:boolean};
-type Return={id:string;order_number:string;status:string;currency:string};
+type Return={id:string;order_number:string;status:string;currency:string;dealer_id:string|null};
 const statuses:Record<string,string>={REQUESTED:'Talep Edildi',APPROVED:'Onaylı · Havale Bekliyor',PAID:'Bankaya Yatırıldı',REJECTED:'Reddedildi',CANCELLED:'İptal Edildi'};
 const money=(amount:string,currency:string)=>Number(amount).toLocaleString('tr-TR',{style:'currency',currency});
 export default function DealerPayouts(){
@@ -13,7 +13,7 @@ export default function DealerPayouts(){
  const [selectedAccounts,setSelectedAccounts]=useState<Record<string,string>>({}),[references,setReferences]=useState<Record<string,string>>({}),[notes,setNotes]=useState<Record<string,string>>({});
  const [filter,setFilter]=useState('OPEN'),[dueMonth,setDueMonth]=useState('');
  const [fee,setFee]=useState({returnId:'',amount:'',note:''});
- async function load(){const [list,bank,received,me]=await Promise.all([api<Row[]>('/admin/dealer-payouts'),api<Account[]>('/admin/finance/accounts'),api<Return[]>('/returns/admin'),api<{user:{role:string}}>('/auth/me')]);setRows(list);setAccounts(bank.filter(a=>a.is_active));setReturns(received.filter(r=>['RECEIVED','INSPECTED','REFUNDED'].includes(r.status)));setRole(me.user.role);}
+ async function load(){const [list,bank,received,me]=await Promise.all([api<Row[]>('/admin/dealer-payouts'),api<Account[]>('/admin/finance/accounts'),api<Return[]>('/returns/admin'),api<{user:{role:string}}>('/auth/me')]);setRows(list);setAccounts(bank.filter(a=>a.is_active));setReturns(received.filter(r=>r.dealer_id&&['RECEIVED','INSPECTED','REFUNDED'].includes(r.status)));setRole(me.user.role);}
  useEffect(()=>{void load().catch(e=>setMessage(e instanceof Error?e.message:'Talepler Yüklenemedi.'));},[]);
  async function act(path:string,body:unknown){setBusy(true);setMessage('');try{await api(path,{method:'POST',body:JSON.stringify(body)});setMessage('İşlem Kaydedildi.');await load();}catch(e){setMessage(e instanceof Error?e.message:'İşlem Kaydedilemedi.');}finally{setBusy(false);}}
  function recordFee(event:FormEvent){event.preventDefault();void act('/admin/dealer-payouts/return-fee',{returnId:fee.returnId,amount:Number(fee.amount),note:fee.note});}
