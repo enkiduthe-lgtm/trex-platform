@@ -1,22 +1,81 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminNav } from '../../components/admin-nav';
 import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
+import { currencyTotals } from '../../lib/report-totals';
 
-type Row={id:string;order_number:string;status:string;sales_channel:string;total_amount:string;currency:string;created_at:string;customer_name:string;product_name:string;sku:string;quantity:number;unit_amount:string;line_total:string;payment_method:string};
-const channels:Record<string,string>={PUBLIC_WEB:'Site',ADMIN_ORDER:'Yönetici Siparişi',RETAIL:'Perakende',WHOLESALE:'Toptan',INSTAGRAM:'Instagram',DEALER_PORTAL:'Sistem Bayi',MARKETPLACE:'Pazaryeri'};
-const statuses:Record<string,string>={PENDING_PAYMENT:'Ödeme Bekliyor',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'};
-const money=(value:string,currency='TRY')=>Number(value||0).toLocaleString('tr-TR',{style:'currency',currency});
-const iso=(days:number)=>new Date(Date.now()-days*86400000).toISOString().slice(0,10);
+type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string };
+type Filters = { dateFrom: string; dateTo: string; channel: string; product: string; customer: string; status: string };
+const channels: Record<string, string> = { PUBLIC_WEB: 'Site', ADMIN_ORDER: 'Yönetici Siparişi', RETAIL: 'Perakende', WHOLESALE: 'Toptan', INSTAGRAM: 'Instagram', DEALER_PORTAL: 'Sistem Bayi', MARKETPLACE: 'Pazaryeri' };
+const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi' };
+const money = (value: string, currency: string) => Number(value).toLocaleString('tr-TR', { style: 'currency', currency });
+const date = (days = 0) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(new Date(Date.now() - days * 86400000));
+const displayDate = (value: string) => new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
 
-export default function SalesReport(){
-  const [dateFrom,setDateFrom]=useState(iso(30)); const [dateTo,setDateTo]=useState(new Date().toISOString().slice(0,10)); const [channel,setChannel]=useState(''); const [items,setItems]=useState<Row[]>([]); const [message,setMessage]=useState('');
-  const load=()=>{const query=new URLSearchParams({dateFrom,dateTo});if(channel)query.set('channel',channel);void api<Row[]>(`/admin/orders/sales-report?${query}`).then(setItems).catch(error=>setMessage(error instanceof Error?error.message:'Satış raporu yüklenemedi.'));};
-  useEffect(()=>{load();},[]);
-  const total=useMemo(()=>items.filter(item=>item.status!=='CANCELLED').reduce((sum,item)=>sum+Number(item.line_total),0),[items]);
-  function exportReport(){downloadXlsx('trex-satis-raporu.xlsx','Satış Raporu',[['Başlangıç',dateFrom],['Bitiş',dateTo],['Satış Kanalı',channel?channels[channel]: 'Tüm Kanallar'],[],['Sipariş Tarihi','Sipariş No','Satış Kanalı','Müşteri','Ürün','SKU','Adet','Birim Fiyat','Satış Tutarı','Ödeme Yöntemi','Sipariş Durumu'],...items.map(item=>[new Date(item.created_at).toLocaleString('tr-TR'),item.order_number,channels[item.sales_channel]??item.sales_channel,item.customer_name,item.product_name,item.sku,String(item.quantity),item.unit_amount,item.line_total,item.payment_method,statuses[item.status]??item.status]),[],['Toplam','','','','','','','',total.toFixed(2),'','']]);}
-  return <main><AdminNav/><section className="finance-workspace"><p>RAPORLAR / SATIŞ</p><h1>Detaylı Satış Raporu</h1><p>Her ürün ayrı satırda gösterilir; iptal ve iade durumları ayrıştırılır.</p><nav className="finance-nav"><Link href="/raporlar">Rapor Merkezi</Link><Link href="/siparisler">Siparişler</Link></nav><section className="form-card dealer-toolbar"><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={event=>setDateFrom(event.target.value)}/></label><label>Bitiş Tarihi<input type="date" value={dateTo} onChange={event=>setDateTo(event.target.value)}/></label><label>Satış Kanalı<select value={channel} onChange={event=>setChannel(event.target.value)}><option value="">Tüm Kanallar</option>{Object.entries(channels).map(([key,value])=><option key={key} value={key}>{value}</option>)}</select></label><div className="button-row"><button onClick={load}>Raporu Getir</button><button className="secondary" disabled={!items.length} onClick={exportReport}>Excel&apos;e Aktar</button></div></section>{message&&<p role="alert" className="notice">{message}</p>}<div className="cards dealer-summary-cards"><article><p>Sipariş Satırı</p><strong>{items.length}</strong><p>Seçili filtrede ürün satırı</p></article><article><p>Satış Cirosu</p><strong>{money(String(total))}</strong><p>İptaller hariç ürün toplamı</p></article><article><p>Sipariş Sayısı</p><strong>{new Set(items.map(item=>item.id)).size}</strong><p>Seçili filtredeki sipariş</p></article></div><section className="table-card"><p>Detaylı Satışlar</p><h2>Sipariş Ve Ürün Satırları</h2><div className="table-wrap"><table><thead><tr><th>Tarih</th><th>Sipariş</th><th>Kanal</th><th>Müşteri</th><th>Ürün</th><th>Adet</th><th>Satış</th><th>Ödeme</th><th>Durum</th></tr></thead><tbody>{items.map(item=><tr key={`${item.id}-${item.sku}-${item.product_name}`}><td>{new Date(item.created_at).toLocaleDateString('tr-TR')}</td><td><b>{item.order_number}</b></td><td>{channels[item.sales_channel]??item.sales_channel}</td><td>{item.customer_name}</td><td><b>{item.product_name}</b><small>{item.sku}</small></td><td>{item.quantity}</td><td>{money(item.line_total,item.currency)}</td><td>{item.payment_method||'—'}</td><td>{statuses[item.status]??item.status}</td></tr>)}</tbody></table>{!items.length&&<p>Seçilen filtrede satış kaydı bulunmuyor.</p>}</div></section></section></main>;
+export default function SalesReport() {
+  const [filters, setFilters] = useState<Filters>({ dateFrom: date(30), dateTo: date(), channel: '', product: '', customer: '', status: '' });
+  const [loadedFilters, setLoadedFilters] = useState<Filters | null>(null);
+  const [items, setItems] = useState<Row[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const requestId = useRef(0);
+  const change = (key: keyof Filters, value: string) => setFilters(current => ({ ...current, [key]: value }));
+  async function load(snapshot: Filters) {
+    if (!snapshot.dateFrom || !snapshot.dateTo || snapshot.dateFrom > snapshot.dateTo) {
+      setMessage('Geçerli Bir Başlangıç Ve Bitiş Tarihi Seçin.');
+      return;
+    }
+    const id = ++requestId.current;
+    setBusy(true);
+    setMessage('');
+    try {
+      const query = new URLSearchParams(Object.entries(snapshot).filter(([, value]) => value !== ''));
+      const rows = await api<Row[]>(`/admin/orders/sales-report?${query}`);
+      if (id === requestId.current) { setItems(rows); setLoadedFilters({ ...snapshot }); }
+    } catch (error) {
+      if (id === requestId.current) setMessage(error instanceof Error ? error.message : 'Satış Raporu Yüklenemedi.');
+    } finally { if (id === requestId.current) setBusy(false); }
+  }
+  useEffect(() => { void load(filters); return () => { requestId.current++; }; }, []);
+  const totals = useMemo(() => currencyTotals(items.filter(row => row.status !== 'CANCELLED').map(row => ({ currency: row.currency, amount: row.line_total }))), [items]);
+  function exportReport() {
+    if (!loadedFilters || busy) return;
+    downloadXlsx('trex-satis-raporu.xlsx', 'Satış Raporu', [
+      ['Başlangıç', loadedFilters.dateFrom], ['Bitiş', loadedFilters.dateTo],
+      ['Satış Kanalı', (channels[loadedFilters.channel] ?? loadedFilters.channel) || 'Tüm Kanallar'],
+      ['Ürün / SKU', loadedFilters.product], ['Müşteri', loadedFilters.customer], ['Durum', statuses[loadedFilters.status] ?? 'Tüm Durumlar'], [],
+      ['Sipariş Tarihi', 'Sipariş No', 'Satış Kanalı', 'Müşteri', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu'],
+      ...items.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, String(row.quantity), row.unit_amount, row.line_total, row.currency, row.payment_method, statuses[row.status] ?? row.status]),
+      [], ['Brüt Satış — İptaller Hariç; Tahsilat Tutarı Değildir'],
+      ...totals.map(total => ['Toplam', total.currency, total.amount]),
+    ]);
+  }
+  return <main><AdminNav /><section className="finance-workspace">
+    <h1>Detaylı Satış Raporu</h1>
+    <p>Her Ürün Ayrı Satırda Gösterilir. Para Birimleri Ayrı Toplanır.</p>
+    <nav className="finance-nav"><Link href="/raporlar">Rapor Merkezi</Link><Link href="/siparisler">Siparişler</Link></nav>
+    <section className="form-card dealer-toolbar" aria-label="Rapor Filtreleri">
+      <label>Başlangıç Tarihi<input type="date" value={filters.dateFrom} onChange={event => change('dateFrom', event.target.value)} /></label>
+      <label>Bitiş Tarihi<input type="date" value={filters.dateTo} onChange={event => change('dateTo', event.target.value)} /></label>
+      <label>Satış Kanalı<select value={filters.channel} onChange={event => change('channel', event.target.value)}><option value="">Tüm Kanallar</option>{Object.entries(channels).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
+      <label>Ürün / SKU<input value={filters.product} onChange={event => change('product', event.target.value)} placeholder="Ürün Adı Veya SKU" /></label>
+      <label>Müşteri<input value={filters.customer} onChange={event => change('customer', event.target.value)} placeholder="Ad Veya E-Posta" /></label>
+      <label>Sipariş Durumu<select value={filters.status} onChange={event => change('status', event.target.value)}><option value="">Tüm Durumlar</option>{Object.entries(statuses).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
+      <div className="button-row"><button disabled={busy} onClick={() => void load(filters)}>{busy ? 'Yükleniyor…' : 'Raporu Getir'}</button><button className="secondary" disabled={busy || !items.length} onClick={exportReport}>Excel&apos;e Aktar</button></div>
+    </section>
+    {message && <p role="alert" className="notice">{message}</p>}
+    {loadedFilters && <p>Yüklenen Rapor: {loadedFilters.dateFrom} — {loadedFilters.dateTo}. Filtre Değişikliklerini Uygulamak İçin Raporu Getir Butonuna Basın.</p>}
+    <div className="cards dealer-summary-cards">
+      <article><p>Sipariş Sayısı</p><strong>{new Set(items.map(row => row.id)).size}</strong><p>Ürün Satırı: {items.length}</p></article>
+      {totals.map(total => <article key={total.currency}><p>Brüt Satış · {total.currency}</p><strong>{money(total.amount, total.currency)}</strong><p>İptaller Hariç; Tahsilat Tutarı Değildir.</p></article>)}
+    </div>
+    <section className="table-card" aria-busy={busy}><h2>Sipariş Ve Ürün Satırları</h2><div className="table-wrap"><table>
+      <thead><tr>{['Tarih', 'Sipariş', 'Kanal', 'Müşteri', 'Ürün', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme', 'Durum'].map(label => <th key={label}>{label}</th>)}</tr></thead>
+      <tbody>{items.map(row => <tr key={row.item_id}><td>{displayDate(row.created_at)}</td><td>{row.order_number}</td><td>{channels[row.sales_channel] ?? row.sales_channel}</td><td>{row.customer_name}</td><td><b>{row.product_name}</b><small>{row.sku}</small></td><td>{row.quantity}</td><td>{money(row.unit_amount, row.currency)}</td><td>{money(row.line_total, row.currency)}</td><td>{row.currency}</td><td>{row.payment_method || '—'}</td><td>{statuses[row.status] ?? row.status}</td></tr>)}
+      {!items.length && <tr><td colSpan={11}>{busy ? 'Yükleniyor…' : 'Seçilen Filtrede Satış Kaydı Bulunmuyor.'}</td></tr>}
+      </tbody></table></div></section>
+  </section></main>;
 }
