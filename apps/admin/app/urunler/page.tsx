@@ -254,6 +254,7 @@ export default function Products() {
   const [imagePreview, setImagePreview] = useState("");
   const [failedImages, setFailedImages] = useState<Record<string, true>>({});
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageMessage, setImageMessage] = useState('');
   const [form, setForm] = useState({
     name: "",
     sku: "",
@@ -396,6 +397,8 @@ export default function Products() {
     }
   }
   function closeImageDialog() {
+    if (uploadingImage) return;
+    setImageMessage('');
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview("");
     setImageFile(null);
@@ -405,14 +408,17 @@ export default function Products() {
     setFailedImages((current) => current[product.id] ? current : { ...current, [product.id]: true });
   }
   function chooseImage(event: ChangeEvent<HTMLInputElement>) {
+    setImageMessage('');
     const file = event.target.files?.[0];
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      setMessage("Görsel JPG, PNG veya WebP formatında olmalıdır.");
+      setImageFile(null);
+      setImageMessage("Görsel JPG, PNG veya WebP formatında olmalıdır.");
       return;
     }
     if (file.size > 2_000_000) {
-      setMessage("Görsel en fazla 2 MB olabilir.");
+      setImageFile(null);
+      setImageMessage("Görsel en fazla 2 MB olabilir.");
       return;
     }
     if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -420,7 +426,8 @@ export default function Products() {
     setImagePreview(URL.createObjectURL(file));
   }
   async function uploadImage() {
-    if (!imageProduct || !imageFile) return;
+    if (!imageProduct || !imageFile || uploadingImage) return;
+    setImageMessage('');
     setUploadingImage(true);
     try {
       const body = new FormData();
@@ -437,12 +444,16 @@ export default function Products() {
         return next;
       });
       setMessage(`${imageProduct.name} için görsel yüklendi.`);
-      closeImageDialog();
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      setImagePreview('');
+      setImageFile(null);
+      setImageProduct(null);
       await load();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Ürün görseli yüklenemedi.",
       );
+      setImageMessage(error instanceof Error ? error.message : 'Ürün Görseli Yüklenemedi.');
     } finally {
       setUploadingImage(false);
     }
@@ -889,6 +900,7 @@ export default function Products() {
                   className={styles.close}
                   onClick={closeImageDialog}
                   aria-label="Pencereyi kapat"
+                  disabled={uploadingImage}
                 >
                   ×
                 </button>
@@ -911,15 +923,18 @@ export default function Products() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
+                  disabled={uploadingImage}
                   onChange={chooseImage}
                 />
                 <small>JPG, JPEG, PNG veya WebP · en fazla 2 MB · önerilen ölçü: 1600 × 1600 px (kare)</small>
               </label>
+              {imageMessage && <p role="alert">{imageMessage}</p>}
               <footer>
                 <button
                   type="button"
                   className={styles.secondaryAction}
                   onClick={closeImageDialog}
+                  disabled={uploadingImage}
                 >
                   Vazgeç
                 </button>
