@@ -76,7 +76,7 @@
 .productNameButton { display: block; padding: 0; border: 0; background: transparent; color: #315343; font: inherit; font-size: 12px; font-weight: 700; text-align: left; cursor: pointer; }
 .productNameButton:hover { color: #6b2eb5; text-decoration: underline; }
 
-@media (max-width: 760px) { .actions { flex-direction: column; } .actions a, .actions button { width: 64px; } }
+@media (max-width: 760px) { .actions { grid-template-columns:repeat(2,minmax(110px,1fr)); min-width:236px; } .actions a, .actions button { width:100%; } }
 @media (max-width: 600px) { .detailBody { grid-template-columns: 1fr; } .detailImage { min-height: 180px; } .detailImage img { height: 180px; } .detailGrid { grid-template-columns: 1fr; } }
 .titleRow {
   display: flex;
@@ -391,4 +391,4 @@
 .actions { display:grid; grid-template-columns:repeat(2, minmax(126px,1fr)); gap:8px; min-width:268px; }
 .actions a,.actions button { width:100%; min-width:0; height:42px; margin:0; padding:8px 10px; border:1px solid #d3c1dd !important; border-radius:7px; background:#f6f1f9 !important; color:#603276 !important; font-size:12px; line-height:1.2; text-align:center; box-shadow:none; }
 .actions small { font-size:11px; }
-@media (max-width: 760px) { .actions { flex-direction: column; } .actions a, .actions button { width: 64px; } }
+@media (max-width: 760px) { .actions { grid-template-columns:repeat(2,minmax(110px,1fr)); min-width:236px; } .actions a, .actions button { width:100%; } }
