@@ -17,7 +17,7 @@ export class CommissionsController {
   @Get('channel-pools') channelPools(@Req() req:UserRequest,@Query('month') month?:string){return this.staffChannels.view(req.user,month);}
   @Post('channel-pools/settings') settings(@Body() dto:StaffSettingsDto,@Req() req:UserRequest){return this.staffChannels.settings(dto,req.user);}
   @Post('channel-pools/rates') rate(@Body() dto:StaffRateDto,@Req() req:UserRequest){return this.staffChannels.rate(dto,req.user);}
-  @Get() list() { return this.commissions.list(); }
+  @Get() list(@Req() req:UserRequest) { return this.commissions.list(req.user); }
   @Post('rules') createRule(@Body() dto: CreateCommissionRuleDto) { return this.commissions.createRule(dto); }
   @Post('staff-rules') createStaffRule(@Body() dto: CreateCommissionRuleV5Dto, @Req() req: UserRequest) { return this.commissions.createStaffRule(dto, req.user); }
   @Delete('rules/:id') deactivate(@Param('id') id:string,@Req() req:UserRequest){return this.commissions.deactivateRule(id,req.user);}

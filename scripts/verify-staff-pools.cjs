@@ -10,8 +10,8 @@ async function main(){
  CREATE TABLE products(id uuid PRIMARY KEY,name text,sku text,is_active boolean DEFAULT true);
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,sales_channel text,status text,currency text,created_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),product_id uuid REFERENCES products(id),product_name text,sku text,quantity integer,currency text);
- CREATE TABLE finance_accounts(id uuid PRIMARY KEY,is_active boolean,currency text);
- CREATE TABLE finance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),account_id uuid,order_id uuid,kind text,amount numeric(12,2),payment_status text,counterparty_name text,reference_number text,description text,created_by uuid);
+ CREATE TABLE finance_accounts(id uuid PRIMARY KEY,is_active boolean,currency text,name text DEFAULT 'Test Bank');
+ CREATE TABLE finance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),account_id uuid,order_id uuid,kind text,amount numeric(12,2),payment_status text,counterparty_name text,reference_number text,description text,created_by uuid,approved_by uuid,occurred_at timestamptz DEFAULT now(),created_at timestamptz DEFAULT now());
  CREATE TABLE audit_logs(actor_user_id uuid,action text,entity_type text,entity_id uuid,metadata jsonb);
  CREATE TABLE commission_entries(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid REFERENCES users(id),recipient_kind text,dealer_id uuid,order_id uuid,order_item_id uuid,rule_id uuid,amount numeric(12,2),currency text,status text,entry_kind text,available_at timestamptz,finalized_at timestamptz,created_at timestamptz DEFAULT now(),paid_at timestamptz,paid_by uuid,finance_transaction_id uuid,calculation_source text,note text,source_entry_id uuid,reversed_at timestamptz,return_id uuid);
  CREATE UNIQUE INDEX reversal_once ON commission_entries(source_entry_id,return_id) WHERE entry_kind='REVERSAL';
@@ -22,7 +22,7 @@ async function main(){
  const service=new StaffChannelService(db),commissions=new CommissionsService(db),master={id:uuid(1),role:'SUPER_ADMIN'},executives=[uuid(2),uuid(3),uuid(4)],director=uuid(5),product=uuid(10),cap=uuid(11),account=uuid(12);
  for(let n=1;n<=5;n++)await db.query('INSERT INTO users(id,email,role) VALUES($1,$2,$3)',[uuid(n),n===5?'private-director@test.invalid':`user${n}@test.invalid`,n===1?'SUPER_ADMIN':'ADMIN']);
  await db.query("INSERT INTO products(id,name,sku) VALUES($1,'Tea','TEA'),($2,'Cap','CAP')",[product,cap]);
- await db.query("INSERT INTO finance_accounts VALUES($1,true,'TRY')",[account]);
+ await db.query("INSERT INTO finance_accounts(id,is_active,currency) VALUES($1,true,'TRY')",[account]);
  await assert.rejects(()=>service.settings({executiveCount:3,executiveIds:[executives[0]],directorId:director},master));
  await assert.rejects(()=>service.settings({executiveCount:3,executiveIds:executives,directorId:executives[0]},master));
  await service.settings({executiveCount:3,executiveIds:executives,directorId:director},master);
@@ -61,6 +61,10 @@ async function main(){
  await commissions.pay(newDirector.id,{accountId:account},master);await commissions.pay(newDirector.id,{accountId:account},master);
  assert.equal((await db.query('SELECT count(*)::int AS n,SUM(amount)::text AS amount FROM finance_transactions')).rows[0].n,1);assert.equal((await db.query('SELECT amount FROM finance_transactions')).rows[0].amount,'200.00');
  assert.equal((await db.query('SELECT staff_paid_amount FROM commission_entries WHERE id=$1',[newDirector.id])).rows[0].staff_paid_amount,'200.00');
+ const {FinanceService}=load(path.join(root,'apps/api/src/finance/finance.service.ts')),finance=new FinanceService(db);
+ assert.equal((await finance.listTransactions({...executive,role:'SUPER_ADMIN'})).length,0);
+ assert.equal((await finance.listTransactions(master)).length,1);
+ assert.equal((await finance.listTransactions({id:director,role:'ADMIN'})).length,1);
  await pg.close();console.log('Staff pool PostgreSQL checks passed: all six examples, exact 3-way split, unsplit director, versioned rates and recipients, idempotency, private participant views, forbidden settings/payments, partial returns and net payment.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

@@ -29,7 +29,7 @@ export class FinanceController {
   @Post('accounts') account(@Body() dto: CreateFinanceAccountDto, @Req() req: UserRequest) { return this.finance.createAccount(dto, req.user); }
   @Patch('accounts/:id') updateAccount(@Param('id') id:string,@Body() dto: CreateFinanceAccountDto,@Req() req:UserRequest) { return this.finance.updateAccount(id,dto,req.user); }
   @Delete('accounts/:id') archiveAccount(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.archiveAccount(id,req.user); }
-  @Get('transactions') transactions() { return this.finance.listTransactions(); }
+  @Get('transactions') transactions(@Req() req:UserRequest) { return this.finance.listTransactions(req.user); }
   @Get('reconciliation') reconciliation(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.finance.reconciliation(dateFrom,dateTo); }
 
   // Yönetici yalnızca bekleyen havaleyi görüp siparişle eşleştirebilir.

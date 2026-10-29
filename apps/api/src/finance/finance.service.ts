@@ -8,6 +8,7 @@ import { ApproveCollectionDto } from './dto/approve-collection.dto';
 import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlement.dto';
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
+import { StaffChannelService } from '../commissions/staff-channel.service';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -65,8 +66,9 @@ export class FinanceService {
       return {id,archived:true};
     });
   }
-  async listTransactions() {
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`)).rows;
+  async listTransactions(actor?:RequestUser) {
+    const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`,[canSeeAll,actor?.id??null])).rows;
   }
   async reconciliation(dateFrom?:string,dateTo?:string) {
     const [accounts,unmatched]=await Promise.all([

@@ -13,12 +13,15 @@ import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { DatabaseService } from '../database/database.service';
+import { StaffChannelService } from '../commissions/staff-channel.service';
+import { ForbiddenException } from '@nestjs/common';
 
 type UserRequest=Request & {user:RequestUser};
 class UpdateOrderNoteDto { @IsOptional() @IsString() @MaxLength(1000) note?: string; }
 @Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
 export class OrdersController {
-  constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService) {}
+  constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService,private readonly db:DatabaseService) {}
   @Get() list(@Query('channel') channel?:string) { return this.orders.list(channel); }
   @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN)
   reportSummary(@Query('days') days?:string) { return this.orders.reportSummary(Number(days ?? 30)); }
@@ -27,7 +30,7 @@ export class OrdersController {
   @Get('sales-report') @RequireRoles(Roles.SUPER_ADMIN)
   salesReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('channel') channel?:string,@Query('product') product?:string,@Query('status') status?:string,@Query('customer') customer?:string) { return this.orders.salesReport(dateFrom,dateTo,channel,product,status,customer); }
   @Get('special-report') @RequireRoles(Roles.SUPER_ADMIN)
-  specialReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.orders.specialReport(dateFrom,dateTo); }
+  async specialReport(@Req() req:UserRequest,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { if(!(await new StaffChannelService(this.db).access(req.user)).canSeeAll)throw new ForbiddenException('Bu Rapor Özel Prim Bilgileri İçerir. Kendi Hakedişlerinizi Prim Panelinizden Görebilirsiniz.');return this.orders.specialReport(dateFrom,dateTo); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   options(@Query('channel') channel?: string) { return this.adminOrders.options(undefined, channel); }
   @Get('notes') listNotes() { return this.orders.listNotes(); }
