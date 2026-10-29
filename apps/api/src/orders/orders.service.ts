@@ -188,7 +188,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id,client);
       return {id,status:dto.status,replayed:false,orderNumber:order.order_number,recipient:order.contact_email};
     });
-    if (!result.replayed && result.status === 'DELIVERED') {
+    if (result.status === 'DELIVERED') {
       const dealer = await this.db.query<{ dealer_id: string }>("SELECT dua.dealer_id FROM audit_logs al JOIN dealer_user_accounts dua ON dua.user_id=al.actor_user_id WHERE al.entity_type='order' AND al.entity_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') ORDER BY al.created_at ASC LIMIT 1", [id]);
       if (dealer.rowCount) {
         const items = await this.db.query<{ id: string; product_id: string; quantity: number }>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id', [id]);
