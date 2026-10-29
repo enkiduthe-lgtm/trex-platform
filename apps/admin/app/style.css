@@ -1017,3 +1017,16 @@ main section table th { background:#f4f0f7; color:#513662; font-size:12px; }
 }
 @media(min-width:761px) and (max-width:980px){.login-page{padding:20px}.login-page>section{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:16px 24px;padding:26px}.login-page .login-brand{width:168px;height:118px}.login-page h1{font-size:30px}.login-choices{grid-template-columns:1fr}.login-page .form-card{min-width:0;padding:20px}}
 @media(max-width:760px){.login-page{min-height:100vh;padding:18px 12px;align-items:start}.login-page section{display:block;min-height:auto;padding:26px 20px}.login-page .login-brand{width:140px;height:96px}.login-page h1{font-size:29px}.login-page .form-card{min-height:0;padding:20px}.login-choices{grid-template-columns:1fr}.login-role-switch{margin-top:18px}}
+
+/* Giriş formu her ekran boyutunda sayfanın merkez ekseninde kalır. */
+.login-page { display:flex; align-items:center; justify-content:center; padding:24px; }
+.login-page>section { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:100%; max-width:none; min-height:calc(100dvh - 48px); margin:0; padding:32px clamp(20px,4vw,64px); }
+.login-page section>.login-brand { width:160px; height:100px; margin:0; align-self:center; }
+.login-page section>h1,.login-page section>p { max-width:100%; margin:0; text-align:center; align-self:center; }
+.login-page section>.login-role-switch,.login-page section>.login-choices { width:min(100%,1100px); margin:0; }
+.login-page section>.form-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:start; gap:20px; width:min(100%,1100px); max-width:none; min-height:0; margin:0; padding:28px; }
+.login-page .form-card label { min-width:0; margin:0; }
+.login-page .form-card input { width:100%; min-height:46px; }
+.login-page .form-card>button,.login-page .form-card>p,.login-page .form-card>.full { grid-column:1 / -1; }
+.login-page .form-card>button { width:100%; min-height:46px; margin:0; }
+@media(max-width:900px){.login-page section>.form-card{grid-template-columns:1fr}.login-page>section{padding:24px 16px}.login-page{padding:12px}.login-page section>.login-brand{width:140px;height:84px}}
