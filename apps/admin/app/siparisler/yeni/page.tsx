@@ -18,6 +18,11 @@ export default function NewOrder() {
   const [options,setOptions] = useState<Options|null>(null);
   const [message,setMessage] = useState('');
   const [customerSearch,setCustomerSearch] = useState('');
+  const [recentCustomerId,setRecentCustomerId] = useState('');
+  useEffect(() => {
+    try { setRecentCustomerId(window.localStorage.getItem('trex_recent_order_customer') ?? ''); } catch { /* Tarayıcı depolaması kapalıysa müşteri araması çalışmaya devam eder. */ }
+  }, []);
+  const recentCustomer = options?.customers.find(customer => customer.id === recentCustomerId);
   const [busy,setBusy] = useState(false);
   const lock = useRef(false);
   const attempt = useRef<{ payload:string; key:string }|null>(null);
@@ -29,6 +34,10 @@ export default function NewOrder() {
   },[form.salesChannel]);
   function chooseCustomer(id:string) {
     const customer = options?.customers.find(item => item.id===id);
+    if (customer) {
+      setRecentCustomerId(customer.id);
+      try { window.localStorage.setItem('trex_recent_order_customer', customer.id); } catch { /* Seçim depolama olmadan da siparişe uygulanır. */ }
+    }
     setForm(current => ({ ...current,customerId:id,recipientName:customer ? `${customer.first_name} ${customer.last_name}` : '',contactEmail:customer?.email ?? '',phone:customer?.phone ?? '' }));
   }
   async function submit(event:FormEvent) {
@@ -55,7 +64,7 @@ export default function NewOrder() {
     {form.salesChannel&&!options&&!message&&<p>Ürün ve depo seçenekleri yükleniyor…</p>}
     {options&&<form onSubmit={submit} className={styles.newOrder}>
       <fieldset disabled={busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
-        <div className="customer-picker"><label>Kayıtlı Müşteri Ara<input value={customerSearch} onChange={event=>setCustomerSearch(event.target.value)} placeholder="Ad, Telefon Veya E-Posta" autoComplete="off" /></label>{customerSearch.trim() && <div className="customer-suggestions">{options.customers.filter(customer=>[customer.first_name,customer.last_name,customer.email,customer.phone].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(customerSearch.trim().toLocaleLowerCase('tr-TR'))).slice(0,8).map(customer=><button type="button" key={customer.id} onClick={()=>{chooseCustomer(customer.id);setCustomerSearch('');}}><strong>{customer.first_name} {customer.last_name}</strong><span>{customer.email} · {customer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button>)}</div>}<label>Seçilen Müşteri<select value={form.customerId} onChange={event=>chooseCustomer(event.target.value)}><option value="">Yeni / Misafir Müşteri</option>{options.customers.map(customer=><option key={customer.id} value={customer.id}>{customer.first_name} {customer.last_name} · {customer.email}</option>)}</select></label></div>
+        <div className="customer-picker">{recentCustomer && !form.customerId && <div className="customer-suggestions"><button type="button" onClick={()=>chooseCustomer(recentCustomer.id)}><small>Son Kullanılan Müşteri</small><strong>{recentCustomer.first_name} {recentCustomer.last_name}</strong><span>{recentCustomer.email} · {recentCustomer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button></div>}<label>Kayıtlı Müşteri Ara<input value={customerSearch} onChange={event=>setCustomerSearch(event.target.value)} placeholder="Ad, Telefon Veya E-Posta" autoComplete="off" /></label>{customerSearch.trim() && <div className="customer-suggestions">{options.customers.filter(customer=>[customer.first_name,customer.last_name,customer.email,customer.phone].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(customerSearch.trim().toLocaleLowerCase('tr-TR'))).slice(0,8).map(customer=><button type="button" key={customer.id} onClick={()=>{chooseCustomer(customer.id);setCustomerSearch('');}}><strong>{customer.first_name} {customer.last_name}</strong><span>{customer.email} · {customer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button>)}</div>}<label>Seçilen Müşteri<select value={form.customerId} onChange={event=>chooseCustomer(event.target.value)}><option value="">Yeni / Misafir Müşteri</option>{options.customers.map(customer=><option key={customer.id} value={customer.id}>{customer.first_name} {customer.last_name} · {customer.email}</option>)}</select></label></div>
         <label>Depo<select required value={form.warehouseId} onChange={event=>setForm({...form,warehouseId:event.target.value})}><option value="">Depo seçin</option>{options.warehouses.map(warehouse=><option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
         <label>Alıcı adı<input required maxLength={160} value={form.recipientName} onChange={event=>setForm({...form,recipientName:event.target.value})}/></label>
         <label>E-posta<input required type="email" maxLength={254} value={form.contactEmail} onChange={event=>setForm({...form,contactEmail:event.target.value})}/></label>
