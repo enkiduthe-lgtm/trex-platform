@@ -61,6 +61,8 @@ async function main(){
  await commissions.pay(newDirector.id,{accountId:account},master);await commissions.pay(newDirector.id,{accountId:account},master);
  assert.equal((await db.query('SELECT count(*)::int AS n,SUM(amount)::text AS amount FROM finance_transactions')).rows[0].n,1);assert.equal((await db.query('SELECT amount FROM finance_transactions')).rows[0].amount,'200.00');
  assert.equal((await db.query('SELECT staff_paid_amount FROM commission_entries WHERE id=$1',[newDirector.id])).rows[0].staff_paid_amount,'200.00');
+ const foreignOrder=uuid(70),foreignItem=uuid(71);await db.query("INSERT INTO orders VALUES($1,'USD-TEST','RETAIL','DELIVERED','USD',now()+interval '1 minute')",[foreignOrder]);await db.query("INSERT INTO order_items VALUES($1,$2,$3,'Tea','TEA',1,'USD')",[foreignItem,foreignOrder,product]);await commissions.awardForDeliveredOrder(foreignOrder,master.id);
+ const foreignPrim=(await db.query("SELECT amount,currency FROM commission_entries WHERE order_id=$1 AND staff_role='DIRECTOR'",[foreignOrder])).rows[0];assert.equal(foreignPrim.amount,'200.00');assert.equal(foreignPrim.currency,'TRY');
  const {FinanceService}=load(path.join(root,'apps/api/src/finance/finance.service.ts')),finance=new FinanceService(db);
  assert.equal((await finance.listTransactions({...executive,role:'SUPER_ADMIN'})).length,0);
  assert.equal((await finance.listTransactions(master)).length,1);

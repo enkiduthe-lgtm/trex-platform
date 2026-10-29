@@ -80,8 +80,7 @@ export class StaffChannelService {
   if(!order||order.status!=='DELIVERED')throw new BadRequestException('Prim İçin Teslim Edilmiş Sipariş Gerekli');
   const settings=(await client.query<Settings>('SELECT id,executive_count,executive_ids,director_id FROM staff_prim_settings WHERE created_at<=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[order.created_at])).rows[0];
   if(!settings)return {handled:false,created:0};
-  // Fixed TL rates cannot silently become USD/EUR amounts.
-  if(order.currency!=='TRY')return {handled:true,created:0};
+  // These are fixed TL-per-unit rates, regardless of the order's sale currency.
   const items=await client.query<{id:string;product_id:string;quantity:number}>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id FOR UPDATE',[orderId]);
   let created=0;
   for(const item of items.rows){
