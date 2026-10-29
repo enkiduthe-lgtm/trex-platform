@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { api, clearToken, logout } from '../lib/api';
 import { currencyTotals } from '../lib/report-totals';
 import styles from './portal.module.css';
@@ -36,6 +36,17 @@ export default function DealerPortal() {
   const [ready, setReady] = useState(false);
   const [search, setSearch] = useState('');
   const [priceOverride, setPriceOverride] = useState('');
+  const actionLock = useRef(false);
+  const pendingOrder = useRef<{ body: string; key: string } | null>(null);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const validRange = !dateFrom || !dateTo || dateFrom <= dateTo;
+  const inRange = (value: string) => {
+    const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(new Date(value));
+    return validRange && (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+  };
+  const shownOrders = orders.filter(row => inRange(row.created_at));
+  const shownLedger = ledger.filter(row => inRange(row.created_at));
   const product = options.products.find(row => row.id === form.productId);
   const balances = useMemo(() => currencyTotals(ledger.map(row => ({ currency: row.currency, amount: row.direction === 'DEBIT' ? row.amount : `-${row.amount}` }))), [ledger]);
   const [available, setAvailable] = useState<{ currency: string; amount: string }[]>([]);
@@ -64,15 +75,20 @@ export default function DealerPortal() {
     setForm(current => ({ ...current, productId: '', quantity: 1 })); setMessage(''); setTab('Yeni Sipariş');
   }
   async function action(work: () => Promise<void>) {
+    if (actionLock.current) return;
+    actionLock.current = true;
     setBusy(true); setMessage('');
-    try { await work(); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem Tamamlanamadı.'); } finally { setBusy(false); }
+    try { await work(); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem Tamamlanamadı.'); } finally { actionLock.current = false; setBusy(false); }
   }
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!items.length) return setMessage('Siparişe En Az Bir Ürün Ekleyin.');
     if (!options.warehouses[0]) return setMessage('Genel Stok Tanımı Bulunamadı. Yöneticiyle İletişime Geçin.');
     await action(async () => {
-      const result = await api<{ order_number: string }>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ ...form, warehouseId: options.warehouses[0].id, currency: items[0].currency, items: items.map(({ productId, quantity, unitAmount }) => ({ productId, quantity, unitAmount: Number(unitAmount) })), priceChangeReason: 'Bayi Portalı Fiyatı' }) });
+      const body = JSON.stringify({ ...form, warehouseId: options.warehouses[0].id, currency: items[0].currency, items: items.map(({ productId, quantity, unitAmount }) => ({ productId, quantity, unitAmount: Number(unitAmount) })), priceChangeReason: 'Bayi Portalı Fiyatı' });
+      if (pendingOrder.current?.body !== body) pendingOrder.current = { body, key: crypto.randomUUID() };
+      const result = await api<{ order_number: string }>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': pendingOrder.current.key }, body });
+      pendingOrder.current = null;
       setItems([]); setForm({ ...initial, contactEmail: email }); setTab('Siparişlerim');
       setMessage(`${result.order_number} Numaralı Sipariş Oluşturuldu.`); await load();
     });
@@ -82,6 +98,7 @@ export default function DealerPortal() {
     {message && <p role="status" className="notice">{message}</p>}
     <section className={styles.cards} aria-label="Hesap Özeti"><article><h2>Siparişlerim</h2><strong>{summary?.order_count ?? '—'}</strong></article><article><h2>Kullanılabilir Prim</h2>{available.length ? available.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}<small>Tüm Kesinleşen Ve Kullanılabilir Kayıtlar</small></article><article><h2>Cari Bakiye</h2>{balances.length ? balances.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}</article></section>
     <nav className={styles.tabs} aria-label="Bayi Paneli Bölümleri">{tabs.map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)}>{value}</button>)}</nav>
+    {['Siparişlerim', 'Cari Hesabım'].includes(tab) && <section className={styles.box} aria-label="Tarih Filtresi"><div className={styles.grid}><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label><button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihleri Temizle</button></div><p>Tarih Filtresi Tablodaki Kayıtları Sınırlar. Üstteki Hesap Bakiyeleri Tüm Dönemleri Kapsar.</p>{!validRange && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}</section>}
     {!ready ? <section className={styles.box}><p>Bayi Bilgileri Bekleniyor.</p></section> : <>
     {tab === 'Yeni Sipariş' && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await load(); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form onSubmit={event => void create(event)}>
       <div className={styles.grid}>{([['recipientName', 'Alıcı Adı'], ['contactEmail', 'E-Posta'], ['phone', 'Telefon'], ['city', 'İl'], ['district', 'İlçe'], ['postalCode', 'Posta Kodu']] as const).map(([key, label]) => <label key={key}>{label}<input required={key !== 'postalCode'} type={key === 'contactEmail' ? 'email' : 'text'} value={form[key]} onChange={event => change(key, event.target.value)} /></label>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} onChange={event => change('paymentMethod', event.target.value)}><option value="TRANSFER">Havale / EFT</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label className={styles.full}>Açık Adres<textarea required value={form.addressLine} onChange={event => change('addressLine', event.target.value)} /></label></div>
@@ -89,10 +106,10 @@ export default function DealerPortal() {
       <div className={styles.table}><table><thead><tr><th>Ürün</th><th>Adet</th><th>Bayi Birim Fiyatı</th><th>İşlem</th></tr></thead><tbody>{items.map(row => <tr key={row.productId}><td>{options.products.find(p => p.id === row.productId)?.name}</td><td>{row.quantity}</td><td>{money(row.unitAmount, row.currency)}</td><td><button type="button" className="secondary" onClick={() => setItems(current => current.filter(item => item.productId !== row.productId))}>Çıkar</button></td></tr>)}{!items.length && <tr><td colSpan={4}>Henüz Ürün Eklenmedi.</td></tr>}</tbody></table></div><div className={styles.actions}>{totals.map(row => <strong key={row.currency}>Toplam: {money(row.amount, row.currency)}</strong>)}<button type="submit" disabled={busy || !items.length}>{busy ? 'İşleniyor…' : 'Siparişi Oluştur'}</button></div>
     </form>}</section>}
     {tab === 'Ürünler' && <section className={styles.box}><h2>Ürünler Ve Bayi Fiyatları</h2><label>Ürün Ara<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Ürün Adı Veya SKU" /></label><div className={styles.table}><table><thead><tr><th>Ürün</th><th>SKU</th><th>Bayi Fiyatı</th><th>İşlem</th></tr></thead><tbody>{options.products.filter(row => `${row.name} ${row.sku}`.toLocaleLowerCase('tr-TR').includes(search.toLocaleLowerCase('tr-TR'))).map(row => <tr key={row.id}><td>{row.name}</td><td>{row.sku}</td><td>{row.amount === null ? 'Fiyat Tanımlanmamış' : money(row.amount, row.currency || 'TRY')}</td><td><button disabled={busy || row.amount === null} onClick={() => addItem(row)}>Siparişe Ekle</button></td></tr>)}</tbody></table></div></section>}
-    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2><div className={styles.table}><table><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{orders.map(row => <tr key={row.id}><td>{row.order_number}</td><td>{date(row.created_at)}</td><td>{money(row.total_amount, row.currency)}</td><td>{statuses[row.status] ?? row.status}</td><td>{['PENDING_PAYMENT', 'PROCESSING'].includes(row.status) ? <button disabled={busy} onClick={() => { if (window.confirm(`${row.order_number} Numaralı Sipariş İptal Edilsin Mi?`)) void action(async () => { await api(`/dealer-portal/orders/${row.id}/cancel`, { method: 'POST' }); await load(); }); }}>Siparişi İptal Et</button> : '—'}</td></tr>)}{!orders.length && <tr><td colSpan={5}>Henüz Sipariş Bulunmuyor.</td></tr>}</tbody></table></div></section>}
+    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2><div className={styles.table}><table><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{shownOrders.map(row => <tr key={row.id}><td>{row.order_number}</td><td>{date(row.created_at)}</td><td>{money(row.total_amount, row.currency)}</td><td>{statuses[row.status] ?? row.status}</td><td>{['PENDING_PAYMENT', 'PROCESSING'].includes(row.status) ? <button disabled={busy} onClick={() => { if (window.confirm(`${row.order_number} Numaralı Sipariş İptal Edilsin Mi?`)) void action(async () => { await api(`/dealer-portal/orders/${row.id}/cancel`, { method: 'POST' }); await load(); }); }}>Siparişi İptal Et</button> : '—'}</td></tr>)}{!shownOrders.length && <tr><td colSpan={5}>Seçilen Tarihlerde Sipariş Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     {tab === 'Kargo Takibi' && <section className={styles.box}><h2>Kargo Kayıtlarım</h2><p>Yalnızca Kaydedilmiş Kargo Bilgileri Gösterilir.</p><div className={styles.table}><table><thead><tr><th>Sipariş</th><th>Kargo Firması</th><th>Takip Numarası</th><th>Kayıt Durumu</th></tr></thead><tbody>{shipments.map(row => <tr key={row.id}><td>{row.order_number}</td><td>{row.provider}</td><td>{row.tracking_number || 'Henüz Oluşmadı'}</td><td>{statuses[row.status] ?? row.status}</td></tr>)}{!shipments.length && <tr><td colSpan={4}>Henüz Kargo Kaydı Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     {tab === 'Primlerim' && <section className={styles.box}><h2>Prim Hareketlerim</h2><p>Son 100 Prim Hareketi Gösterilir.</p><div className={styles.table}><table><thead><tr><th>Tarih</th><th>Sipariş</th><th>Tutar</th><th>Durum</th><th>Açıklama</th></tr></thead><tbody>{commissions.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.order_number}</td><td>{money(row.amount, row.currency)}</td><td>{row.entry_kind === 'REVERSAL' ? 'Ters Kayıt' : statuses[row.status] ?? row.status}</td><td>{row.note || '—'}</td></tr>)}{!commissions.length && <tr><td colSpan={5}>Henüz Prim Hareketi Bulunmuyor.</td></tr>}</tbody></table></div></section>}
-    {tab === 'Cari Hesabım' && <section className={styles.box}><h2>Cari Hesap Hareketlerim</h2><div className={styles.table}><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Açıklama</th></tr></thead><tbody>{ledger.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.direction === 'DEBIT' ? 'Borç' : 'Alacak'}</td><td>{money(row.amount, row.currency)}</td><td>{row.description || '—'}</td></tr>)}{!ledger.length && <tr><td colSpan={4}>Henüz Cari Hareket Bulunmuyor.</td></tr>}</tbody></table></div></section>}
+    {tab === 'Cari Hesabım' && <section className={styles.box}><h2>Cari Hesap Hareketlerim</h2><div className={styles.table}><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Açıklama</th></tr></thead><tbody>{shownLedger.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.direction === 'DEBIT' ? 'Borç' : 'Alacak'}</td><td>{money(row.amount, row.currency)}</td><td>{row.description || '—'}</td></tr>)}{!shownLedger.length && <tr><td colSpan={4}>Seçilen Tarihlerde Cari Hareket Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     </>}
   </main>;
 }
