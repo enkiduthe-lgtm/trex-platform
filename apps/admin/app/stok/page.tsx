@@ -19,6 +19,21 @@ export default function Inventory() {
   const [view, setView] = useState<View>('stok');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [stock, setStock] = useState<Stock[]>([]);
+  const [stockSearch, setStockSearch] = useState('');
+  const generalStock = useMemo(() => {
+    const grouped = new Map<string, Stock>();
+    for (const item of stock) {
+      const previous = grouped.get(item.product_id);
+      grouped.set(item.product_id, {
+        ...item,
+        physical_quantity: Number(previous?.physical_quantity ?? 0) + Number(item.physical_quantity),
+        reserved_quantity: Number(previous?.reserved_quantity ?? 0) + Number(item.reserved_quantity),
+        available_quantity: Number(previous?.available_quantity ?? 0) + Number(item.available_quantity),
+      });
+    }
+    const query = stockSearch.trim().toLocaleLowerCase('tr-TR');
+    return Array.from(grouped.values()).filter(item => !query || `${item.product_name} ${item.sku}`.toLocaleLowerCase('tr-TR').includes(query)).sort((a,b) => a.product_name.localeCompare(b.product_name, 'tr'));
+  }, [stock, stockSearch]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -91,7 +106,7 @@ export default function Inventory() {
     <nav className="stock-local-nav" aria-label="Stok bölümleri"><button className={view === 'stok' ? 'selected' : ''} onClick={() => setView('stok')}>Stok Ve Envanter</button><button className={view === 'raporlar' ? 'selected' : ''} onClick={() => setView('raporlar')}>Gelen / Giden Raporlar</button><a href="/depo-operasyon">Sipariş Hazırlama Ve Kargo →</a></nav>
     {message && <p role="status">{message}</p>}
     {dashboard && <div className="cards"><article><p>HAZIRLANACAK</p><h2>{dashboard.waiting}</h2></article><article><p>TOPLANIYOR</p><h2>{dashboard.picking}</h2></article><article><p>PAKETLEME</p><h2>{dashboard.packing}</h2></article><article><p>KRİTİK STOK</p><h2>{dashboard.critical_stock}</h2></article></div>}
-    {view === 'stok' && <><form className="form-card" onSubmit={receiveStock}><h2>Genel Stok Girişi</h2><div className="form-grid"><label>Ürün<select required value={receipt.productId} onChange={e => setReceipt(current => ({ ...current, productId: e.target.value }))}><option value="">Ürün Seçin</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label><label>Stok Giriş Adedi<input required type="number" min="1" step="1" value={receipt.quantity} onChange={e => setReceipt(current => ({ ...current, quantity: e.target.value }))} /></label><label>Stoğa Giriş Tarihi<input required type="date" value={receipt.receivedAt} onChange={e => setReceipt(current => ({ ...current, receivedAt: e.target.value }))} /></label><label>Açıklama <small>(İsteğe Bağlı)</small><input value={receipt.note} placeholder="Stok giriş notu" onChange={e => setReceipt(current => ({ ...current, note: e.target.value }))} /></label></div><button disabled={busy}>Stoğu Kaydet</button></form><section className="form-card"><h2>Mevcut Genel Stok</h2><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Ürün</th><th>SKU</th><th>Fiziksel Stok</th><th>Rezerve</th><th>Kalan Stok</th></tr></thead><tbody>{stock.map(item => <tr key={`${item.warehouse_id}:${item.product_id}`}><td>{item.product_name}</td><td>{item.sku}</td><td>{item.physical_quantity}</td><td>{item.reserved_quantity}</td><td><strong>{item.available_quantity}</strong></td></tr>)}</tbody></table>{!stock.length && <p>Henüz stok kaydı yok.</p>}</div></section></>}
+    {view === 'stok' && <><form className="form-card" onSubmit={receiveStock}><h2>Genel Stok Girişi</h2><div className="form-grid"><label>Ürün<select required value={receipt.productId} onChange={e => setReceipt(current => ({ ...current, productId: e.target.value }))}><option value="">Ürün Seçin</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label><label>Stok Giriş Adedi<input required type="number" min="1" step="1" value={receipt.quantity} onChange={e => setReceipt(current => ({ ...current, quantity: e.target.value }))} /></label><label>Stoğa Giriş Tarihi<input required type="date" value={receipt.receivedAt} onChange={e => setReceipt(current => ({ ...current, receivedAt: e.target.value }))} /></label><label>Açıklama <small>(İsteğe Bağlı)</small><input value={receipt.note} placeholder="Stok giriş notu" onChange={e => setReceipt(current => ({ ...current, note: e.target.value }))} /></label></div><button disabled={busy}>Stoğu Kaydet</button></form><section className="form-card"><h2>Mevcut Genel Stok</h2><label>Ürün Veya SKU Ara<input value={stockSearch} onChange={event=>setStockSearch(event.target.value)} placeholder="Ürün Adı Veya SKU" /></label><div className="table-wrap"><table><thead><tr><th>Ürün</th><th>SKU</th><th>Fiziksel Stok</th><th>Rezerve</th><th>Kalan Stok</th></tr></thead><tbody>{generalStock.map(item => <tr key={item.product_id}><td>{item.product_name}</td><td>{item.sku}</td><td>{item.physical_quantity}</td><td>{item.reserved_quantity}</td><td><strong>{item.available_quantity}</strong></td></tr>)}</tbody></table>{!generalStock.length && <p>Henüz stok kaydı yok.</p>}</div></section></>}
     {view === 'raporlar' && <><section className="form-card"><h2>Gelen Ürün Bazlı Rapor</h2><button disabled={!incoming.length} onClick={() => exportRows('trex-gelen-urun-raporu', incoming)}>Excel&apos;e Aktar</button>{table(incoming, 'Gelen ürün hareketi yok.')}</section><section className="form-card"><h2>Giden Ürün Bazlı Rapor</h2><button disabled={!outgoing.length} onClick={() => exportRows('trex-giden-urun-raporu', outgoing)}>Excel&apos;e Aktar</button>{table(outgoing, 'Giden ürün hareketi yok.')}</section></>}
   </section></main>;
 }
