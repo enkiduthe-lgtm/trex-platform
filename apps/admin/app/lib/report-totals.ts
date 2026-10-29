@@ -1,4 +1,11 @@
 /** Sum decimal money exactly, keeping each currency separate. */
+export function multiplyMoney(amount: string, quantity: number) {
+  if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || !Number.isSafeInteger(quantity) || quantity < 1) throw new Error('Geçersiz Tutar Veya Adet');
+  const [whole, fraction = ''] = amount.split('.');
+  const cents = (BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'))) * BigInt(quantity);
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+}
+
 export function currencyTotals(rows: { currency: string; amount: string }[]) {
   const totals = new Map<string, bigint>();
   for (const row of rows) {
