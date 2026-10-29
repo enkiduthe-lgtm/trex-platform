@@ -51,6 +51,16 @@ export class WarehouseService {
     return result.rows[0];
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
+  async stockReport() {
+    return (await this.db.query(`SELECT p.id,p.name,p.sku,p.status,
+      COALESCE(SUM(i.physical_quantity),0)::text AS physical_quantity,
+      COALESCE(SUM(i.reserved_quantity),0)::text AS reserved_quantity,
+      COALESCE(SUM(i.physical_quantity-i.reserved_quantity),0)::text AS available_quantity,
+      COALESCE(bool_or(i.physical_quantity-i.reserved_quantity<=COALESCE(rl.minimum_quantity,5)),true) AS is_critical
+      FROM products p LEFT JOIN inventory i ON i.product_id=p.id
+      LEFT JOIN inventory_reorder_levels rl ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id
+      GROUP BY p.id ORDER BY p.name,p.id`)).rows;
+  }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
   async listLots() { return (await this.db.query(`SELECT l.id,l.product_id,l.warehouse_id,l.lot_code,l.expiry_date,l.available_quantity,l.location_code,l.created_at,
       p.name AS product_name,p.sku,w.name AS warehouse_name,

@@ -58,7 +58,8 @@ export default function Reports() {
       <tbody><tr><td><b>Detaylı Satış Raporu</b><small>Sipariş Ve Ürün Satırları; Para Birimine Göre Ayrı Toplamlar.</small></td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
       {shownCatalog.map(([name, description, category]) => {
         const reportGroup = Object.entries(salesGroups).find(([, title]) => title === name)?.[0];
-        return <tr key={name}><td><b>{name}</b><small>{reportGroup ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{reportGroup ? 'Hazır' : 'Geliştirme Bekliyor'}</td><td>{reportGroup ? <Link href={`/raporlar/satis?group=${reportGroup}`}>Raporu Aç</Link> : <button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button>}</td></tr>;
+        const target = reportGroup ? `/raporlar/satis?group=${reportGroup}` : name === 'Stok Durum Raporu' ? '/raporlar/envanter' : name === 'Kritik Stok Seviyesindeki Ürünler' ? '/raporlar/envanter?critical=true' : name === 'Günlük Yeni Üye Kaydı' ? '/raporlar/uyeler' : null;
+        return <tr key={name}><td><b>{name}</b><small>{reportGroup ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{target ? 'Hazır' : 'Geliştirme Bekliyor'}</td><td>{target ? <Link href={target}>Raporu Aç</Link> : <button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button>}</td></tr>;
       })}
       </tbody></table></div>
     </section>
