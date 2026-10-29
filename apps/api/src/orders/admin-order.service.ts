@@ -28,9 +28,9 @@ export class AdminOrderService {
     const productQuery = dealerId
       ? this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
-            AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel='DEALER_PORTAL') OR (scope='DEALER' AND dealer_id=$1) OR (scope='DEALER_PRICE_GROUP' AND dealer_price_group_id=$2) OR (scope='DEALER_LEVEL' AND dealer_level_id=$3))
+            AND scope='DEALER_LEVEL' AND dealer_level_id=$1
             ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1) price ON true
-          WHERE p.status='ACTIVE' ORDER BY p.name`, [context!.id, context!.price_group_id, context!.dealer_level_id])
+          WHERE p.status='ACTIVE' ORDER BY p.name`, [context!.dealer_level_id])
       : this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
             AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel=$1::sales_channel_code) OR ($1='RETAIL' AND scope='CHANNEL' AND channel='ADMIN_ORDER'))
@@ -75,6 +75,8 @@ export class AdminOrderService {
       }
       const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR SHARE", [dealerId]) : null;
       if (dealerId && !dealer?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
+      if (dealerId && !dealer?.rows[0].dealer_level_id) throw new ForbiddenException('Sipariş İçin Bayi Seviyesi Atanmalı.');
+      if (dealerId && currency !== 'TRY') throw new BadRequestException('Bayi Seviye Fiyatları TL Üzerinden Uygulanır.');
       const warehouse = await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
       if (!warehouse.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
       if (dto.customerId) {
@@ -87,7 +89,7 @@ export class AdminOrderService {
         const product = await client.query<{ name: string; sku: string }>("SELECT name,sku FROM products WHERE id=$1 AND status='ACTIVE' FOR SHARE", [item.productId]);
         if (!product.rows[0]) throw new NotFoundException('Aktif ürün bulunamadı');
         const price = dealerId
-          ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND ((scope='DEALER' AND dealer_id=$2) OR (scope='DEALER_PRICE_GROUP' AND dealer_price_group_id=$3) OR (scope='DEALER_LEVEL' AND dealer_level_id=$4) OR (scope='CHANNEL' AND channel='DEALER_PORTAL') OR scope='GLOBAL') ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].id,dealer!.rows[0].price_group_id,dealer!.rows[0].dealer_level_id])).rows[0]
+          ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND scope='DEALER_LEVEL' AND dealer_level_id=$2 ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].dealer_level_id])).rows[0]
           : (await client.query<{ amount: string; currency: string }>(effectivePrice, [item.productId, salesChannel])).rows[0];
         if (!price || price.currency.trim() !== 'TRY') throw new ConflictException(`${product.rows[0].name} için geçerli TL fiyatı gerekli`);
         if (dealerId && item.unitAmount !== undefined && item.unitAmount < Number(price.amount)) throw new ForbiddenException(`${product.rows[0].name} bayi fiyatının altında siparişe eklenemez`);
@@ -129,7 +131,7 @@ export class AdminOrderService {
       const payment = await client.query<{ id: string }>("INSERT INTO payments(checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id", [checkoutId,provider,reference,total,currency]);
       await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$3,$2)', [orderId,actor.id,orderStatus]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ commissionModel: dealerId ? 'DEALER_MARGIN_V1' : undefined,dealerLevelId: dealer?.rows[0].dealer_level_id ?? null,dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);
       return { ...order.rows[0], replayed: false };
     });

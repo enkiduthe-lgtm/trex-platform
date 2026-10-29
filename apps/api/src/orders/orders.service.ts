@@ -185,7 +185,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);
-      if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id);
+      if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id,client);
       return {id,status:dto.status,replayed:false,orderNumber:order.order_number,recipient:order.contact_email};
     });
     if (!result.replayed && result.status === 'DELIVERED') {
