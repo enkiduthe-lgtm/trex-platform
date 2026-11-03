@@ -23,7 +23,28 @@ async function main(){
  const usd=await service.reportSummary(30,'2026-10-01','2026-10-31','USD');assert.equal(usd.totals.revenue,'500.00');assert.equal(usd.financial.income,'500.00');
  const manager=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY',{id:id(91),role:'ADMIN'});assert.equal(manager.financial.expense,'2.10');assert.equal(manager.financial.net,'10.00');
  const operations=await service.operationalSummary(30,'2026-10-01','2026-10-31');assert.equal(operations.shipments_active,1);
+ await pg.exec(`ALTER TABLE orders ADD checkout_id uuid;UPDATE orders SET checkout_id=id;
+ ALTER TABLE finance_accounts ADD name text;UPDATE finance_accounts SET name='Test Hesabı';
+ ALTER TABLE finance_transactions ADD cost_center text,ADD expense_category text;
+ ALTER TABLE commission_entries ADD recipient_kind text,ADD order_id uuid,ADD order_item_id uuid,ADD amount numeric(12,2),ADD currency text,ADD status text,ADD entry_kind text,ADD created_at timestamptz;
+ CREATE TABLE payments(checkout_id uuid,provider text,status text,amount numeric(12,2),currency text);
+ INSERT INTO payments VALUES('${id(1)}','bank_transfer','SUCCEEDED',10,'TRY'),('${id(1)}','bank_transfer','FAILED',10,'TRY'),('${id(1)}','bank_transfer','REFUNDED',3,'TRY');
+ CREATE TABLE users(id uuid PRIMARY KEY,email text);INSERT INTO users VALUES('${id(90)}','director@example.test'),('${id(91)}','manager@example.test'),('${id(92)}','staff@example.test');
+ CREATE TABLE products(id uuid PRIMARY KEY,name text,sku text);INSERT INTO products VALUES('${id(50)}','Aynı Ürün','SKU-A');
+ CREATE TABLE inventory(product_id uuid,physical_quantity int,reserved_quantity int);INSERT INTO inventory VALUES('${id(50)}',10,2);
+ INSERT INTO commission_entries(recipient_user_id,recipient_kind,staff_role,order_id,order_item_id,amount,currency,status,entry_kind,created_at) VALUES
+ ('${id(90)}','MANAGER','DIRECTOR','${id(1)}','${id(101)}',8,'TRY','CONFIRMED','EARN','2026-10-15T12:00:00Z'),
+ ('${id(90)}','MANAGER','DIRECTOR','${id(1)}','${id(101)}',-2,'TRY','REVERSED','REVERSAL','2026-10-16T12:00:00Z'),
+ ('${id(90)}','MANAGER','DIRECTOR','${id(1)}','${id(101)}',1000,'TRY','PENDING','EARN','2026-10-16T12:00:00Z'),
+ ('${id(90)}','MANAGER','DIRECTOR','${id(4)}','${id(104)}',5,'TRY','PAID','EARN','2026-10-16T12:00:00Z'),
+ ('${id(91)}','MANAGER','EXECUTIVE','${id(1)}','${id(101)}',6,'TRY','CONFIRMED','EARN','2026-10-15T12:00:00Z'),
+ ('${id(92)}','STAFF',NULL,'${id(1)}','${id(101)}',3,'TRY','REVERSED','EARN','2026-10-15T12:00:00Z'),
+ ('${id(92)}','STAFF',NULL,'${id(1)}','${id(101)}',-3,'TRY','REVERSED','REVERSAL','2026-10-15T12:00:00Z');`);
+ const special=await service.specialReport('2026-10-01','2026-10-31','TRY');assert.equal(special.summary.incoming_transfers,'12.10');assert.equal(special.summary.expenses,'7.10');assert.equal(special.summary.sales,'30.00');assert.equal(special.summary.units_sold,2);assert.equal(special.summary.executive_commission,'6.00');assert.equal(special.summary.director_commission,'11.00');assert.equal(special.summary.staff_commission,'0.00');assert.equal(special.summary.commission_total,'17.00');assert.equal(special.stock[0].quantity,8);assert(special.stockAsOf);
+ assert.equal(special.products.find(x=>x.status==='CANCELLED').amount,'100.00');assert.equal(special.payments.length,3);assert(special.payments.some(x=>x.status==='FAILED'));assert(special.collections.some(x=>x.status==='PENDING'));assert(special.expenses.some(x=>x.kind==='PRIME_EXPENSE'));
+ const director=special.commissions.find(x=>x.person==='director@example.test'&&x.sales_channel==='RETAIL');assert.equal(director.earned,'13.00');assert.equal(director.reversed,'-2.00');assert.equal(director.amount,'11.00');
+ const specialUsd=await service.specialReport('2026-10-01','2026-10-31','USD');assert.equal(specialUsd.summary.sales,'500.00');assert.equal(specialUsd.summary.commission_total,'0');assert.equal(specialUsd.commissions.length,0);
  for(const [from,to,currency] of [['2026-02-30','2026-03-01','TRY'],['2026-11-01','2026-10-01','TRY'],['2000-01-01','2026-10-01','TRY'],['2026-10-01','2026-10-31','BAD'],['2026-10-01','bad','TRY']])await assert.rejects(()=>service.reportSummary(30,from,to,currency));
- await pg.close();console.log('Management report checks passed: Istanbul inclusive calendar dates, cancelled-order separation, TRY/USD isolation, pending-cash exclusion, exact cash totals, director privacy, operational dates and invalid filter rejection.');
+ await pg.close();console.log('Management and special report checks passed: Istanbul dates, cancelled orders, payment status separation, currency isolation, pending-cash exclusion, exact cash totals, pooled and legacy commission reversals, director privacy, current stock and invalid filters.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
