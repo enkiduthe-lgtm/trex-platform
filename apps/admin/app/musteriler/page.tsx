@@ -4,6 +4,8 @@ import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { downloadXlsx } from "../lib/xlsx";
+import { currencyTotals } from '../lib/report-totals';
+import { financeDateTime, inFinancePeriod } from '../lib/finance-report';
 import { createActionLock, createRequestGate } from '../lib/async-controls';
 import styles from "./customers.module.css";
 type Customer = {
@@ -111,16 +113,18 @@ export default function Customers() {
   async function exportCustomerOrders() {
     if (!selected) return;
     try {
+      if (orderReportFrom && orderReportTo && orderReportFrom > orderReportTo) { setMessage('Geçerli Bir Tarih Aralığı Seçin.'); return; }
       const params = new URLSearchParams();
       if (orderReportFrom) params.set('dateFrom', orderReportFrom);
       if (orderReportTo) params.set('dateTo', orderReportTo);
       const lines = await api<CustomerOrderReportLine[]>(`/admin/customers/${selected.id}/order-report${params.size ? `?${params}` : ''}`);
       if (!lines.length) { setMessage('Bu tarih aralığında dışa aktarılacak sipariş satırı bulunamadı.'); return; }
-      const total = lines.reduce((sum, line) => sum + Number(line.line_total), 0);
+      const totals = currencyTotals(lines.filter(line=>line.status!=='CANCELLED').map(line=>({currency:line.currency,amount:line.line_total}))); 
       downloadXlsx(`trex-${selected.id}-siparisler.xlsx`, 'Müşteri Siparişleri', [
+        ['Başlangıç',orderReportFrom || 'Tüm Geçmiş'],['Bitiş',orderReportTo || 'Sınır Yok'],[],
         ['Sipariş Tarihi', 'Sipariş Numarası', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Satış Kanalı'],
-        ...lines.map((line) => [new Date(line.created_at).toLocaleString('tr-TR'), line.order_number, line.product_name, line.sku, line.quantity, line.unit_amount, line.line_total, line.currency, line.payment_method || '—', line.status, line.sales_channel]),
-        ['', '', '', '', '', 'Toplam', total.toFixed(2), '', '', '', ''],
+        ...lines.map((line) => [financeDateTime(line.created_at), line.order_number, line.product_name, line.sku, line.quantity, Number(line.unit_amount), Number(line.line_total), line.currency, line.payment_method || '—', line.status, line.sales_channel]),
+        [],['İptaller Hariç Ürün Tutarı — Kargo Ve Ek Ücretler Hariç'],...totals.map(total=>['Toplam',total.currency,Number(total.amount)]),
       ]);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Sipariş raporu oluşturulamadı.'); }
   }
@@ -372,13 +376,14 @@ export default function Customers() {
                 <b>{selected.loyalty_points ?? 0}</b>Trex puan
               </span>
             </div>
-            <h3>Son siparişler</h3>
+            <h3>Sipariş Geçmişi</h3>
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end',marginBottom:12,padding:'10px',border:'1px solid #e5e7eb',borderRadius:8}}>
               <label style={{display:'grid',gap:4,fontSize:11}}>Başlangıç Tarihi<input type="date" value={orderReportFrom} onChange={(event) => setOrderReportFrom(event.target.value)} /></label>
               <label style={{display:'grid',gap:4,fontSize:11}}>Bitiş Tarihi<input type="date" value={orderReportTo} onChange={(event) => setOrderReportTo(event.target.value)} /></label>
               <button type="button" disabled={notesLoading} onClick={() => void exportCustomerOrders()}>Siparişleri Excel&apos;e Aktar</button>
             </div>
-            {customerOrders.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{customerOrders.slice(0,5).map(order => <Link key={order.id} href={`/siparisler/${order.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{order.order_number}</b><small style={{display:'block'}}>{order.item_count} ürün · {money(order.total_amount,order.currency)} · {order.status} · {new Date(order.created_at).toLocaleDateString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı sipariş bulunmuyor.</p>}
+            <p>Seçilen Tarihler İstanbul Saatine Göre Tabloya Ve Excel Raporuna Uygulanır.</p>
+            <div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Tarih</th><th>Ürün Adedi</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{customerOrders.filter(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo)).map(order=><tr key={order.id}><td>{order.order_number}</td><td>{financeDateTime(order.created_at)}</td><td>{order.item_count}</td><td>{money(order.total_amount,order.currency)}</td><td>{{PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'}[order.status] ?? order.status}</td><td><Link href={`/siparisler/${order.id}`}>Siparişi Aç</Link></td></tr>)}</tbody></table>{!customerOrders.some(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo))&&<p>Seçilen Tarihlerde Sipariş Yok.</p>}</div>
             <h3>Destek talepleri</h3>
             <p><Link href={`/destek?customer=${selected.id}`}>Bu müşteri için yeni destek talebi aç</Link></p>
             {supportTickets.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{supportTickets.slice(0,5).map(ticket => <Link key={ticket.id} href={`/destek?ticket=${ticket.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{ticket.ticket_number} · {ticket.subject}</b><small style={{display:'block'}}>{ticket.status} · {ticket.priority}{ticket.order_number ? ` · ${ticket.order_number}` : ''} · Yanıt hedefi: {new Date(ticket.due_at).toLocaleString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı destek talebi bulunmuyor.</p>}
