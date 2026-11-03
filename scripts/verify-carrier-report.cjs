@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'no
 function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='./report-totals'||name==='./finance-report')return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args)};
  await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('RETAIL');
- CREATE TABLE orders(id text,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
+ CREATE TABLE orders(id text PRIMARY KEY,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
  CREATE TABLE order_items(id text,order_id text,product_name text,sku text,quantity int,unit_amount numeric);
  CREATE TABLE customers(id text,first_name text,last_name text,email text);CREATE TABLE checkout_sessions(id text,contact_name text,contact_email text);CREATE TABLE order_addresses(order_id text,recipient_name text);
  CREATE TABLE shipments(order_id text UNIQUE,provider text,status text);CREATE TABLE payments(id text,checkout_id text,provider text,created_at timestamptz);

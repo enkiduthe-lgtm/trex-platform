@@ -119,7 +119,7 @@ export default function Customers() {
       if (orderReportTo) params.set('dateTo', orderReportTo);
       const lines = await api<CustomerOrderReportLine[]>(`/admin/customers/${selected.id}/order-report${params.size ? `?${params}` : ''}`);
       if (!lines.length) { setMessage('Bu tarih aralığında dışa aktarılacak sipariş satırı bulunamadı.'); return; }
-      const totals = currencyTotals(lines.filter(line=>line.status!=='CANCELLED').map(line=>({currency:line.currency,amount:line.line_total}))); 
+      const totals = currencyTotals(lines.filter(line=>line.status!=='CANCELLED').map(line=>({currency:line.currency,amount:line.line_total})));
       downloadXlsx(`trex-${selected.id}-siparisler.xlsx`, 'Müşteri Siparişleri', [
         ['Başlangıç',orderReportFrom || 'Tüm Geçmiş'],['Bitiş',orderReportTo || 'Sınır Yok'],[],
         ['Sipariş Tarihi', 'Sipariş Numarası', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Satış Kanalı'],
