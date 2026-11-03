@@ -5,6 +5,26 @@ type InvoiceRequest = { customerType: 'INDIVIDUAL' | 'CORPORATE'; recipientName:
 
 @Injectable()
 export class ParasutInvoiceProvider {
+  // Reading a PDF must never issue a new invoice or change its fiscal status.
+  async pdf(invoiceId: string) {
+    if (!/^\d+$/.test(invoiceId)) throw new ServiceUnavailableException('Paraşüt Fatura Kimliği Geçersiz.');
+    const config = this.configuration();
+    const token = await this.accessToken(config);
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.api+json' };
+    const invoice = await this.request<{ data?: { relationships?: { active_e_document?: { data?: { id: string; type: string } | null } } } }>(
+      `https://api.parasut.com/v4/${config.companyId}/sales_invoices/${invoiceId}?include=active_e_document`, { headers });
+    const document = invoice?.data?.relationships?.active_e_document?.data;
+    if (!document) throw new ServiceUnavailableException('Paraşüt’te Bu Siparişin E-Fatura / E-Arşiv Belgesi Henüz Oluşmamış. Önce Paraşüt Üzerinden Faturayı Tamamlayın.');
+    if (!['e_archives', 'e_invoices'].includes(document.type) || !/^\d+$/.test(document.id)) throw new ServiceUnavailableException('Faturanın Belge Türü PDF Yazdırma İçin Desteklenmiyor.');
+    const result = await this.request<{ data?: { attributes?: { url?: string; expires_at?: string } } } | null>(
+      `https://api.parasut.com/v4/${config.companyId}/${document.type}/${document.id}/pdf`, { headers });
+    const rawUrl = result?.data?.attributes?.url;
+    if (!rawUrl) return { ready: false as const };
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { throw new ServiceUnavailableException('Paraşüt Geçerli Bir PDF Bağlantısı Döndürmedi.'); }
+    if (url.protocol !== 'https:' || url.username || url.password) throw new ServiceUnavailableException('Paraşüt Güvenli Bir PDF Bağlantısı Döndürmedi.');
+    return { ready: true as const, url: url.href };
+  }
   private productCode(description: string) {
     const normalized = description
       .normalize('NFKD')

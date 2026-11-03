@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -38,6 +38,7 @@ export class OrdersController {
   create(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) { return this.adminOrders.create(dto,key,req.user); }
   @Get(':id') detail(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.detail(id); }
   @Get(':id/invoice') @RequireRoles(Roles.SUPER_ADMIN) invoice(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.invoice(id); }
+  @Get(':id/invoice/pdf') @Header('Cache-Control', 'no-store') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) invoicePdf(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.invoicePdf(id); }
   @Post(':id/invoice') @RequireRoles(Roles.SUPER_ADMIN) invoiceDraft(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:CreateInvoiceDraftDto,@Req() req:UserRequest) { return this.orders.createInvoiceDraft(id,dto,req.user); }
   @Post(':id/invoice/issue') @RequireRoles(Roles.SUPER_ADMIN) invoiceIssue(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) { return this.orders.issueInvoice(id,req.user); }
   @Patch(':id/prices') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

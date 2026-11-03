@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -52,6 +52,13 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
   async listNotes() { return (await this.db.query<{id:string;admin_note:string|null}>('SELECT id,admin_note FROM orders WHERE admin_note IS NOT NULL ORDER BY created_at DESC LIMIT 100')).rows; }
   async updateNote(id:string,note:string|undefined,userId:string) { const value=note?.trim()||null; const result=await this.db.query<{id:string;admin_note:string|null}>('UPDATE orders SET admin_note=$1 WHERE id=$2 RETURNING id,admin_note',[value,id]); if(!result.rowCount) throw new NotFoundException('Sipariş bulunamadı'); await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'order.admin_note.updated','order',id,JSON.stringify({hasNote:Boolean(value)})]); return result.rows[0]; }
   async invoice(orderId:string) { return (await this.db.query('SELECT * FROM order_invoices WHERE order_id=$1',[orderId])).rows[0]??null; }
+  async invoicePdf(orderId: string) {
+    const invoice = await this.invoice(orderId);
+    if (!invoice) throw new NotFoundException('Bu Sipariş İçin Henüz Fatura Hazırlanmamış.');
+    if (invoice.provider_status !== 'ISSUED' || !invoice.provider_invoice_id) throw new ConflictException('Fatura Henüz Paraşüt’e Gönderilmemiş. Önce Fatura Hazırlığını Tamamlayın.');
+    if (!this.parasut) throw new ServiceUnavailableException('Paraşüt Bağlantısı Kullanılamıyor.');
+    return this.parasut.pdf(invoice.provider_invoice_id);
+  }
   async createInvoiceDraft(orderId:string,dto:CreateInvoiceDraftDto,actor:RequestUser) {
     const individual=dto.customerType==='INDIVIDUAL';
     if(individual&&!dto.identityNumber) throw new BadRequestException('Bireysel fatura için T.C. kimlik no zorunludur');

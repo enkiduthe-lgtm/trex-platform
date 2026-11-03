@@ -261,16 +261,6 @@ export default function OrderDetail() {
     label.document.write(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 80mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:92mm;box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><script>window.onload=()=>window.print()</script></body></html>`);
     label.document.close();
   }
-  function printInvoice() {
-    if (!data) return;
-    const popup = window.open("", "_blank", "popup=yes,width=820,height=720");
-    if (!popup) { setError("Yazdırma penceresi engellendi. Tarayıcıdan açılır pencereye izin verin."); return; }
-    const recipient = escapeLabelHtml(data.address?.recipient_name ?? data.contact_name ?? "Alıcı bilgisi yok");
-    const address = data.address ? escapeLabelHtml(`${data.address.address_line}, ${data.address.district} / ${data.address.city} ${data.address.postal_code ?? ""}`) : "Adres bilgisi yok";
-    const items = data.items.map((item) => `<tr><td>${escapeLabelHtml(item.product_name)}</td><td>${escapeLabelHtml(item.sku)}</td><td>${item.quantity}</td><td>${escapeLabelHtml(item.unit_amount)} ${escapeLabelHtml(item.currency)}</td></tr>`).join("");
-    popup.document.write(`<!doctype html><html lang="tr"><head><title>Fatura ${escapeLabelHtml(data.order_number)}</title><style>@page{size:A4;margin:16mm}body{font-family:Arial,sans-serif;color:#202020}header{display:flex;justify-content:space-between;border-bottom:2px solid #222;padding-bottom:12px}h1{margin:0;font-size:22px}.meta{margin:18px 0;display:grid;grid-template-columns:1fr 1fr;gap:16px}.box{border:1px solid #ccc;padding:10px}.box strong{display:block;margin-bottom:5px}table{border-collapse:collapse;width:100%;margin-top:18px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1}.total{text-align:right;font-size:18px;font-weight:bold;margin-top:16px}</style></head><body><header><div><h1>TREX TEA</h1><p>Sipariş Faturası</p></div><div><strong>Sipariş No:</strong> ${escapeLabelHtml(data.order_number)}<br/><strong>Tarih:</strong> ${new Date().toLocaleDateString("tr-TR")}</div></header><section class="meta"><div class="box"><strong>Müşteri</strong>${recipient}<br/>${escapeLabelHtml(data.customer_email ?? "")}</div><div class="box"><strong>Teslimat Adresi</strong>${address}</div></section><table><thead><tr><th>Ürün</th><th>SKU</th><th>Adet</th><th>Birim Fiyat</th></tr></thead><tbody>${items}</tbody></table><p class="total">Toplam: ${escapeLabelHtml(data.total_amount)} ${escapeLabelHtml(data.currency)}</p><script>window.onload=()=>window.print()</script></body></html>`);
-    popup.document.close();
-  }
   async function cancelOrder() {
     if (
       cancelling ||
@@ -349,6 +339,33 @@ export default function OrderDetail() {
         {data && (
           <>
             <div className={styles.detailLayout}>
+            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+              <div className={styles.cardHeader}><h2>Sipariş akışı</h2><span>Operasyon adımları</span></div>
+              {operationMessage && <p role="status">{operationMessage}</p>}
+              <ol className={styles.flowGrid}>
+                <li className={data.fulfillment ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>1</span>
+                  <strong>Hazırla</strong>
+                  <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
+                  {canEdit && data.status === "PAID" && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
+                </li>
+                <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>2</span>
+                  <strong>Paketle / barkod bas</strong>
+                  <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
+                  {canEdit && ['PAID','PROCESSING'].includes(data.status) && data.fulfillment?.picking_status === 'COMPLETED' && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
+                  {data.fulfillment?.package_barcode && <button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Barkodu yazdır</button>}
+                </li>
+                <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>
+                  <span className={styles.flowNumber}>3</span>
+                  <strong>Kargoya ver</strong>
+                  <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Aras kaydını açıp paketi şubeye teslim edin."}</p>
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo kaydı açılıyor…" : "Kargo kaydını hazırla"}</button>}
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
+                  {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
+                </li>
+              </ol>
+            </section>
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
               <div className={styles.cardHeader}>
                 <h2>Sipariş özeti</h2>
@@ -468,36 +485,10 @@ export default function OrderDetail() {
                     <button type="submit" disabled={invoiceSaving}>{invoiceSaving ? "Kaydediliyor…" : "Fatura taslağını kaydet"}</button>
                   </form>
                 )}
-                <div className={styles.cardActions}><button type="button" onClick={printInvoice}>Faturayı Yazdır</button></div>
+                <div className={styles.cardActions}><Link className={styles.financeLink} href={`/siparisler/${id}/fatura`} target="_blank" rel="noopener noreferrer">Fatura PDF Belgesini Aç / Yazdır</Link></div>
               </section>
             )}
-            <section className={`${styles.detailCard} ${styles.detailWide}`}>
-              <div className={styles.cardHeader}><h2>Sipariş akışı</h2><span>Operasyon adımları</span></div>
-              {operationMessage && <p role="status">{operationMessage}</p>}
-              <ol className={styles.flowGrid}>
-                <li className={data.fulfillment ? styles.flowDone : styles.flowCard}>
-                  <span className={styles.flowNumber}>1</span>
-                  <strong>Hazırla</strong>
-                  <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
-                  {canEdit && data.status === "PAID" && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
-                </li>
-                <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
-                  <span className={styles.flowNumber}>2</span>
-                  <strong>Paketle / barkod bas</strong>
-                  <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
-                  {canEdit && ['PAID','PROCESSING'].includes(data.status) && data.fulfillment?.picking_status === 'COMPLETED' && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
-                  {data.fulfillment?.package_barcode && <button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Barkodu yazdır</button>}
-                </li>
-                <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>
-                  <span className={styles.flowNumber}>3</span>
-                  <strong>Kargoya ver</strong>
-                  <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Aras kaydını açıp paketi şubeye teslim edin."}</p>
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo kaydı açılıyor…" : "Kargo kaydını hazırla"}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
-                  {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
-                </li>
-              </ol>
-            </section>
+
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
             <div className={styles.cardHeader}><h2>Kargo ve paket</h2><span>{data.shipments.length} gönderi</span></div>
             {data.shipments.length ? (
