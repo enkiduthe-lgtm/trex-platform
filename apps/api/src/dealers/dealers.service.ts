@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { reportPeriod } from '../orders/report-period';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { CreateDealerDto } from './dto/create-dealer.dto';
@@ -46,27 +47,30 @@ export class DealersService {
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
+  private dealerOrderSource() {
+    const uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+    return `WITH dealer_orders AS(SELECT DISTINCT ON(entity_id) entity_id,CASE WHEN metadata->>'dealerId' ~* '${uuid}' THEN (metadata->>'dealerId')::uuid END dealer_id,CASE WHEN metadata->>'dealerLevelId' ~* '${uuid}' THEN (metadata->>'dealerLevelId')::uuid END level_id FROM audit_logs WHERE entity_type='order' AND action='order.dealer.created' ORDER BY entity_id,created_at,id)`;
+  }
   async salesReport(days=30) {
-    const span=Math.min(Math.max(Number.isFinite(days)?Math.floor(days):30,1),365);
+    const period=reportPeriod(days),args=[period.dateFrom,period.dateTo],where="o.created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND o.created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')";
     const [totals,rows]=await Promise.all([
-      this.db.query(`SELECT count(DISTINCT o.id)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue FROM orders o JOIN audit_logs a ON a.entity_type='order' AND a.entity_id=o.id AND a.action='order.dealer.created' WHERE o.created_at>=now()-($1::int*interval '1 day')`,[span]),
-      this.db.query(`SELECT d.id,d.code,d.company_name,l.name AS dealer_level_name,count(DISTINCT o.id)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue,COALESCE(AVG(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text average_order,COALESCE(SUM(oi.quantity) FILTER(WHERE o.status<>'CANCELLED'),0)::int item_count
-        FROM audit_logs a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=(a.metadata->>'dealerId')::uuid LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN order_items oi ON oi.order_id=o.id
-        WHERE a.entity_type='order' AND a.action='order.dealer.created' AND o.created_at>=now()-($1::int*interval '1 day')
-        GROUP BY d.id,l.name ORDER BY revenue DESC,d.company_name`,[span]),
+      this.db.query<{currency:string;order_count:number;revenue:string}>(`${this.dealerOrderSource()} SELECT o.currency,count(*)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue FROM orders o JOIN dealer_orders a ON a.entity_id=o.id JOIN dealers d ON d.id=a.dealer_id WHERE ${where} GROUP BY o.currency ORDER BY o.currency`,args),
+      this.db.query(`${this.dealerOrderSource()} SELECT d.id,d.code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.currency,count(*)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text revenue,COALESCE(AVG(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text average_order,COALESCE(SUM(oi.quantity) FILTER(WHERE o.status<>'CANCELLED'),0)::int item_count FROM dealer_orders a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=a.dealer_id LEFT JOIN dealer_levels l ON l.id=a.level_id LEFT JOIN LATERAL(SELECT SUM(quantity) AS quantity FROM order_items WHERE order_id=o.id) oi ON true WHERE ${where} GROUP BY d.id,a.level_id,l.name,o.currency ORDER BY COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0) DESC,d.company_name`,args)
     ]);
-    return {days:span,totals:totals.rows[0]??{order_count:0,revenue:'0'},dealers:rows.rows};
+    return {...period,totals:totals.rows.find(row=>row.currency.trim()==='TRY')??{currency:'TRY',order_count:0,revenue:'0'},totalsByCurrency:totals.rows,dealers:rows.rows};
   }
   async salesReportDetail(dateFrom?:string,dateTo?:string,dealerId?:string,product?:string,status?:string) {
-    return (await this.db.query(`SELECT d.id AS dealer_id,d.code AS dealer_code,d.company_name,l.name AS dealer_level_name,o.id AS order_id,o.order_number,o.created_at,o.status,o.total_amount,o.currency,
-      oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,COALESCE(payment.status::text,'') AS payment_status
-      FROM audit_logs a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=(a.metadata->>'dealerId')::uuid
-      JOIN order_items oi ON oi.order_id=o.id LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id
-      LEFT JOIN LATERAL (SELECT status FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC LIMIT 1) payment ON true
-      WHERE a.entity_type='order' AND a.action='order.dealer.created'
-        AND o.created_at>=COALESCE($1::date,'-infinity') AND o.created_at<COALESCE($2::date+1,'infinity')
-        AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%') AND ($5::text IS NULL OR o.status::text=$5)
-      ORDER BY o.created_at DESC,o.order_number,oi.id`,[dateFrom||null,dateTo||null,dealerId||null,product?.trim()||null,status||null])).rows;
+    const period=reportPeriod(30,dateFrom,dateTo);
+    if(dealerId&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealerId))throw new BadRequestException('Geçerli Bir Bayi Seçin.');
+    if(status&&!['PENDING_PAYMENT','PAID','PROCESSING','SHIPPED','DELIVERED','CANCELLED','REFUNDED'].includes(status))throw new BadRequestException('Geçerli Bir Sipariş Durumu Seçin.');
+    const search=product?.trim().replace(/[\\%_]/g,'\\$&')||null;
+    return (await this.db.query(`${this.dealerOrderSource()} SELECT d.id AS dealer_id,d.code AS dealer_code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.id AS order_id,o.order_number,o.created_at,o.status,o.total_amount,o.currency,
+      oi.id AS item_id,oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,COALESCE(payment.status::text,'') AS payment_status
+      FROM dealer_orders a JOIN orders o ON o.id=a.entity_id JOIN dealers d ON d.id=a.dealer_id JOIN order_items oi ON oi.order_id=o.id LEFT JOIN dealer_levels l ON l.id=a.level_id
+      LEFT JOIN LATERAL(SELECT status FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) payment ON true
+      WHERE o.created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND o.created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')
+        AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%' OR oi.sku ILIKE '%'||$4||'%') AND ($5::text IS NULL OR o.status::text=$5)
+      ORDER BY o.created_at DESC,o.id,oi.id`,[period.dateFrom,period.dateTo,dealerId||null,search,status||null])).rows;
   }
   async listLevels() { return (await this.db.query('SELECT id,code,name,sort_order,is_active FROM dealer_levels WHERE is_active=true ORDER BY sort_order')).rows; }
   async createLevel(dto: CreateDealerLevelDto, actor: RequestUser) {
