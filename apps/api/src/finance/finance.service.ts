@@ -68,7 +68,7 @@ export class FinanceService {
   }
   async listTransactions(actor?:RequestUser) {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT 100`,[canSeeAll,actor?.id??null])).rows;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC, t.id`,[canSeeAll,actor?.id??null])).rows;
   }
   async reconciliation(dateFrom?:string,dateTo?:string) {
     const [accounts,unmatched]=await Promise.all([
@@ -121,7 +121,7 @@ export class FinanceService {
     });
   }
   async pendingCollections() {
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC LIMIT 100`)).rows;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC, t.id`)).rows;
   }
   async dashboard() {
     const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`SELECT COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text income, COALESCE(SUM(CASE WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text expense, COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN -amount ELSE 0 END),0)::text net, COALESCE(SUM(CASE WHEN payment_status IN ('PENDING','PARTIALLY_PAID','COLLECTION_PENDING','OVERDUE') THEN amount ELSE 0 END),0)::text pending_collection FROM finance_transactions WHERE account_id IN (SELECT id FROM finance_accounts WHERE currency='TRY')`);
