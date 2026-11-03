@@ -8,7 +8,7 @@ import { downloadXlsx } from '../../lib/xlsx';
 import { currencyTotals } from '../../lib/report-totals';
 import { groupSales, salesGroups, SalesGroup } from '../../lib/sales-groups';
 
-type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string };
+type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string; shipping_provider: string | null; shipment_status: string | null };
 type Filters = { dateFrom: string; dateTo: string; channel: string; product: string; customer: string; status: string };
 const channels: Record<string, string> = { PUBLIC_WEB: 'Site', ADMIN_ORDER: 'Yönetici Siparişi', RETAIL: 'Perakende', WHOLESALE: 'Toptan', INSTAGRAM: 'Instagram', DEALER_PORTAL: 'Sistem Bayi', MARKETPLACE: 'Pazaryeri' };
 const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi' };
@@ -33,6 +33,7 @@ export default function SalesReport() {
     }
     const id = ++requestId.current;
     setBusy(true);
+    setItems([]); setLoadedFilters(null);
     setMessage('');
     try {
       const query = new URLSearchParams(Object.entries(snapshot).filter(([, value]) => value !== ''));
@@ -56,16 +57,16 @@ export default function SalesReport() {
       ['Başlangıç', loadedFilters.dateFrom], ['Bitiş', loadedFilters.dateTo],
       ['Satış Kanalı', (channels[loadedFilters.channel] ?? loadedFilters.channel) || 'Tüm Kanallar'],
       ['Ürün / SKU', loadedFilters.product], ['Müşteri', loadedFilters.customer], ['Durum', statuses[loadedFilters.status] ?? 'Tüm Durumlar'], [],
-      ...(group ? [[salesGroups[group]], ['Grup', 'Durum', 'Sipariş Sayısı', 'Ürün Adedi', 'Tutar', 'Para Birimi'], ...grouped.map(row => [groupLabel(row.label), statuses[row.status] ?? row.status, String(row.orderCount), String(row.quantity), row.amount, row.currency]), []] : []),
-      ['Sipariş Tarihi', 'Sipariş No', 'Satış Kanalı', 'Müşteri', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu'],
-      ...items.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, String(row.quantity), row.unit_amount, row.line_total, row.currency, row.payment_method, statuses[row.status] ?? row.status]),
+      ...(group ? [[salesGroups[group]], ['Grup', 'Durum', 'Sipariş Sayısı', 'Ürün Adedi', 'Tutar', 'Para Birimi'], ...grouped.map(row => [groupLabel(row.label), statuses[row.status] ?? row.status, row.orderCount, row.quantity, Number(row.amount), row.currency]), []] : []),
+      ['Sipariş Tarihi', 'Sipariş No', 'Satış Kanalı', 'Müşteri', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Kargo Firması'],
+      ...items.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, row.quantity, Number(row.unit_amount), Number(row.line_total), row.currency, paymentNames[row.payment_method] ?? row.payment_method, statuses[row.status] ?? row.status, row.shipping_provider || 'Kargo Kaydı Yok']),
       [], ['Brüt Satış — İptaller Hariç; Tahsilat Tutarı Değildir'],
-      ...totals.map(total => ['Toplam', total.currency, total.amount]),
+      ...totals.map(total => ['Toplam', total.currency, Number(total.amount)]),
     ]);
   }
   return <main><AdminNav /><section className="finance-workspace">
     <h1>{group ? salesGroups[group] : 'Detaylı Satış Raporu'}</h1>
-    <p>Her Ürün Ayrı Satırda Gösterilir. Para Birimleri Ayrı Toplanır.</p>
+    <p>Her Ürün Ayrı Satırda Gösterilir. Para Birimleri Ayrı Toplanır. Kargo Firması Gerçek Kargo Kaydından Alınır. Tutarlar Ürün Satırları Toplamıdır; Kargo Ve Ek Ücretleri İçermez.</p>
     <nav className="finance-nav"><Link href="/raporlar">Rapor Merkezi</Link><Link href="/siparisler">Siparişler</Link></nav>
     <section className="form-card dealer-toolbar" aria-label="Rapor Filtreleri">
       <label>Rapor Türü<select value={group} onChange={event => setGroup(event.target.value as SalesGroup | '')}><option value="">Detaylı Satış Raporu</option>{Object.entries(salesGroups).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
@@ -85,9 +86,9 @@ export default function SalesReport() {
     </div>
     {group && <section className="table-card" aria-busy={busy}><h2>{salesGroups[group]}</h2><p>Durumlar Ve Para Birimleri Ayrı Gösterilir. Tutarlar Ürün Satırlarının Toplamıdır; Tahsilat Değildir. Aynı Sipariş Farklı Ürün Gruplarında Yer Alabilir. Haftalar Pazartesi Başlar.</p><div className="table-wrap"><table><thead><tr><th>Grup</th><th>Durum</th><th>Sipariş Sayısı</th><th>Ürün Adedi</th><th>Tutar</th><th>Para Birimi</th></tr></thead><tbody>{grouped.map(row => <tr key={row.key}><td>{groupLabel(row.label)}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.orderCount}</td><td>{row.quantity}</td><td>{money(row.amount, row.currency)}</td><td>{row.currency}</td></tr>)}{!grouped.length && <tr><td colSpan={6}>Seçilen Filtrede Kayıt Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     <section className="table-card" aria-busy={busy}><h2>Sipariş Ve Ürün Satırları</h2><div className="table-wrap"><table>
-      <thead><tr>{['Tarih', 'Sipariş', 'Kanal', 'Müşteri', 'Ürün', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme', 'Durum'].map(label => <th key={label}>{label}</th>)}</tr></thead>
-      <tbody>{items.map(row => <tr key={row.item_id}><td>{displayDate(row.created_at)}</td><td>{row.order_number}</td><td>{channels[row.sales_channel] ?? row.sales_channel}</td><td>{row.customer_name}</td><td><b>{row.product_name}</b><small>{row.sku}</small></td><td>{row.quantity}</td><td>{money(row.unit_amount, row.currency)}</td><td>{money(row.line_total, row.currency)}</td><td>{row.currency}</td><td>{row.payment_method || '—'}</td><td>{statuses[row.status] ?? row.status}</td></tr>)}
-      {!items.length && <tr><td colSpan={11}>{busy ? 'Yükleniyor…' : 'Seçilen Filtrede Satış Kaydı Bulunmuyor.'}</td></tr>}
+      <thead><tr>{['Tarih', 'Sipariş', 'Kanal', 'Müşteri', 'Ürün', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme', 'Durum', 'Kargo Firması'].map(label => <th key={label}>{label}</th>)}</tr></thead>
+      <tbody>{items.map(row => <tr key={row.item_id}><td>{displayDate(row.created_at)}</td><td>{row.order_number}</td><td>{channels[row.sales_channel] ?? row.sales_channel}</td><td>{row.customer_name}</td><td><b>{row.product_name}</b><small>{row.sku}</small></td><td>{row.quantity}</td><td>{money(row.unit_amount, row.currency)}</td><td>{money(row.line_total, row.currency)}</td><td>{row.currency}</td><td>{(paymentNames[row.payment_method] ?? row.payment_method) || '—'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.shipping_provider || 'Kargo Kaydı Yok'}</td></tr>)}
+      {!items.length && <tr><td colSpan={12}>{busy ? 'Yükleniyor…' : 'Seçilen Filtrede Satış Kaydı Bulunmuyor.'}</td></tr>}
       </tbody></table></div></section>
   </section></main>;
 }

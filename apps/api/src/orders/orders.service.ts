@@ -19,9 +19,10 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
     return (await this.db.query(`SELECT o.id,oi.id AS item_id,o.order_number,o.status,o.sales_channel,o.total_amount,o.currency,o.created_at,
       COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name,'Misafir') AS customer_name,
       oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
-      COALESCE(payment.provider,'') AS payment_method
+      COALESCE(payment.provider,'') AS payment_method,s.provider AS shipping_provider,s.status AS shipment_status
       FROM orders o JOIN order_items oi ON oi.order_id=o.id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id
-      LEFT JOIN LATERAL (SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC LIMIT 1) payment ON true
+      LEFT JOIN shipments s ON s.order_id=o.id
+      LEFT JOIN LATERAL (SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) payment ON true
       WHERE o.created_at>=COALESCE($1::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz)
         AND o.created_at<COALESCE(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz)
         AND ($3::sales_channel_code IS NULL OR o.sales_channel=$3::sales_channel_code)
