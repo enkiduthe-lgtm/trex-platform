@@ -18,6 +18,6 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  assert.equal(groups.find(g=>g.status==='CANCELLED').amount,'99.00');assert.equal(groups.find(g=>g.currency==='USD').label,'Kargo Kaydı Yok');
  await pg.exec(`INSERT INTO customers VALUES('member1','Aynı','İsim','bir@example.test'),('member2','Aynı','İsim','iki@example.test');UPDATE orders SET customer_id='member1' WHERE id='a';UPDATE orders SET customer_id='member2' WHERE id='b';`);
  const members=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');const memberGroups=groupSales(members,'customer');assert.equal(memberGroups.length,2);assert.equal(memberGroups.find(g=>g.status==='DELIVERED').orderCount,1);assert.equal(memberGroups.find(g=>g.status==='DELIVERED').amount,'30.00');assert.ok(memberGroups.some(g=>g.label.includes('bir@example.test')));assert.ok(memberGroups.some(g=>g.label.includes('iki@example.test')));
- const sameName=members.map(r=>({...r,customer_email:null}));assert.equal(groupSales(sameName,'customer').length,2);
- await assert.rejects(()=>new OrdersService(db).salesReport('2026-10-31','2026-10-01'));await pg.close();console.log('Carrier report: multi-item deduplication, currency/status separation, missing shipment, Istanbul boundary, latest payment passed.');}
+ const sameName=members.map(r=>({...r,customer_email:null,status:'PAID'}));assert.equal(groupSales(sameName,'customer').length,2);
+ await assert.rejects(()=>new OrdersService(db).salesReport('2026-10-31','2026-10-01'));await pg.close();console.log('Carrier report: multi-item deduplication, currency/status separation, missing shipment, Istanbul boundary, latest payment and separate registered member identities passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});
