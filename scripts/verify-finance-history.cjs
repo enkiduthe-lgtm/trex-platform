@@ -14,11 +14,13 @@ async function main(){
  await db.query("INSERT INTO finance_accounts VALUES($1,'Arşiv Hesap','TRY',false),($2,'Euro Hesap','EUR',true)",[id(1),id(2)]);
  await db.query("INSERT INTO users VALUES($1,'Müdür'),($2,'Yönetici')",[id(3),id(4)]);await db.query("INSERT INTO orders VALUES($1,'TRX-TEST')",[id(5)]);
  for(let n=0;n<205;n++)await db.query("INSERT INTO finance_transactions VALUES($1,$2,'COLLECTION',1.10,'PENDING','2026-10-15T12:00:00Z','2026-10-15T12:00:00Z',NULL,NULL,NULL)",[id(100+n),id(1)]);
+ for(let n=0;n<205;n++)await db.query("INSERT INTO finance_transactions VALUES($1,$2,'EXPENSE',1.10,'PAID','2026-10-15T12:00:00Z','2026-10-15T12:00:00Z',NULL,NULL,NULL)",[id(500+n),id(1)]);
  await db.query("INSERT INTO finance_transactions VALUES($1,$2,'COLLECTION',3.20,'PAID','2026-10-31T20:59:59Z',now(),$3,$4,now())",[id(400),id(2),id(5),id(3)]);
  await db.query("INSERT INTO finance_transactions VALUES($1,$2,'PRIME_EXPENSE',7,'PAID',now(),now(),NULL,$3,now())",[id(401),id(1),id(3)]);
  await db.query("INSERT INTO commission_entries VALUES($1,'DIRECTOR',$2)",[id(401),id(3)]);
- const owner=await service.listTransactions({id:id(3),role:'SUPER_ADMIN'});assert.equal(owner.length,207);assert.equal(owner.find(x=>x.id===id(400)).order_number,'TRX-TEST');assert.equal(owner.filter(x=>x.account_name==='Arşiv Hesap').length,206);
- const manager=await service.listTransactions({id:id(4),role:'ADMIN'});assert.equal(manager.length,206);assert(!manager.some(x=>x.id===id(401)));
+ const owner=await service.listTransactions({id:id(3),role:'SUPER_ADMIN'});assert.equal(owner.length,412);assert.equal(owner.find(x=>x.id===id(400)).order_number,'TRX-TEST');assert.equal(owner.filter(x=>x.account_name==='Arşiv Hesap').length,411);
+ const manager=await service.listTransactions({id:id(4),role:'ADMIN'});assert.equal(manager.length,411);assert(!manager.some(x=>x.id===id(401)));
+ const expenses=owner.filter(x=>x.kind==='EXPENSE');assert.equal(expenses.length,205);assert.equal(report.financeTotals(expenses)[0].amount,225.5);
  const pending=await service.pendingCollections();assert.equal(pending.length,205);assert(!pending.some(x=>x.id===id(400)));
  const collections=owner.filter(x=>x.kind==='COLLECTION');assert.equal(collections.length,206);
  const totals=report.financeTotals(collections);assert.equal(totals.find(x=>x.currency==='TRY').amount,225.5);assert.equal(totals.find(x=>x.currency==='EUR').amount,3.2);
