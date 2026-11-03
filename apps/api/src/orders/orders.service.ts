@@ -16,7 +16,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
     for (const value of [dateFrom,dateTo]) if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0,10)!==value)) throw new BadRequestException('Geçerli Bir Tarih Seçin');
     if (dateFrom && dateTo && dateFrom > dateTo) throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz');
     if (status && !['PENDING_PAYMENT','PAID','PROCESSING','SHIPPED','DELIVERED','CANCELLED','REFUNDED'].includes(status)) throw new BadRequestException('Geçersiz Sipariş Durumu');
-    return (await this.db.query(`SELECT o.id,oi.id AS item_id,o.order_number,o.status,o.sales_channel,o.total_amount,o.currency,o.created_at,
+    return (await this.db.query(`SELECT o.id,c.id AS customer_id,COALESCE(c.email,cs.contact_email) AS customer_email,oi.id AS item_id,o.order_number,o.status,o.sales_channel,o.total_amount,o.currency,o.created_at,
       COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name,'Misafir') AS customer_name,
       oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
       COALESCE(payment.provider,'') AS payment_method,s.provider AS shipping_provider,s.status AS shipment_status

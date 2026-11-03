@@ -1,16 +1,17 @@
 import { currencyTotals } from './report-totals';
 
-export const salesGroups = { day: 'Günlük Satış Özeti', week: 'Haftalık Satışlar', month: 'Aylık Satışlar', product: 'Ürün Satış Raporu', channel: 'Platform Satış Performansı', payment: 'Ödeme Yöntemi Satış Raporu', carrier: 'Siparişlerin Kargo Firmalarına Göre Dağılımı' };
+export const salesGroups = { day: 'Günlük Satış Özeti', week: 'Haftalık Satışlar', month: 'Aylık Satışlar', product: 'Ürün Satış Raporu', channel: 'Platform Satış Performansı', payment: 'Ödeme Yöntemi Satış Raporu', carrier: 'Siparişlerin Kargo Firmalarına Göre Dağılımı', customer: 'Üye Sipariş Raporu' };
 export type SalesGroup = keyof typeof salesGroups;
-type Sale = { id: string; created_at: string; product_name: string; sku: string; sales_channel: string; payment_method: string; shipping_provider?: string | null; status: string; currency: string; quantity: number; line_total: string };
+type Sale = { id: string; created_at: string; product_name: string; sku: string; sales_channel: string; payment_method: string; shipping_provider?: string | null; customer_id?: string | null; customer_name?: string; customer_email?: string | null; status: string; currency: string; quantity: number; line_total: string };
 export function groupSales(rows: Sale[], mode: SalesGroup) {
   const groups = new Map<string, { label: string; status: string; currency: string; orders: Set<string>; quantity: number; amounts: { currency: string; amount: string }[] }>();
   for (const row of rows) {
+    if (mode === 'customer' && !row.customer_id) continue;
     const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(new Date(row.created_at));
     const monday = new Date(`${day}T00:00:00Z`);
     monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
-    const label = mode === 'day' ? day : mode === 'week' ? monday.toISOString().slice(0, 10) : mode === 'month' ? day.slice(0, 7) : mode === 'product' ? `${row.product_name} · ${row.sku}` : mode === 'channel' ? row.sales_channel : mode === 'carrier' ? row.shipping_provider?.trim() || 'Kargo Kaydı Yok' : row.payment_method || 'Belirtilmemiş';
-    const key = JSON.stringify([label, row.status, row.currency]);
+    const label = mode === 'day' ? day : mode === 'week' ? monday.toISOString().slice(0, 10) : mode === 'month' ? day.slice(0, 7) : mode === 'product' ? `${row.product_name} · ${row.sku}` : mode === 'channel' ? row.sales_channel : mode === 'customer' ? [row.customer_name || 'İsimsiz Üye', row.customer_email].filter(Boolean).join(' · ') : mode === 'carrier' ? row.shipping_provider?.trim() || 'Kargo Kaydı Yok' : row.payment_method || 'Belirtilmemiş';
+    const key = JSON.stringify([mode === 'customer' ? row.customer_id : label, row.status, row.currency]);
     const group = groups.get(key) ?? { label, status: row.status, currency: row.currency, orders: new Set<string>(), quantity: 0, amounts: [] };
     group.orders.add(row.id); group.quantity += Number(row.quantity); group.amounts.push({ currency: row.currency, amount: row.line_total }); groups.set(key, group);
   }

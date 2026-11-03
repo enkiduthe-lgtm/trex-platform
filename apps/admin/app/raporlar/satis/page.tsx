@@ -8,7 +8,7 @@ import { downloadXlsx } from '../../lib/xlsx';
 import { currencyTotals } from '../../lib/report-totals';
 import { groupSales, salesGroups, SalesGroup } from '../../lib/sales-groups';
 
-type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string; shipping_provider: string | null; shipment_status: string | null };
+type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; customer_id: string | null; customer_email: string | null; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string; shipping_provider: string | null; shipment_status: string | null };
 type Filters = { dateFrom: string; dateTo: string; channel: string; product: string; customer: string; status: string };
 const channels: Record<string, string> = { PUBLIC_WEB: 'Site', ADMIN_ORDER: 'Yönetici Siparişi', RETAIL: 'Perakende', WHOLESALE: 'Toptan', INSTAGRAM: 'Instagram', DEALER_PORTAL: 'Sistem Bayi', MARKETPLACE: 'Pazaryeri' };
 const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi' };
@@ -48,9 +48,10 @@ export default function SalesReport() {
     if (requested && Object.hasOwn(salesGroups, requested)) setGroup(requested as SalesGroup);
     void load(filters); return () => { requestId.current++; };
   }, []);
-  const grouped = useMemo(() => group ? groupSales(items, group) : [], [items, group]);
+  const reportItems = useMemo(() => group === 'customer' ? items.filter(row => row.customer_id) : items, [items, group]);
+  const grouped = useMemo(() => group ? groupSales(reportItems, group) : [], [reportItems, group]);
   const groupLabel = (label: string) => group === 'channel' ? channels[label] ?? label : group === 'payment' ? paymentNames[label] ?? label : label;
-  const totals = useMemo(() => currencyTotals(items.filter(row => row.status !== 'CANCELLED').map(row => ({ currency: row.currency, amount: row.line_total }))), [items]);
+  const totals = useMemo(() => currencyTotals(reportItems.filter(row => row.status !== 'CANCELLED').map(row => ({ currency: row.currency, amount: row.line_total }))), [reportItems]);
   function exportReport() {
     if (!loadedFilters || busy) return;
     downloadXlsx('trex-satis-raporu.xlsx', 'Satış Raporu', [
@@ -59,7 +60,7 @@ export default function SalesReport() {
       ['Ürün / SKU', loadedFilters.product], ['Müşteri', loadedFilters.customer], ['Durum', statuses[loadedFilters.status] ?? 'Tüm Durumlar'], [],
       ...(group ? [[salesGroups[group]], ['Grup', 'Durum', 'Sipariş Sayısı', 'Ürün Adedi', 'Tutar', 'Para Birimi'], ...grouped.map(row => [groupLabel(row.label), statuses[row.status] ?? row.status, row.orderCount, row.quantity, Number(row.amount), row.currency]), []] : []),
       ['Sipariş Tarihi', 'Sipariş No', 'Satış Kanalı', 'Müşteri', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Kargo Firması'],
-      ...items.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, row.quantity, Number(row.unit_amount), Number(row.line_total), row.currency, paymentNames[row.payment_method] ?? row.payment_method, statuses[row.status] ?? row.status, row.shipping_provider || 'Kargo Kaydı Yok']),
+      ...reportItems.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, row.quantity, Number(row.unit_amount), Number(row.line_total), row.currency, paymentNames[row.payment_method] ?? row.payment_method, statuses[row.status] ?? row.status, row.shipping_provider || 'Kargo Kaydı Yok']),
       [], ['Brüt Satış — İptaller Hariç; Tahsilat Tutarı Değildir'],
       ...totals.map(total => ['Toplam', total.currency, Number(total.amount)]),
     ]);
@@ -67,6 +68,7 @@ export default function SalesReport() {
   return <main><AdminNav /><section className="finance-workspace">
     <h1>{group ? salesGroups[group] : 'Detaylı Satış Raporu'}</h1>
     <p>Her Ürün Ayrı Satırda Gösterilir. Para Birimleri Ayrı Toplanır. Kargo Firması Gerçek Kargo Kaydından Alınır. Tutarlar Ürün Satırları Toplamıdır; Kargo Ve Ek Ücretleri İçermez.</p>
+    {group === 'customer' && <p className="notice">Yalnızca Kayıtlı Müşteriye Bağlı Siparişler Gösterilir. Aynı Adı Taşıyan Ayrı Üyeler Birleştirilmez. Misafir Siparişleri Detaylı Satış Raporundadır.</p>}
     <nav className="finance-nav"><Link href="/raporlar">Rapor Merkezi</Link><Link href="/siparisler">Siparişler</Link></nav>
     <section className="form-card dealer-toolbar" aria-label="Rapor Filtreleri">
       <label>Rapor Türü<select value={group} onChange={event => setGroup(event.target.value as SalesGroup | '')}><option value="">Detaylı Satış Raporu</option>{Object.entries(salesGroups).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
@@ -76,19 +78,19 @@ export default function SalesReport() {
       <label>Ürün / SKU<input value={filters.product} onChange={event => change('product', event.target.value)} placeholder="Ürün Adı Veya SKU" /></label>
       <label>Müşteri<input value={filters.customer} onChange={event => change('customer', event.target.value)} placeholder="Ad Veya E-Posta" /></label>
       <label>Sipariş Durumu<select value={filters.status} onChange={event => change('status', event.target.value)}><option value="">Tüm Durumlar</option>{Object.entries(statuses).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
-      <div className="button-row"><button disabled={busy} onClick={() => void load(filters)}>{busy ? 'Yükleniyor…' : 'Raporu Getir'}</button><button className="secondary" disabled={busy || !items.length} onClick={exportReport}>Excel&apos;e Aktar</button></div>
+      <div className="button-row"><button disabled={busy} onClick={() => void load(filters)}>{busy ? 'Yükleniyor…' : 'Raporu Getir'}</button><button className="secondary" disabled={busy || !reportItems.length} onClick={exportReport}>Excel&apos;e Aktar</button></div>
     </section>
     {message && <p role="alert" className="notice">{message}</p>}
     {loadedFilters && <p>Yüklenen Rapor: {loadedFilters.dateFrom} — {loadedFilters.dateTo}. Filtre Değişikliklerini Uygulamak İçin Raporu Getir Butonuna Basın.</p>}
     <div className="cards dealer-summary-cards">
-      <article><p>Sipariş Sayısı</p><strong>{new Set(items.map(row => row.id)).size}</strong><p>Ürün Satırı: {items.length}</p></article>
+      <article><p>Sipariş Sayısı</p><strong>{new Set(reportItems.map(row => row.id)).size}</strong><p>Ürün Satırı: {reportItems.length}</p></article>
       {totals.map(total => <article key={total.currency}><p>Brüt Satış · {total.currency}</p><strong>{money(total.amount, total.currency)}</strong><p>İptaller Hariç; Tahsilat Tutarı Değildir.</p></article>)}
     </div>
     {group && <section className="table-card" aria-busy={busy}><h2>{salesGroups[group]}</h2><p>Durumlar Ve Para Birimleri Ayrı Gösterilir. Tutarlar Ürün Satırlarının Toplamıdır; Tahsilat Değildir. Aynı Sipariş Farklı Ürün Gruplarında Yer Alabilir. Haftalar Pazartesi Başlar.</p><div className="table-wrap"><table><thead><tr><th>Grup</th><th>Durum</th><th>Sipariş Sayısı</th><th>Ürün Adedi</th><th>Tutar</th><th>Para Birimi</th></tr></thead><tbody>{grouped.map(row => <tr key={row.key}><td>{groupLabel(row.label)}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.orderCount}</td><td>{row.quantity}</td><td>{money(row.amount, row.currency)}</td><td>{row.currency}</td></tr>)}{!grouped.length && <tr><td colSpan={6}>Seçilen Filtrede Kayıt Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     <section className="table-card" aria-busy={busy}><h2>Sipariş Ve Ürün Satırları</h2><div className="table-wrap"><table>
       <thead><tr>{['Tarih', 'Sipariş', 'Kanal', 'Müşteri', 'Ürün', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme', 'Durum', 'Kargo Firması'].map(label => <th key={label}>{label}</th>)}</tr></thead>
-      <tbody>{items.map(row => <tr key={row.item_id}><td>{displayDate(row.created_at)}</td><td>{row.order_number}</td><td>{channels[row.sales_channel] ?? row.sales_channel}</td><td>{row.customer_name}</td><td><b>{row.product_name}</b><small>{row.sku}</small></td><td>{row.quantity}</td><td>{money(row.unit_amount, row.currency)}</td><td>{money(row.line_total, row.currency)}</td><td>{row.currency}</td><td>{(paymentNames[row.payment_method] ?? row.payment_method) || '—'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.shipping_provider || 'Kargo Kaydı Yok'}</td></tr>)}
-      {!items.length && <tr><td colSpan={12}>{busy ? 'Yükleniyor…' : 'Seçilen Filtrede Satış Kaydı Bulunmuyor.'}</td></tr>}
+      <tbody>{reportItems.map(row => <tr key={row.item_id}><td>{displayDate(row.created_at)}</td><td>{row.order_number}</td><td>{channels[row.sales_channel] ?? row.sales_channel}</td><td>{row.customer_name}</td><td><b>{row.product_name}</b><small>{row.sku}</small></td><td>{row.quantity}</td><td>{money(row.unit_amount, row.currency)}</td><td>{money(row.line_total, row.currency)}</td><td>{row.currency}</td><td>{(paymentNames[row.payment_method] ?? row.payment_method) || '—'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.shipping_provider || 'Kargo Kaydı Yok'}</td></tr>)}
+      {!reportItems.length && <tr><td colSpan={12}>{busy ? 'Yükleniyor…' : 'Seçilen Filtrede Satış Kaydı Bulunmuyor.'}</td></tr>}
       </tbody></table></div></section>
   </section></main>;
 }
