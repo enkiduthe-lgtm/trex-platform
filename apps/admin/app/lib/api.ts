@@ -16,7 +16,7 @@ function refreshAccessToken(){
   return refreshInFlight;
 }
 async function performRefresh() {
-  const response = await fetch(`${apiBaseUrl}/auth/refresh`, { method: 'POST', credentials: 'include' });
+  const response = await fetch(`${apiBaseUrl}/auth/refresh`, { method: 'POST', credentials: 'include', cache: 'no-store' });
   if (!response.ok) return false;
   const body = await response.json().catch(() => null);
   if (!body?.accessToken) return false;
@@ -30,6 +30,7 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: 'include',
+    cache: 'no-store',
     headers: { ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
   });
   // Access tokens are intentionally short-lived. Renew once through the secure

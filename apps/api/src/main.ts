@@ -13,6 +13,13 @@ async function bootstrap() {
   app.setGlobalPrefix('v1');
   app.use(helmet());
   app.use(cookieParser());
+  // Authenticated responses must never be shared by browsers or intermediary caches.
+  app.use((_req: unknown, res: { setHeader(name: string, value: string): void }, next: () => void) => {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Vary', 'Authorization, Cookie, Origin');
+    next();
+  });
   const corsOrigins = process.env.CORS_ORIGIN?.split(',').map(origin => origin.trim()).filter(Boolean) ?? [];
   app.enableCors({ origin: corsOrigins.length ? corsOrigins : false, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
