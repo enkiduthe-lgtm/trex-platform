@@ -1,3 +1,4 @@
+import { reportPeriod } from './report-period';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
@@ -95,13 +96,29 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       throw error;
     }
   }
-  async reportSummary(days=30) { const span=Math.min(Math.max(Number.isFinite(days)?Math.floor(days):30,1),365); const [totals,statuses,channels,daily,topProducts,financial]=await Promise.all([this.db.query(`SELECT count(*)::int order_count,COALESCE(SUM(total_amount) FILTER (WHERE status NOT IN ('CANCELLED')),0)::text revenue,COALESCE(AVG(total_amount) FILTER (WHERE status NOT IN ('CANCELLED')),0)::text average_order FROM orders WHERE created_at>=now()-($1::int*interval '1 day')`,[span]),this.db.query(`SELECT status,count(*)::int count,COALESCE(SUM(total_amount),0)::text amount FROM orders WHERE created_at>=now()-($1::int*interval '1 day') GROUP BY status ORDER BY count DESC`,[span]),this.db.query(`SELECT sales_channel,count(*)::int count,COALESCE(SUM(total_amount),0)::text amount FROM orders WHERE created_at>=now()-($1::int*interval '1 day') GROUP BY sales_channel ORDER BY amount DESC`,[span]),this.db.query(`SELECT to_char(day,'DD Mon') label,COALESCE(SUM(o.total_amount) FILTER (WHERE o.status NOT IN ('CANCELLED')),0)::text amount,COALESCE(count(o.id),0)::int count FROM generate_series(current_date-($1::int-1),current_date,interval '1 day') day LEFT JOIN orders o ON o.created_at>=day AND o.created_at<day+interval '1 day' GROUP BY day ORDER BY day`,[span]),this.db.query(`SELECT oi.product_name AS label,COALESCE(SUM(oi.quantity),0)::int count,COALESCE(SUM(oi.quantity*oi.unit_amount),0)::text amount FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status<>'CANCELLED' AND o.created_at>=now()-($1::int*interval '1 day') GROUP BY oi.product_name ORDER BY count DESC,amount DESC LIMIT 10`,[span]),this.db.query(`SELECT COALESCE(SUM(amount) FILTER (WHERE kind IN ('INCOME','COLLECTION','TRANSFER_IN')),0)::text income,COALESCE(SUM(amount) FILTER (WHERE kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT')),0)::text expense FROM finance_transactions WHERE occurred_at>=now()-($1::int*interval '1 day')`,[span])]); const income=Number(financial.rows[0]?.income??0),expense=Number(financial.rows[0]?.expense??0); return {days:span,totals:totals.rows[0],financial:{income:String(income),expense:String(expense),net:String(income-expense)},statuses:statuses.rows,channels:channels.rows,daily:daily.rows,topProducts:topProducts.rows}; }
-  async operationalSummary(days=30) { const span=Math.min(Math.max(Number.isFinite(days)?Math.floor(days):30,1),365); return (await this.db.query(`SELECT
-    (SELECT count(*)::int FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED') AND requested_at>=now()-($1::int*interval '1 day')) AS returns_open,
-    (SELECT count(*)::int FROM returns WHERE status='REFUNDED' AND completed_at>=now()-($1::int*interval '1 day')) AS returns_refunded,
-    (SELECT count(*)::int FROM shipments WHERE status IN ('CREATED','IN_TRANSIT') AND created_at>=now()-($1::int*interval '1 day')) AS shipments_active,
-    (SELECT count(*)::int FROM shipments WHERE status='FAILED' AND updated_at>=now()-($1::int*interval '1 day')) AS shipments_failed,
-    (SELECT count(*)::int FROM support_tickets WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND due_at<now()) AS support_overdue`,[span])).rows[0]; }
+  async reportSummary(days=30,dateFrom?:string,dateTo?:string,currency='TRY',actor?:RequestUser) {
+    const period=reportPeriod(days,dateFrom,dateTo,currency),params=[period.dateFrom,period.dateTo,period.currency];
+    const start="($1::date::timestamp AT TIME ZONE 'Europe/Istanbul')",end="(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')";
+    const where=`created_at>=${start} AND created_at<${end} AND currency=$3`;
+    const [totals,statuses,channels,daily,topProducts,financial]=await Promise.all([
+      this.db.query(`SELECT count(*)::int order_count,COALESCE(SUM(total_amount) FILTER(WHERE status<>'CANCELLED'),0)::text revenue,COALESCE(AVG(total_amount) FILTER(WHERE status<>'CANCELLED'),0)::text average_order FROM orders WHERE ${where}`,params),
+      this.db.query(`SELECT status,count(*)::int count,COALESCE(SUM(total_amount),0)::text amount FROM orders WHERE ${where} GROUP BY status ORDER BY count DESC,status`,params),
+      this.db.query(`SELECT sales_channel,count(*)::int count,COALESCE(SUM(total_amount) FILTER(WHERE status<>'CANCELLED'),0)::text amount FROM orders WHERE ${where} GROUP BY sales_channel ORDER BY amount DESC,sales_channel`,params),
+      this.db.query(`SELECT to_char(day,'YYYY-MM-DD') label,COALESCE(SUM(o.total_amount) FILTER(WHERE o.status<>'CANCELLED'),0)::text amount,count(o.id)::int count FROM generate_series($1::date::timestamp,$2::date::timestamp,interval '1 day') day LEFT JOIN orders o ON o.created_at>=(day AT TIME ZONE 'Europe/Istanbul') AND o.created_at<((day+interval '1 day') AT TIME ZONE 'Europe/Istanbul') AND o.currency=$3 GROUP BY day ORDER BY day`,params),
+      this.db.query(`SELECT oi.product_name AS label,oi.sku,COALESCE(SUM(oi.quantity),0)::int count,COALESCE(SUM(oi.quantity*oi.unit_amount),0)::text amount FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status<>'CANCELLED' AND o.created_at>=${start} AND o.created_at<${end} AND o.currency=$3 GROUP BY oi.product_name,oi.sku ORDER BY count DESC,amount DESC LIMIT 10`,params),
+      this.db.query(`WITH amounts AS(SELECT COALESCE(SUM(t.amount) FILTER(WHERE t.kind IN ('INCOME','COLLECTION','TRANSFER_IN')),0) income,COALESCE(SUM(t.amount) FILTER(WHERE t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT')),0) expense FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.occurred_at>=${start} AND t.occurred_at<${end} AND a.currency=$3 AND (t.payment_status IS NULL OR t.payment_status='PAID') AND ($4::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$5::uuid))) SELECT income::text,expense::text,(income-expense)::text net FROM amounts`,[...params,!actor||actor.role==='SUPER_ADMIN',actor?.id??null])
+    ]);
+    return {...period,totals:totals.rows[0],financial:financial.rows[0],statuses:statuses.rows,channels:channels.rows,daily:daily.rows,topProducts:topProducts.rows};
+  }
+  async operationalSummary(days=30,dateFrom?:string,dateTo?:string) {
+    const period=reportPeriod(days,dateFrom,dateTo),bounds=(column:string)=>`${column}>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND ${column}<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')`;
+    return (await this.db.query(`SELECT
+      (SELECT count(*)::int FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED') AND ${bounds('requested_at')}) returns_open,
+      (SELECT count(*)::int FROM returns WHERE status='REFUNDED' AND ${bounds('completed_at')}) returns_refunded,
+      (SELECT count(*)::int FROM shipments WHERE status IN ('CREATED','IN_TRANSIT') AND ${bounds('created_at')}) shipments_active,
+      (SELECT count(*)::int FROM shipments WHERE status='FAILED' AND ${bounds('updated_at')}) shipments_failed,
+      (SELECT count(*)::int FROM support_tickets WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND due_at<now() AND ${bounds('due_at')}) support_overdue`,[period.dateFrom,period.dateTo])).rows[0];
+  }
   async detail(id:string) {
     const result=await this.db.query<{contact_name:string|null;contact_email:string|null}>(`SELECT o.id,o.order_number,o.status,o.sales_channel,o.total_amount,o.currency,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email,cs.contact_email,cs.contact_name,
       (o.sales_channel IN ('ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE') AND o.status IN ('PENDING_PAYMENT','PROCESSING')

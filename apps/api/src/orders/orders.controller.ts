@@ -24,9 +24,9 @@ export class OrdersController {
   constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService,private readonly db:DatabaseService) {}
   @Get() list(@Query('channel') channel?:string) { return this.orders.list(channel); }
   @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN)
-  reportSummary(@Query('days') days?:string) { return this.orders.reportSummary(Number(days ?? 30)); }
+  reportSummary(@Req() req:UserRequest,@Query('days') days?:string,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('currency') currency?:string) { return this.orders.reportSummary(Number(days ?? 30),dateFrom,dateTo,currency??'TRY',req.user); }
   @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN)
-  reportOperations(@Query('days') days?:string) { return this.orders.operationalSummary(Number(days ?? 30)); }
+  reportOperations(@Query('days') days?:string,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.orders.operationalSummary(Number(days ?? 30),dateFrom,dateTo); }
   @Get('sales-report') @RequireRoles(Roles.SUPER_ADMIN)
   salesReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('channel') channel?:string,@Query('product') product?:string,@Query('status') status?:string,@Query('customer') customer?:string) { return this.orders.salesReport(dateFrom,dateTo,channel,product,status,customer); }
   @Get('special-report') @RequireRoles(Roles.SUPER_ADMIN)

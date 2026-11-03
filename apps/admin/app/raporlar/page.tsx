@@ -1,19 +1,22 @@
 'use client';
-
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 import { downloadXlsx } from '../lib/xlsx';
-import styles from './reports.module.css';
 import { salesGroups } from '../lib/sales-groups';
+import styles from './reports.module.css';
 
-type Row = { status?: string; sales_channel?: string; label?: string; count: number; amount: string };
-type Report = { days: number; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
+type Row = { status?: string; sales_channel?: string; label?: string; sku?: string; count: number; amount: string };
+type Report = { dateFrom: string; dateTo: string; currency: string; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
 type Operations = { returns_open: number; returns_refunded: number; shipments_active: number; shipments_failed: number; support_overdue: number };
-
-const money = (value: string) => Number(value || 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' });
-const channel = (value: string) => ({ PUBLIC_WEB: 'Site satışı', ADMIN_ORDER: 'Yönetici siparişi', RETAIL: 'Perakende satış', DEALER_PORTAL: 'Bayi satışı', WHOLESALE: 'Toptan satış', INSTAGRAM: 'Instagram satışı', MARKETPLACE: 'Pazaryeri satışı' }[value] ?? value);
+type Filters = { dateFrom: string; dateTo: string; currency: string };
+const calendarDate = (days=0) => new Intl.DateTimeFormat('sv-SE', {timeZone:'Europe/Istanbul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-days*86400000));
+const channel = (value:string) => ({PUBLIC_WEB:'Site Satışı',ADMIN_ORDER:'Yönetici Siparişi',RETAIL:'Perakende',DEALER_PORTAL:'Sistem Bayi',WHOLESALE:'Toptan',INSTAGRAM:'Instagram',MARKETPLACE:'Pazaryeri'}[value]??value);
+const statusName = (value:string) => ({PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'}[value]??value);
+function ReportTable({title,headers,rows}:{title:string;headers:string[];rows:(string|number)[][]}) {
+ return <section className="table-card"><h2>{title}</h2><div className={styles.tableWrap}><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={index}>{row.map((cell,i)=><td key={i}>{cell}</td>)}</tr>)}</tbody></table>{!rows.length&&<p className="empty-state">Bu Dönemde Kayıt Yok.</p>}</div></section>;
+}
 const reportCatalog = [
   ['Günlük Satış Özeti', 'Günlük olarak gerçekleşen sipariş sayıları, satış tutarları ve iade oranları.', 'Satışlar'],
   ['Platform Satış Performansı', 'Siparişlerin pazaryerlerine göre dağılımı, satış tutarları ve iade oranları.', 'Satışlar'],
@@ -30,42 +33,45 @@ const reportCatalog = [
 ];
 
 export default function Reports() {
-  const [days, setDays] = useState(30);
-  const [data, setData] = useState<Report | null>(null);
-  const [operations, setOperations] = useState<Operations | null>(null);
-  const [message, setMessage] = useState('');
-  const [reportSearch, setReportSearch] = useState('');
-  useEffect(() => {
-    setMessage('');
-    void Promise.all([api<Report>(`/admin/orders/report-summary?days=${days}`), api<Operations>(`/admin/orders/report-operations?days=${days}`)])
-      .then(([report, operation]) => { setData(report); setOperations(operation); })
-      .catch((error) => setMessage(error instanceof Error ? error.message : 'Rapor yüklenemedi'));
-  }, [days]);
-  const max = useMemo(() => Math.max(...(data?.daily.map((row) => Number(row.amount)) ?? [1]), 1), [data]);
-  function exportReport() {
-    if (!data) return;
-    const rows = [['Dönem özeti', 'Tutar'], ['Sipariş cirosu', data.totals.revenue], ['Para girişi', data.financial.income], ['Para çıkışı', data.financial.expense], ['Net nakit hareketi', data.financial.net], [], ['Tarih', 'Sipariş', 'Ciro'], ...data.daily.map((row) => [row.label ?? '', String(row.count), row.amount]), [], ['Satış kanalı', 'Sipariş', 'Ciro'], ...data.channels.map((row) => [channel(row.sales_channel ?? ''), String(row.count), row.amount]), [], ['Ürün', 'Adet', 'Ciro'], ...data.topProducts.map((row) => [row.label ?? '', String(row.count), row.amount])];
-    downloadXlsx(`trex-yonetim-raporu-${days}-gun.xlsx`, 'Yönetim Raporu', rows);
-  }
-  const shownCatalog = reportCatalog.filter(([name, description, category]) => `${name} ${description} ${category}`.toLocaleLowerCase('tr-TR').includes(reportSearch.toLocaleLowerCase('tr-TR')));
-  return <main><AdminNav /><section className={styles.page}>
-    <p>RAPORLAR / SATIŞ VE FİNANS ÖZETİ</p><h1>Yönetim raporları</h1><p>Satış, para hareketi ve operasyon kayıtlarından oluşturulan dönem özeti.</p>
-    <div className="period-toolbar"><div>{[7, 30, 90, 365].map((value) => <button className={days === value ? 'selected' : ''} key={value} onClick={() => setDays(value)}>Son {value} gün</button>)}</div><div className="button-row"><Link href="/raporlar/ozel">Özel Raporu Aç</Link><button type="button" disabled={!data} onClick={exportReport}>Excel&apos;e Aktar</button></div></div>{message && <p role="alert">{message}</p>}
-    <section className={styles.catalog} aria-labelledby="catalog-title">
-      <div className={styles.catalogHeader}><h2 id="catalog-title">Rapor Kataloğu</h2><label>Rapor Ara<input value={reportSearch} onChange={event => setReportSearch(event.target.value)} /></label></div>
-      <p>Hazır Olmayan Raporlar Henüz Oluşturulamaz. Detaylı Satış Raporunda Tarih, Ürün, Müşteri, Kanal Ve Durum Filtreleri Kullanılabilir.</p>
-      <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead>
-      <tbody><tr><td><b>Detaylı Satış Raporu</b><small>Sipariş Ve Ürün Satırları; Para Birimine Göre Ayrı Toplamlar.</small></td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
-      {shownCatalog.map(([name, description, category]) => {
-        const reportGroup = Object.entries(salesGroups).find(([, title]) => title === name)?.[0];
-        const target = reportGroup ? `/raporlar/satis?group=${reportGroup}` : name === 'Stok Durum Raporu' ? '/raporlar/envanter' : name === 'Kritik Stok Seviyesindeki Ürünler' ? '/raporlar/envanter?critical=true' : name === 'Günlük Yeni Üye Kaydı' ? '/raporlar/uyeler' : null;
-        return <tr key={name}><td><b>{name}</b><small>{reportGroup ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{target ? 'Hazır' : 'Geliştirme Bekliyor'}</td><td>{target ? <Link href={target}>Raporu Aç</Link> : <button type="button" disabled title="Bu Rapora Özel Hesaplama Ve Tablo Henüz Hazır Değil">Henüz Hazır Değil</button>}</td></tr>;
-      })}
-      </tbody></table></div>
-    </section>
-    <div className="cards"><article><p>SİPARİŞ</p><h2>{data?.totals.order_count ?? '—'}</h2><p>Seçilen dönem</p></article><article><p>SATIŞ CİROSU</p><h2>{data ? money(data.totals.revenue) : '—'}</h2><p>İptaller hariç</p></article><article><p>ORTALAMA SEPET</p><h2>{data ? money(data.totals.average_order) : '—'}</h2><p>Sipariş başına</p></article><article><p>PARA GİRİŞİ</p><h2>{data ? money(data.financial.income) : '—'}</h2><Link href="/finans">Finansı aç →</Link></article><article><p>PARA ÇIKIŞI</p><h2>{data ? money(data.financial.expense) : '—'}</h2><Link href="/finans">Masrafları aç →</Link></article><article><p>NET HAREKET</p><h2>{data ? money(data.financial.net) : '—'}</h2><p>Giriş − çıkış</p></article></div>
-    <h2>Operasyon yükü</h2><div className="cards"><article><p>AÇIK İADE</p><h2>{operations?.returns_open ?? '—'}</h2><Link href="/iadeler">İadeleri aç →</Link></article><article><p>TAŞIMADA</p><h2>{operations?.shipments_active ?? '—'}</h2><Link href="/kargo">Kargoyu aç →</Link></article><article><p>SORUNLU KARGO</p><h2>{operations?.shipments_failed ?? '—'}</h2><Link href="/kargo">Gönderileri aç →</Link></article><article><p>GECİKEN DESTEK</p><h2>{operations?.support_overdue ?? '—'}</h2><Link href="/destek?overdue=true">Destek talepleri →</Link></article></div>
-    <div className="form-card"><h2>Günlük satış cirosu</h2><div className="chart">{data?.daily.map((row) => <i key={row.label} style={{ height: `${Math.max(5, Math.round(Number(row.amount) / max * 100))}%` }} title={`${row.label}: ${money(row.amount)}`} />)}</div><div className="chart-labels">{data?.daily.map((row) => <span key={row.label}>{row.label}</span>)}</div></div>
-    <div className="cards"><article><h2>Sipariş durumları</h2>{data?.statuses.map((row) => <p key={row.status}><b>{row.status}</b> · {row.count} sipariş · {money(row.amount)}</p>)}</article><article><h2>Satış kanalları</h2>{data?.channels.map((row) => <p key={row.sales_channel}><b>{channel(row.sales_channel ?? '')}</b> · {row.count} sipariş · {money(row.amount)}</p>)}</article><article><h2>En çok satan ürünler</h2>{data?.topProducts.map((row) => <p key={row.label}><b>{row.label}</b> · {row.count} adet · {money(row.amount)}</p>)}</article></div>
-  </section></main>;
+ const [filters,setFilters]=useState<Filters>({dateFrom:calendarDate(29),dateTo:calendarDate(),currency:'TRY'});
+ const [data,setData]=useState<Report|null>(null),[operations,setOperations]=useState<Operations|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[reportSearch,setReportSearch]=useState('');
+ const requestId=useRef(0);
+ async function load(snapshot:Filters) {
+  if(!snapshot.dateFrom||!snapshot.dateTo||snapshot.dateFrom>snapshot.dateTo){setMessage('Geçerli Bir Başlangıç Ve Bitiş Tarihi Seçin.');return;}
+  const id=++requestId.current;setBusy(true);setData(null);setOperations(null);setMessage('');
+  try {const query=new URLSearchParams(snapshot);const [report,operation]=await Promise.all([api<Report>(`/admin/orders/report-summary?${query}`),api<Operations>(`/admin/orders/report-operations?${query}`)]);if(id===requestId.current){setData(report);setOperations(operation);}}
+  catch(error){if(id===requestId.current)setMessage(error instanceof Error?error.message:'Rapor Yüklenemedi.');}
+  finally{if(id===requestId.current)setBusy(false);}
+ }
+ useEffect(()=>{void load(filters);return ()=>{requestId.current++;};},[]);
+ const money=(value:string)=>Number(value).toLocaleString('tr-TR',{style:'currency',currency:data?.currency??filters.currency});
+ function exportReport(){if(!data)return;downloadXlsx(`trex-yonetim-${data.dateFrom}-${data.dateTo}-${data.currency}.xlsx`,'Yönetim Raporu',[
+  ['Başlangıç',data.dateFrom],['Bitiş',data.dateTo],['Para Birimi',data.currency],[],['Dönem Özeti','Değer'],['Sipariş Sayısı',data.totals.order_count],['İptaller Hariç Sipariş Tutarı',Number(data.totals.revenue)],['Ortalama Sipariş Tutarı',Number(data.totals.average_order)],['Gerçekleşen Para Girişi',Number(data.financial.income)],['Gerçekleşen Para Çıkışı',Number(data.financial.expense)],['Net Nakit Hareketi',Number(data.financial.net)],[],
+  ['Tarih','Sipariş Sayısı','İptaller Hariç Tutar'],...data.daily.map(r=>[r.label??'',r.count,Number(r.amount)]),[],['Satış Kanalı','Sipariş Sayısı','İptaller Hariç Tutar'],...data.channels.map(r=>[channel(r.sales_channel??''),r.count,Number(r.amount)]),[],['Sipariş Durumu','Sipariş Sayısı','Sipariş Tutarı'],...data.statuses.map(r=>[statusName(r.status??''),r.count,Number(r.amount)]),[],['Ürün','SKU','Adet','İptaller Hariç Tutar'],...data.topProducts.map(r=>[r.label??'',r.sku??'',r.count,Number(r.amount)])]);}
+ const shownCatalog=reportCatalog.filter(([name,description,category])=>`${name} ${description} ${category}`.toLocaleLowerCase('tr-TR').includes(reportSearch.toLocaleLowerCase('tr-TR')));
+ return <main><AdminNav/><section className={styles.page}>
+  <h1>Yönetim Raporları</h1><p>Seçilen Para Birimindeki Siparişler Ve Gerçekleşen Para Hareketleri. Bekleyen Tahsilatlar Nakit Girişine Dahil Edilmez.</p>
+  <form className="form-card dealer-toolbar" onSubmit={event=>{event.preventDefault();void load({...filters});}}>
+   <label>Başlangıç Tarihi<input required type="date" value={filters.dateFrom} onChange={e=>setFilters(f=>({...f,dateFrom:e.target.value}))}/></label>
+   <label>Bitiş Tarihi<input required type="date" value={filters.dateTo} onChange={e=>setFilters(f=>({...f,dateTo:e.target.value}))}/></label>
+   <label>Para Birimi<select value={filters.currency} onChange={e=>setFilters(f=>({...f,currency:e.target.value}))}><option value="TRY">TRY — Türk Lirası</option><option value="USD">USD — Amerikan Doları</option><option value="EUR">EUR — Euro</option></select></label>
+   <button disabled={busy}>{busy?'Rapor Yükleniyor…':'Raporu Getir'}</button><button type="button" disabled={busy||!data} onClick={exportReport}>Excel’e Aktar</button>
+  </form>
+  <div className="period-toolbar">{[7,30,90,365].map(days=><button key={days} disabled={busy} onClick={()=>{const snapshot={...filters,dateFrom:calendarDate(days-1),dateTo:calendarDate()};setFilters(snapshot);void load(snapshot);}}>Son {days} Gün</button>)}<Link href="/raporlar/ozel">Özel Rapor</Link><Link href="/finans/masraflar">Masraf Raporu</Link><Link href="/siparisler/havaleler">Havale Geçmişi</Link><Link href="/primler/yonetim">Prim Hakedişleri</Link></div>
+  {message&&<p role="alert">{message}</p>}
+  {data&&<><p role="status">Gösterilen Rapor: {data.dateFrom} — {data.dateTo} · {data.currency} · İstanbul Saatine Göre</p>
+   <div className="cards">{[['Sipariş Sayısı',data.totals.order_count],['İptaller Hariç Sipariş Tutarı',money(data.totals.revenue)],['Ortalama Sipariş Tutarı',money(data.totals.average_order)],['Gerçekleşen Para Girişi',money(data.financial.income)],['Gerçekleşen Para Çıkışı',money(data.financial.expense)],['Net Nakit Hareketi',money(data.financial.net)]].map(([label,value])=><article key={label}><p>{label}</p><strong>{value}</strong></article>)}</div>
+   <ReportTable title="Günlük Sipariş Özeti" headers={['Tarih','Sipariş Sayısı','İptaller Hariç Tutar']} rows={data.daily.map(r=>[r.label??'',r.count,money(r.amount)])}/>
+   <ReportTable title="Satış Kanalları" headers={['Kanal','Sipariş Sayısı','İptaller Hariç Tutar']} rows={data.channels.map(r=>[channel(r.sales_channel??''),r.count,money(r.amount)])}/>
+   <ReportTable title="Sipariş Durumları" headers={['Durum','Sipariş Sayısı','Sipariş Tutarı']} rows={data.statuses.map(r=>[statusName(r.status??''),r.count,money(r.amount)])}/>
+   <ReportTable title="En Çok Satan 10 Ürün" headers={['Ürün','SKU','Adet','İptaller Hariç Tutar']} rows={data.topProducts.map(r=>[r.label??'',r.sku??'',r.count,money(r.amount)])}/>
+  </>}
+  {operations&&<ReportTable title="Dönem Operasyon Özeti — Tüm Para Birimleri" headers={['Açık İade','Tamamlanan İade','Aktif Kargo','Sorunlu Kargo','Vadesi Geçen Destek']} rows={[[operations.returns_open,operations.returns_refunded,operations.shipments_active,operations.shipments_failed,operations.support_overdue]]}/>}
+  <section className={styles.catalog}><div className={styles.catalogHeader}><h2>Rapor Kataloğu</h2><label>Rapor Ara<input value={reportSearch} onChange={e=>setReportSearch(e.target.value)}/></label></div>
+   <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>
+    <tr><td>Detaylı Satış Raporu</td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
+    {shownCatalog.map(([name,description,category])=>{const group=Object.entries(salesGroups).find(([,title])=>title===name)?.[0];const target=group?`/raporlar/satis?group=${group}`:name==='Stok Durum Raporu'?'/raporlar/envanter':name==='Kritik Stok Seviyesindeki Ürünler'?'/raporlar/envanter?critical=true':name==='Günlük Yeni Üye Kaydı'?'/raporlar/uyeler':null;return <tr key={name}><td><b>{name}</b><small>{description}</small></td><td>{category}</td><td>{target?'Hazır':'Geliştirme Bekliyor'}</td><td>{target?<Link href={target}>Raporu Aç</Link>:<button disabled>Henüz Hazır Değil</button>}</td></tr>;})}
+   </tbody></table></div>
+  </section>
+ </section></main>;
 }
