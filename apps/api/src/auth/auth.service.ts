@@ -19,9 +19,13 @@ export class AuthService {
   private hashToken(token: string) { return createHash('sha256').update(token).digest('hex'); }
   private async accessToken(user: Pick<UserRow, 'id' | 'email' | 'role'>, sessionId: string) { return this.jwt.signAsync({ sub: user.id, email: user.email, role: user.role, sid: sessionId } satisfies JwtClaims); }
   private expiry() { const days = Number(process.env.SESSION_TTL_DAYS ?? 30); return new Date(Date.now() + days * 86400000); }
-  async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }, mfaCode?: string) {
+  async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }, mfaCode?: string, audience?: 'MASTER' | 'ADMIN' | 'DEALER') {
     const user = (await this.db.query<UserRow>('SELECT id,email,password_hash,role,is_active,mfa_secret_ciphertext,mfa_enabled_at FROM users WHERE email=$1', [email.toLowerCase()])).rows[0];
     if (!user || !user.is_active || !(await argon2.verify(user.password_hash, password))) throw new UnauthorizedException('Invalid credentials');
+    if (audience) {
+      const allowed = audience === 'MASTER' ? [Roles.SUPER_ADMIN] : audience === 'DEALER' ? [Roles.DEALER] : [Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE];
+      if (!(allowed as Role[]).includes(user.role)) throw new UnauthorizedException('Hesabınıza Uygun Giriş Bölümünü Seçin.');
+    }
     this.mfa.verifyLogin(user, mfaCode); return this.createSession(user, metadata);
   }
   async requestPasswordReset(email: string, metadata: { ip?: string; userAgent?: string }) {

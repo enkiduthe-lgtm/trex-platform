@@ -39,6 +39,7 @@ const statusText: Record<string, string> = {
   SHIPPED: "Kargoda",
   DELIVERED: "Teslim edildi",
   CANCELLED: "İptal edildi",
+  REFUNDED: "İade Edildi",
 };
 const channelText: Record<string, string> = {
   RETAIL: "Perakende", WHOLESALE: "Toptan", PUBLIC_WEB: "Site", INSTAGRAM: "Instagram", DEALER_PORTAL: "Sistem Bayi", MARKETPLACE: "Pazaryeri", ADMIN_ORDER: "Yönetici Siparişi",
@@ -56,6 +57,7 @@ const tabs = [
   { value: "PROCESSING", label: "Hazırlananlar" },
   { value: "SHIPPED", label: "Kargolananlar" },
   { value: "DELIVERED", label: "Teslim edilenler" },
+  { value: "REFUNDED", label: "İade Edilenler" },
   { value: "CANCELLED", label: "İptal edilenler" },
   { value: "ALL", label: "Tüm siparişler" },
 ];
