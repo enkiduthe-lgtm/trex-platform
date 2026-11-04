@@ -23,3 +23,6 @@
 .tableWrap .actions>a:focus-visible,.tableWrap .actions>button:focus-visible,.headerActions>a:focus-visible{outline:2px solid #775386;outline-offset:2px}
 @media(max-width:1000px){.titleRow{flex-wrap:wrap;gap:14px}.headerActions{max-width:none}}
 @media(max-width:600px){.headerActions{grid-template-columns:1fr}.tableWrap .actions{min-width:230px}}
+.headerActions .deleteLink,.tableWrap .actions>.deleteLink{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:8px 12px;box-sizing:border-box;border:1px solid #d8a0a0!important;background:#fff4f4!important;color:#8a2020!important;border-radius:6px;font-weight:600;text-decoration:none;}
+.deleteLink svg{width:15px;height:15px;}
+.tableWrap .actions>button.deleteLink:disabled{opacity:.55;cursor:not-allowed;}

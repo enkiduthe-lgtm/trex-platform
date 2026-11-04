@@ -240,7 +240,7 @@ function OrdersContent() {
     <main>
       <AdminNav />
       <section className={styles.page}>
-        {isDirector&&<div className="button-row"><Link href="/siparisler/sil">Sipariş Silme / Silinenler</Link></div>}
+
         <nav className={styles.orderTabs} aria-label="Sipariş durumları">
           {tabs.map((tab) => (
             <button
@@ -260,6 +260,7 @@ function OrdersContent() {
             <h1>Siparişler</h1>
           </div>
           <div className={styles.headerActions}>
+            {isDirector&&<Link href="/siparisler/sil" className={styles.deleteLink}><OrderIcon name="trash"/><span>Sipariş Sil / Silinenler</span></Link>}
             {canCreate && (
               <Link href="/siparisler/yeni" className={styles.financeLink}>
                 + Yeni sipariş
@@ -465,6 +466,7 @@ function OrdersContent() {
                               : <><OrderIcon name="trash" /><span>İptal</span></>}
                           </button>
                         )}
+                      {isDirector&&(order.status==='CANCELLED'?<Link className={styles.deleteLink} href={`/siparisler/sil?siparis=${encodeURIComponent(order.id)}`}><OrderIcon name="trash"/><span>Sipariş Sil</span></Link>:<button type="button" className={styles.deleteLink} disabled title="Silmek İçin Önce Siparişi İptal Edin"><OrderIcon name="trash"/><span>Sipariş Sil</span></button>)}
                       {order.status === "PENDING_PAYMENT" && (
                         <Link
                           className={styles.approveLink}
