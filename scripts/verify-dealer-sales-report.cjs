@@ -27,6 +27,15 @@ async function main(){
  assert.equal((await service.salesReportDetail(today,today,undefined,'SKU-B')).length,1);assert.equal((await service.salesReportDetail(today,today,undefined,'%')).length,1);assert.equal((await service.salesReportDetail(today,today,id(11))).length,1);
  const before=new Date(Date.parse(today+'T00:00:00+03:00')-1000).toISOString();await db.query('UPDATE orders SET created_at=$1 WHERE id=$2',[before,id(23)]);assert.equal((await service.salesReportDetail(today,today)).length,4);
  await assert.rejects(()=>service.salesReportDetail(today,today,'not-a-uuid'));await assert.rejects(()=>service.salesReportDetail('2026-02-30',today));await assert.rejects(()=>service.salesReportDetail(today,today,undefined,undefined,'INVALID'));
+ await pg.exec(`ALTER TABLE dealers ADD COLUMN contact_name text,ADD COLUMN contact_email text,ADD COLUMN contact_phone text,ADD COLUMN city text,ADD COLUMN region text,ADD COLUMN company_address text,ADD COLUMN tax_number text,ADD COLUMN tax_office text,ADD COLUMN monthly_sales_target numeric,ADD COLUMN created_at timestamptz DEFAULT now(),ADD COLUMN price_group_id uuid;
+ CREATE TABLE dealer_price_groups(id uuid,name text);
+ CREATE TABLE dealer_bank_accounts(id uuid,dealer_id uuid,account_holder text,iban text,is_verified boolean,is_primary boolean,created_at timestamptz);
+ CREATE TABLE dealer_ledger_entries(dealer_id uuid,currency text,direction text,amount numeric);
+ CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);
+ CREATE TABLE commission_entries(id uuid,dealer_id uuid,order_id uuid,order_item_id uuid,recipient_user_id uuid,amount numeric,currency text,status text,entry_kind text,created_at timestamptz,paid_at timestamptz,reversed_at timestamptz,note text);`);
+ await db.query("INSERT INTO returns VALUES($1,$2,'REQUESTED','İade',now(),NULL),($3,$4,'REQUESTED','Diğer Bayi',now(),NULL)",[id(600),id(20),id(601),id(23)]);
+ await db.query("INSERT INTO commission_entries(id,dealer_id,order_id,order_item_id,recipient_user_id,amount,currency,status,entry_kind,created_at) VALUES($1,$2,$3,$4,NULL,10,'TRY','CONFIRMED','EARN',now()),($5,$2,$3,$4,$6,999,'TRY','CONFIRMED','EARN',now()),($7,$8,$9,$10,NULL,20,'TRY','CONFIRMED','EARN',now())",[id(700),id(10),id(20),id(220),id(701),id(900),id(702),id(11),id(23),id(223)]);
+ const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,1);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');await assert.rejects(()=>service.detail(id(999)));
  await pg.close();console.log('Dealer sales report checks passed: duplicate-audit and multi-line order totals, currency/status grouping, historical level snapshot, missing level disclosure, passive dealers, real payment state, SKU/literal search, Istanbul dates and invalid filters.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
