@@ -68,7 +68,7 @@ export class DealerPortalController {
 
   @Get('shipments')
   async shipments(@Req() req: UserRequest) {
-    return (await this.db.query(`SELECT s.id,o.order_number,s.provider,s.tracking_number,s.status
+    return (await this.db.query(`SELECT s.id,o.order_number,s.provider,s.tracking_number,s.status,s.created_at,s.tracking_checked_at
       FROM shipments s JOIN orders o ON o.id=s.order_id
       WHERE EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id AND al.entity_type='order'
         AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))
