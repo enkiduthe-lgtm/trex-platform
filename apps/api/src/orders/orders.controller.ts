@@ -23,6 +23,7 @@ class UpdateOrderNoteDto { @IsOptional() @IsString() @MaxLength(1000) note?: str
 @Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE, Roles.WAREHOUSE)
 export class OrdersController {
   constructor(private readonly orders: OrdersService, private readonly adminOrders: AdminOrderService,private readonly db:DatabaseService) {}
+  @Get('delete-candidates') @RequireRoles(Roles.SUPER_ADMIN) candidates(@Req() req:UserRequest) {return this.orders.deletionCandidates(req.user);}
   @Get('deleted') @RequireRoles(Roles.SUPER_ADMIN) deleted(@Req() req:UserRequest) {return this.orders.archivedOrders(req.user);}
   @Post(':id/delete') @RequireRoles(Roles.SUPER_ADMIN) remove(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:ArchiveOrderDto,@Req() req:UserRequest) {return this.orders.archiveOrder(id,dto.reason,req.user);}
   @Post(':id/restore') @RequireRoles(Roles.SUPER_ADMIN) restore(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) {return this.orders.archiveOrder(id,null,req.user);}
