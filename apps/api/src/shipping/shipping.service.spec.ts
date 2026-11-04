@@ -38,3 +38,31 @@ describe('ShippingService', () => {
     expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-2','DELIVERY_EXCEPTION');
   });
 });
+
+describe('Verified Aras transitions',()=>{
+ const observation={reference:'REF',eventId:'aras:unique',code:'6',direction:'1',trackingNumber:'123'};
+ function setup(status='CREATED',order_status='PROCESSING',provider_reference='REF') {
+  const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status,order_status,provider:'aras',provider_reference,contact_email:null,order_number:'ORDER'}]}).mockResolvedValue({rows:[]});
+  const commissions={awardForDeliveredOrder:jest.fn(),confirmForOrderItem:jest.fn()};
+  const service=new ShippingService({transaction:async(work:any)=>work({query})} as never,{} as never,{} as never,undefined,commissions as never);
+  return {query,service,commissions};
+ }
+ it('allows a missed transit scan to be followed by verified delivery and commission finalization',async()=>{
+  const s=setup();await s.service.updateStatus('order',{status:'DELIVERED'},null,observation);
+  expect(s.commissions.awardForDeliveredOrder).toHaveBeenCalledTimes(1);
+  expect(s.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE orders SET status'),['DELIVERED','order']);
+  expect(s.query).toHaveBeenCalledWith(expect.stringContaining('tracking_number=COALESCE'),['6','1','shipment','123']);
+ });
+ it('a repeated delivery never creates commissions or events again',async()=>{
+  const s=setup('DELIVERED','DELIVERED');await s.service.updateStatus('order',{status:'DELIVERED'},null,observation);
+  expect(s.commissions.awardForDeliveredOrder).not.toHaveBeenCalled();expect(s.query).toHaveBeenCalledTimes(1);
+ });
+ it('rejects stale shipment references and canceled orders before any update',async()=>{
+  const changed=setup('CREATED','PROCESSING','DIFFERENT');await expect(changed.service.updateStatus('order',{status:'DELIVERED'},null,observation)).rejects.toThrow();expect(changed.query).toHaveBeenCalledTimes(1);
+  const cancelled=setup('CREATED','CANCELLED');await expect(cancelled.service.updateStatus('order',{status:'DELIVERED'},null,observation)).rejects.toThrow();expect(cancelled.query).toHaveBeenCalledTimes(1);
+ });
+ it('return observations record an exception without finalizing customer delivery or commissions',async()=>{
+  const s=setup('IN_TRANSIT','SHIPPED');await s.service.updateStatus('order',{status:'FAILED',description:'Aras Kargo İade Olarak Bildirdi'},null,{...observation,direction:'3'});
+  expect(s.commissions.awardForDeliveredOrder).not.toHaveBeenCalled();expect(s.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE orders SET'))).toBe(false);
+ });
+});
