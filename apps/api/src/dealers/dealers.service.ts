@@ -48,7 +48,7 @@ export class DealersService {
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
   async detail(id:string) {
-    const dealer=await this.db.query(`SELECT d.id,d.code,d.company_name,d.status,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.tax_number,d.tax_office,d.monthly_sales_target,d.created_at,l.name AS dealer_level_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id WHERE d.id=$1`,[id]);
+    const dealer=await this.db.query(`SELECT d.id,d.code,d.company_name,d.status,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.tax_number,d.tax_office,d.monthly_sales_target,d.sales_channels,d.social_media,d.created_at,l.name AS dealer_level_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id WHERE d.id=$1`,[id]);
     if(!dealer.rowCount)throw new NotFoundException('Bayi Bulunamadı');
     const source=this.dealerOrderSource();
     const [orders,returns,commissions,requests,deductions,spends,commercial]=await Promise.all([
