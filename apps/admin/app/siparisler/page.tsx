@@ -81,6 +81,7 @@ function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "tra
 
 function OrdersContent() {
   const searchParams = useSearchParams();
+  const [isDirector,setIsDirector]=useState(false);
   const [canCreate, setCanCreate] = useState(false);
   const [canPrepare, setCanPrepare] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -88,6 +89,7 @@ function OrdersContent() {
   useEffect(() => {
     api<{ user: { role: string } }>("/auth/me")
       .then((data) => {
+        setIsDirector(data.user.role === "SUPER_ADMIN");
         setCanCreate(["ADMIN", "SUPER_ADMIN"].includes(data.user.role));
         setCanPrepare(["ADMIN", "SUPER_ADMIN", "WAREHOUSE"].includes(data.user.role));
       })
@@ -238,6 +240,7 @@ function OrdersContent() {
     <main>
       <AdminNav />
       <section className={styles.page}>
+        {isDirector&&<div className="button-row"><Link href="/siparisler/sil">Sipariş Silme / Silinenler</Link></div>}
         <nav className={styles.orderTabs} aria-label="Sipariş durumları">
           {tabs.map((tab) => (
             <button
