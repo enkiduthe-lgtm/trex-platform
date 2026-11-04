@@ -430,6 +430,9 @@ export default function Products() {
     setImageMessage('');
     const file = event.target.files?.[0];
     if (!file) return;
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview('');
+    setImageFile(null);
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       setImageFile(null);
       setImageMessage("Görsel JPG, PNG veya WebP formatında olmalıdır.");
@@ -440,7 +443,6 @@ export default function Products() {
       setImageMessage("Görsel en fazla 2 MB olabilir.");
       return;
     }
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
   }
