@@ -35,7 +35,17 @@ async function main(){
  CREATE TABLE commission_entries(id uuid,dealer_id uuid,order_id uuid,order_item_id uuid,recipient_user_id uuid,amount numeric,currency text,status text,entry_kind text,created_at timestamptz,paid_at timestamptz,reversed_at timestamptz,note text);`);
  await db.query("INSERT INTO returns VALUES($1,$2,'REQUESTED','İade',now(),NULL),($3,$4,'REQUESTED','Diğer Bayi',now(),NULL)",[id(600),id(20),id(601),id(23)]);
  await db.query("INSERT INTO commission_entries(id,dealer_id,order_id,order_item_id,recipient_user_id,amount,currency,status,entry_kind,created_at) VALUES($1,$2,$3,$4,NULL,10,'TRY','CONFIRMED','EARN',now()),($5,$2,$3,$4,$6,999,'TRY','CONFIRMED','EARN',now()),($7,$8,$9,$10,NULL,20,'TRY','CONFIRMED','EARN',now())",[id(700),id(10),id(20),id(220),id(701),id(900),id(702),id(11),id(23),id(223)]);
- const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,1);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');await assert.rejects(()=>service.detail(id(999)));
+ await pg.exec(`CREATE TABLE dealer_prim_requests(id uuid,dealer_id uuid,amount numeric,currency text,status text,due_date date,created_at timestamptz,paid_at timestamptz,reference_number text,note text);
+ CREATE TABLE dealer_prim_deductions(id uuid,dealer_id uuid,return_id uuid,amount numeric,currency text,note text,created_at timestamptz);
+ CREATE TABLE dealer_commission_spends(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz);
+ CREATE TABLE dealer_prim_refunds(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz);`);
+ for(const dealer of [10,11]){
+  await db.query("INSERT INTO dealer_prim_requests VALUES($1,$2,5,'TRY','PAID',CURRENT_DATE,now(),now(),'REF','Not')",[id(800+dealer),id(dealer)]);
+  await db.query("INSERT INTO dealer_prim_deductions VALUES($1,$2,$3,2,'TRY','Gerçek Kargo',now())",[id(820+dealer),id(dealer),id(dealer===10?600:601)]);
+  await db.query('INSERT INTO dealer_commission_spends VALUES($1,$2,$3,8,now())',[id(840+dealer),id(dealer),id(dealer===10?20:23)]);
+  await db.query('INSERT INTO dealer_prim_refunds VALUES($1,$2,$3,3,now())',[id(860+dealer),id(dealer),id(dealer===10?20:23)]);
+ }
+ const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,1);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');assert.equal(detail.requests.length,1);assert.equal(detail.requests[0].reference_number,'REF');assert.equal(detail.deductions.length,1);assert.equal(detail.spends.length,2);assert.equal(detail.spends.filter(x=>x.kind==='REFUND').length,1);await assert.rejects(()=>service.detail(id(999)));
  await pg.close();console.log('Dealer sales report checks passed: duplicate-audit and multi-line order totals, currency/status grouping, historical level snapshot, missing level disclosure, passive dealers, real payment state, SKU/literal search, Istanbul dates and invalid filters.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

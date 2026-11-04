@@ -51,13 +51,16 @@ export class DealersService {
     const dealer=await this.db.query(`SELECT d.id,d.code,d.company_name,d.status,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.tax_number,d.tax_office,d.monthly_sales_target,d.created_at,l.name AS dealer_level_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id WHERE d.id=$1`,[id]);
     if(!dealer.rowCount)throw new NotFoundException('Bayi Bulunamadı');
     const source=this.dealerOrderSource();
-    const [orders,returns,commissions,commercial]=await Promise.all([
+    const [orders,returns,commissions,requests,deductions,spends,commercial]=await Promise.all([
       this.db.query(`${source} SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at FROM dealer_orders d JOIN orders o ON o.id=d.entity_id WHERE d.dealer_id=$1 ORDER BY o.created_at DESC,o.id`,[id]),
       this.db.query(`${source} SELECT r.id,r.status,r.reason,r.requested_at,r.completed_at,o.id AS order_id,o.order_number FROM dealer_orders d JOIN orders o ON o.id=d.entity_id JOIN returns r ON r.order_id=o.id WHERE d.dealer_id=$1 ORDER BY r.requested_at DESC,r.id`,[id]),
       this.db.query(`SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.paid_at,e.reversed_at,e.note,o.id AS order_id,o.order_number,oi.product_name,oi.quantity FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id WHERE e.dealer_id=$1 AND e.recipient_user_id IS NULL ORDER BY e.created_at DESC,e.id`,[id]),
+      this.db.query('SELECT id,amount,currency,status,due_date,created_at,paid_at,reference_number,note FROM dealer_prim_requests WHERE dealer_id=$1 ORDER BY created_at DESC,id',[id]),
+      this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.id AS order_id,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC,f.id',[id]),
+      this.db.query(`SELECT s.id,s.amount,'TRY' AS currency,s.created_at,o.id AS order_id,o.order_number,'SPEND' AS kind FROM dealer_commission_spends s JOIN orders o ON o.id=s.order_id WHERE s.dealer_id=$1 UNION ALL SELECT f.id,f.amount,'TRY',f.created_at,o.id,o.order_number,'REFUND' FROM dealer_prim_refunds f JOIN orders o ON o.id=f.order_id WHERE f.dealer_id=$1 ORDER BY created_at DESC,id`,[id]),
       this.commercialSummary(id),
     ]);
-    return {dealer:dealer.rows[0],orders:orders.rows,returns:returns.rows,commissions:commissions.rows,commercial};
+    return {dealer:dealer.rows[0],orders:orders.rows,returns:returns.rows,commissions:commissions.rows,requests:requests.rows,deductions:deductions.rows,spends:spends.rows,commercial};
   }
   private dealerOrderSource() {
     const uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
