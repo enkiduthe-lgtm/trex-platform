@@ -28,7 +28,7 @@ export class DealerPortalController {
 
   @Get('orders')
   async listOrders(@Req() req: UserRequest) {
-    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at FROM orders o WHERE EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order') ORDER BY o.created_at DESC", [req.user.id]);
+    const result = await this.db.query("SELECT o.id,o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at FROM orders o WHERE EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order') ORDER BY o.created_at DESC", [req.user.id]);
     return result.rows;
   }
 
@@ -40,7 +40,7 @@ export class DealerPortalController {
 
   @Get('orders/:id')
   async orderDetail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
-    const order = await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at
+    const order = await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.created_at
       FROM orders o WHERE o.id=$2 AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id
         AND al.entity_type='order' AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))`, [req.user.id,id]);
     if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');

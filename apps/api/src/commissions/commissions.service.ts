@@ -34,7 +34,7 @@ export class CommissionsService {
     this.db.query(`SELECT id,email,role FROM users WHERE is_active=true AND role IN ('SUPER_ADMIN','ADMIN','WAREHOUSE','FINANCE') ORDER BY email`),this.db.query(`SELECT id,name,sku FROM products WHERE status='ACTIVE' ORDER BY name`),this.db.query(`SELECT id,name,currency,account_type FROM finance_accounts WHERE is_active=true ORDER BY name`)]);return {canManage:actor?.role==='SUPER_ADMIN',rules:rules.rows,entries:entries.rows,staff:actor?.role==='SUPER_ADMIN'?staff.rows:[],products:actor?.role==='SUPER_ADMIN'?products.rows:[],accounts:actor?.role==='SUPER_ADMIN'?accounts.rows:[]};}
   async confirmForOrderItem(input: { dealerId: string; orderId: string; orderItemId: string; productId: string; quantity: number },existingClient?:import('pg').PoolClient) {
     const store:WalletClient=existingClient??this.db;
-    const snapshot = await store.query<{metadata: {commissionModel?:string;dealerId?:string;prices?:{productId:string;originalAmount:string}[]}}>("SELECT metadata FROM audit_logs WHERE entity_type='order' AND entity_id=$1 AND action='order.dealer.created' ORDER BY created_at ASC LIMIT 1", [input.orderId]);
+    const snapshot = await store.query<{metadata: {commissionModel?:string;dealerId?:string;prices?:{productId:string;originalAmount:string;orderItemId?:string}[]}}>("SELECT metadata FROM audit_logs WHERE entity_type='order' AND entity_id=$1 AND action='order.dealer.created' ORDER BY created_at ASC LIMIT 1", [input.orderId]);
     const metadata = snapshot.rows[0]?.metadata;
     if (metadata?.commissionModel === 'DEALER_MARGIN_V1') {
       if (metadata.dealerId !== input.dealerId) throw new ConflictException('Bayi Prim Sahibi Doğrulanamadı');
@@ -42,7 +42,7 @@ export class CommissionsService {
         const item = await client.query<{unit_amount:string;quantity:number;currency:string;status:string}>('SELECT oi.unit_amount,oi.quantity,oi.currency,o.status FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.id=$1 AND oi.order_id=$2 AND oi.product_id=$3 FOR UPDATE OF oi', [input.orderItemId,input.orderId,input.productId]);
         const row = item.rows[0];
         if (!row || row.status !== 'DELIVERED') throw new ConflictException('Prim İçin Teslim Edilmiş Sipariş Gerekli');
-        const base = metadata.prices?.find(price => price.productId===input.productId)?.originalAmount;
+        const base = metadata.prices?.find(price => price.orderItemId ? price.orderItemId===input.orderItemId : price.productId===input.productId)?.originalAmount;
         if (base === undefined) throw new ConflictException('Sipariş Anındaki Seviye Fiyatı Bulunamadı');
         const amount = dealerMarginAmount(base,row.unit_amount,Number(row.quantity));
         if (amount === '0.00') return null;

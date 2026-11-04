@@ -13,7 +13,7 @@ type Detail = {
   order_number: string;
   sales_channel: string;
   status: string;
-  total_amount: string;
+  total_amount: string; cod_service_fee?:string;
   currency: string;
   customer_email: string | null;
   contact_name: string | null;
@@ -371,7 +371,7 @@ export default function OrderDetail() {
                 <span className={`${styles.status} ${styles[`status_${data.status}`] ?? ""}`}>{orderStatus[data.status] ?? data.status}</span>
               </div>
               <div className={styles.summaryValues}>
-                <div><small>Toplam tutar</small><strong>{money(data.total_amount, data.currency)}</strong></div>
+                <div><small>Kapıda Ödeme Hizmet Bedeli</small><strong>{money(data.cod_service_fee??'0',data.currency)}</strong></div><div><small>Toplam tutar</small><strong>{money(data.total_amount, data.currency)}</strong></div>
                 <div><small>Ödeme yöntemi</small><strong>{data.payments.map((payment) => paymentMethod[payment.provider] ?? payment.provider).join(", ") || "Belirtilmedi"}</strong></div>
               </div>
               <div className={styles.cardActions}>

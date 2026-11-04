@@ -27,6 +27,7 @@ export default function NewOrder() {
   const lock = useRef(false);
   const attempt = useRef<{ payload:string; key:string }|null>(null);
   const [form,setForm] = useState({ salesChannel:'',customerId:'',warehouseId:'',recipientName:'',contactEmail:'',phone:'',city:'',district:'',addressLine:'',postalCode:'',paymentMethod:'TRANSFER',currency:'TRY',priceChangeReason:'' });
+  const [codServiceFee,setCodServiceFee] = useState('75');
   const [items,setItems] = useState([{ productId:'',quantity:1,unitAmount:'' }]);
   useEffect(() => {
     if (!form.salesChannel) { setOptions(null); return; }
@@ -44,7 +45,7 @@ export default function NewOrder() {
     event.preventDefault();
     if(lock.current) return;
     lock.current=true; setBusy(true); setMessage('');
-    const payload = JSON.stringify({ ...form,priceChangeReason:form.priceChangeReason || undefined,customerId:form.customerId || undefined,items:items.map(item=>({...item,unitAmount:item.unitAmount===''?undefined:Number(item.unitAmount)})) });
+    const payload = JSON.stringify({ ...form,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined,priceChangeReason:form.priceChangeReason || undefined,customerId:form.customerId || undefined,items:items.map(item=>({...item,unitAmount:item.unitAmount===''?undefined:Number(item.unitAmount)})) });
     if(attempt.current?.payload!==payload) attempt.current={ payload,key:crypto.randomUUID() };
     try {
       const result = await api<{ id:string }>('/admin/orders',{ method:'POST',headers:{ 'Idempotency-Key':attempt.current.key },body:payload });
@@ -87,7 +88,7 @@ export default function NewOrder() {
         <p>TL için özel fiyat boşsa sistem fiyatı kullanılır. Dövizde her tutarı elle girin; otomatik kur dönüşümü yapılmaz. Buradaki fiyat yalnız bu siparişi etkiler.</p>
         {items.some(item=>item.unitAmount!=='')&&<label>Fiyat değişiklik nedeni<input required maxLength={500} value={form.priceChangeReason} onChange={event=>setForm({...form,priceChangeReason:event.target.value})}/></label>}
       </fieldset>
-      <fieldset disabled={busy||unavailable}><legend>Ödeme</legend><label>Ödeme yöntemi<select value={form.paymentMethod} onChange={event=>{const method=event.target.value;setForm({...form,paymentMethod:method,currency:method.startsWith('COD_')?'TRY':form.currency});if(method.startsWith('COD_')&&form.currency!=='TRY')setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRANSFER">Havale / EFT</option><option value="HAND_CASH">Elden nakit</option><option value="COD_CARD">Kapıda ödeme — kart</option><option value="COD_CASH">Kapıda ödeme — nakit</option></select></label><label>Para birimi<select value={form.currency} disabled={form.paymentMethod.startsWith('COD_')} onChange={event=>{setForm({...form,currency:event.target.value});setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRY">TL — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Dolar</option></select></label><p>Tahmini toplam: <strong>{money(total,form.currency)}</strong> · Kesin fiyat ve stok kayıt sırasında doğrulanır.</p><button type="submit">{busy?'Kaydediliyor…':'Siparişi oluştur'}</button></fieldset>
+      <fieldset disabled={busy||unavailable}><legend>Ödeme</legend><label>Ödeme yöntemi<select value={form.paymentMethod} onChange={event=>{const method=event.target.value;setForm({...form,paymentMethod:method,currency:method.startsWith('COD_')?'TRY':form.currency});if(method.startsWith('COD_')&&form.currency!=='TRY')setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRANSFER">Havale / EFT</option><option value="HAND_CASH">Elden nakit</option><option value="COD_CARD">Kapıda ödeme — kart</option><option value="COD_CASH">Kapıda ödeme — nakit</option></select></label><label>Para birimi<select value={form.currency} disabled={form.paymentMethod.startsWith('COD_')} onChange={event=>{setForm({...form,currency:event.target.value});setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRY">TL — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Dolar</option></select></label>{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input type="number" min="0" max="9999999999.99" step="0.01" required value={codServiceFee} onChange={event=>setCodServiceFee(event.target.value)}/></label>}<p>Ürün Toplamı: <strong>{money(total,form.currency)}</strong></p><p>Hizmet Bedeli: <strong>{money(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0,form.currency)}</strong></p><p>Tahmini toplam: <strong>{money(total+(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0),form.currency)}</strong> · Kesin fiyat ve stok kayıt sırasında doğrulanır.</p><button type="submit">{busy?'Kaydediliyor…':'Siparişi oluştur'}</button></fieldset>
     </form>}
   </section></main>;
 }

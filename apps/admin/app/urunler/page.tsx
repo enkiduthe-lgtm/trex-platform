@@ -21,6 +21,7 @@ type Product = {
 type Level = { id: string; name: string };
 type PriceGroup = { id: string; name: string };
 type Price = {
+  pack_size?: number;
   dealer_level_id: string | null;
   currency: string;
   starts_at: string;
@@ -282,6 +283,7 @@ export default function Products() {
   const [price, setPrice] = useState({
     productId: "",
     scope: "GLOBAL",
+    packSize: "1",
     amount: "",
     dealerLevelId: "",
     dealerPriceGroupId: "",
@@ -372,6 +374,7 @@ export default function Products() {
           productId: price.productId,
           scope: price.scope,
           amount: Number(price.amount),
+          packSize:price.scope === "DEALER_LEVEL" ? Number(price.packSize) : 1,
           currency: "TRY",
           dealerLevelId:
             price.scope === "DEALER_LEVEL" ? price.dealerLevelId : undefined,
@@ -786,8 +789,9 @@ export default function Products() {
                 </label>
               )}
 
+              {price.scope==='DEALER_LEVEL'&&<label>Alım Seçeneği<select value={price.packSize} onChange={e=>setPrice(current=>({...current,packSize:e.target.value,amount:''}))}><option value="1">Tekli</option><option value="2">2’li Alım</option><option value="3">3’lü Alım</option><option value="5">5’li Alım</option></select></label>}
               <label>
-                Tutar (TL)
+                {price.scope === 'DEALER_LEVEL' && price.packSize !== '1' ? 'Paket Toplam Fiyatı (TL)' : 'Tekli Birim Fiyatı (TL)'}
                 <input
                   required
                   min="0"
@@ -985,9 +989,9 @@ export default function Products() {
                 <h3>Ürün Açıklaması</h3>
                 <p>{detailProduct.description?.trim() || "Bu ürün için kayıtlı açıklama bulunmuyor."}</p>
               </section>
-              <section className={styles.descriptionCard}><h3>Bayi Seviye Fiyatları</h3><table><thead><tr><th>Seviye Adı</th><th>Ürün Fiyatı</th></tr></thead><tbody>{levels.map(level => {
-                const currentPrice = prices.find(item => item.product_id === detailProduct.id && item.scope === 'DEALER_LEVEL' && item.dealer_level_id === level.id && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
-                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? Number(currentPrice.amount).toLocaleString('tr-TR', { style: 'currency', currency: currentPrice.currency }) : 'Seviyeye Özel Fiyat Tanımlanmamış'}</td></tr>;
+              <section className={styles.descriptionCard}><h3>Bayi Seviye Fiyatları</h3><table><thead><tr><th>Seviye Adı</th><th>Tekli Fiyat</th><th>2’li Toplam</th><th>3’lü Toplam</th><th>5’li Toplam</th></tr></thead><tbody>{levels.map(level => {
+                const currentPrice = prices.find(item => item.product_id === detailProduct.id && item.scope === 'DEALER_LEVEL' && (item.pack_size??1)===1 && item.dealer_level_id === level.id && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
+                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? money(currentPrice.amount) : 'Tanımlanmamış'}</td>{[2,3,5].map(size=>{const pack=prices.find(item=>item.product_id===detailProduct.id&&item.scope==='DEALER_LEVEL'&&item.dealer_level_id===level.id&&item.pack_size===size&&new Date(item.starts_at)<=new Date()&&(!item.ends_at||new Date(item.ends_at)>new Date()));return <td key={size}>{pack?money(pack.amount):'Tanımlanmamış'}</td>;})}</tr>;
               })}</tbody></table></section>
               <footer>
                 <button type="button" onClick={() => { setEditError(''); setEditing(detailProduct); setDetailProduct(null); }}>Ürünü Düzenle</button>

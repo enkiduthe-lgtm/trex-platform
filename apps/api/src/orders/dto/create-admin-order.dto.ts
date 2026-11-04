@@ -2,6 +2,8 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 
 export class AdminOrderItemDto {
+  @IsOptional() @IsIn([2,3,5]) packSize?: number;
+  @ValidateIf((_object,value)=>value!==undefined) @IsNumber({maxDecimalPlaces:2}) @Min(0) @Max(9999999999.99) packAmount?: number;
   @IsUUID() productId!: string;
   @IsInt() @Min(1) @Max(100000) quantity!: number;
   @ValidateIf((_object,value)=>value!==undefined) @IsNumber({maxDecimalPlaces:2}) @Min(0) @Max(9999999999.99) unitAmount?: number;
@@ -18,6 +20,7 @@ export class CreateAdminOrderDto {
   @IsString() @MinLength(1) @MaxLength(100) district!: string;
   @IsString() @MinLength(1) @MaxLength(500) addressLine!: string;
   @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
+  @ValidateIf((_object,value)=>value!==undefined) @IsNumber({maxDecimalPlaces:2}) @Min(0) @Max(9999999999.99) codServiceFee?: number;
   @IsIn(['TRANSFER', 'COD_CARD', 'COD_CASH', 'HAND_CASH','COMMISSION']) paymentMethod!: 'TRANSFER' | 'COD_CARD' | 'COD_CASH' | 'HAND_CASH' | 'COMMISSION';
   @ValidateIf((_object,value)=>value!==undefined) @IsIn(['TRY','EUR','USD']) currency?: 'TRY' | 'EUR' | 'USD';
   @IsOptional() @IsString() @MinLength(1) @MaxLength(500) priceChangeReason?: string;

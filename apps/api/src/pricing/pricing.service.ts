@@ -3,7 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { CreatePriceDto, PriceScope, SalesChannel } from './dto/create-price.dto';
 
-export interface PriceRow { id: string; product_id: string; amount: string; currency: string; scope: PriceScope; channel: SalesChannel | null; dealer_level_id: string | null; dealer_id: string | null; dealer_price_group_id: string | null; starts_at: Date; }
+export interface PriceRow { id: string; pack_size: number; product_id: string; amount: string; currency: string; scope: PriceScope; channel: SalesChannel | null; dealer_level_id: string | null; dealer_id: string | null; dealer_price_group_id: string | null; starts_at: Date; }
 export interface ResolvedPrice { amount: string; currency: string; source: PriceScope; ruleId: string; effectiveAt: Date; }
 @Injectable()
 export class PricingService {
@@ -16,10 +16,11 @@ export class PricingService {
       (dto.scope === PriceScope.DEALER_PRICE_GROUP && !dto.channel && !dto.dealerLevelId && !dto.dealerId && !!dto.dealerPriceGroupId);
   }
   async create(dto: CreatePriceDto, actor: RequestUser) {
+    if ((dto.packSize ?? 1) !== 1 && (dto.scope !== PriceScope.DEALER_LEVEL || (dto.currency ?? 'TRY') !== 'TRY')) throw new BadRequestException('Çoklu Alım Fiyatı Bayi Seviyesine TL Olarak Girilmeli');
     if (!this.targetIsValid(dto)) throw new BadRequestException('Price scope and target do not match');
     if (dto.endsAt && new Date(dto.endsAt) <= new Date(dto.startsAt ?? Date.now())) throw new BadRequestException('endsAt must be after startsAt');
     return this.db.transaction(async client => {
-      const result = await client.query<PriceRow>('INSERT INTO product_prices (product_id, scope, channel, dealer_level_id, dealer_id, dealer_price_group_id, amount, currency, starts_at, ends_at, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *', [dto.productId, dto.scope, dto.channel ?? null, dto.dealerLevelId ?? null, dto.dealerId ?? null, dto.dealerPriceGroupId ?? null, dto.amount, dto.currency ?? 'TRY', dto.startsAt ?? new Date(), dto.endsAt ?? null, actor.id]);
+      const result = await client.query<PriceRow>('INSERT INTO product_prices (product_id, scope, channel, dealer_level_id, dealer_id, dealer_price_group_id, amount, currency, starts_at, ends_at, created_by, pack_size) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *', [dto.productId, dto.scope, dto.channel ?? null, dto.dealerLevelId ?? null, dto.dealerId ?? null, dto.dealerPriceGroupId ?? null, dto.amount, dto.currency ?? 'TRY', dto.startsAt ?? new Date(), dto.endsAt ?? null, actor.id, dto.packSize ?? 1]);
       await client.query('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES ($1,$2,$3,$4)', [actor.id, 'price.created', 'product_price', result.rows[0].id]); return result.rows[0];
     });
   }
@@ -36,7 +37,7 @@ export class PricingService {
     return result.rows;
   }
   async resolve(productId: string, context: { channel: SalesChannel; dealerLevelId?: string; dealerId?: string; dealerPriceGroupId?: string }): Promise<ResolvedPrice | null> {
-    const result = await this.db.query<PriceRow>(`SELECT * FROM product_prices WHERE product_id=$1 AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now()) AND (
+    const result = await this.db.query<PriceRow>(`SELECT * FROM product_prices WHERE product_id=$1 AND pack_size=1 AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now()) AND (
       (scope='DEALER' AND dealer_id=$2) OR (scope='DEALER_PRICE_GROUP' AND dealer_price_group_id=$3) OR (scope='DEALER_LEVEL' AND dealer_level_id=$4) OR (scope='CHANNEL' AND channel=$5) OR scope='GLOBAL'
     ) ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END, starts_at DESC, created_at DESC, id DESC LIMIT 1`, [productId, context.dealerId ?? null, context.dealerPriceGroupId ?? null, context.dealerLevelId ?? null, context.channel]);
     const price = result.rows[0]; return price ? { amount: price.amount, currency: price.currency, source: price.scope, ruleId: price.id, effectiveAt: price.starts_at } : null;

@@ -1,7 +1,8 @@
-import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Matches, Min, ValidateIf } from 'class-validator';
+import { IsIn, IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Matches, Min, ValidateIf } from 'class-validator';
 export enum PriceScope { GLOBAL = 'GLOBAL', CHANNEL = 'CHANNEL', DEALER_LEVEL = 'DEALER_LEVEL', DEALER = 'DEALER', DEALER_PRICE_GROUP = 'DEALER_PRICE_GROUP' }
 export enum SalesChannel { PUBLIC_WEB = 'PUBLIC_WEB', ADMIN_ORDER = 'ADMIN_ORDER', DEALER_PORTAL = 'DEALER_PORTAL' }
 export class CreatePriceDto {
+  @IsOptional() @IsIn([1,2,3,5]) packSize?: number;
   @IsUUID() productId!: string;
   @IsEnum(PriceScope) scope!: PriceScope;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) amount!: number;
