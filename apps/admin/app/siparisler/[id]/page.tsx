@@ -137,6 +137,8 @@ type Invoice = {
 export default function OrderDetail() {
   const [canEdit, setCanEdit] = useState(false);
   const [role, setRole] = useState("");
+  const [automaticTracking,setAutomaticTracking]=useState(false);
+  useEffect(()=>{void api<{tracking?:{enabled:boolean;configured:boolean}}>('/admin/orders/shipping/status').then(v=>setAutomaticTracking(Boolean(v.tracking?.enabled&&v.tracking.configured))).catch(()=>{});},[]);
   useEffect(() => {
     api<{ user: { role: string } }>("/auth/me")
       .then((value) => {
@@ -355,10 +357,11 @@ export default function OrderDetail() {
                 <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>3</span>
                   <strong>Kargoya Ver</strong>
+                  {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
                   <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
                   {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo kaydı açılıyor…" : "Kargo kaydını hazırla"}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
-                  {canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
+                  {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
+                  {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
             </section>

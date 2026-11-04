@@ -1,15 +1,18 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
 import { Roles } from '../auth/roles';
 import { RolesGuard } from '../auth/roles.guard';
+import { ArasTrackingService } from './aras-tracking.service';
 import { ShippingService } from './shipping.service';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
 import { RequestUser } from '../auth/auth.types';
 type UserRequest = Request & { user: RequestUser };
 @Controller('admin/orders') @UseGuards(JwtAuthGuard, RolesGuard)
-export class ShippingController { constructor(private readonly shipping: ShippingService) {}
+export class ShippingController { constructor(private readonly shipping: ShippingService,private readonly tracking:ArasTrackingService) {}
+  @Post('shipping/sync') @RequireRoles(Roles.SUPER_ADMIN) sync(@Req() req:UserRequest) {return this.tracking.sync(undefined,req.user);}
+  @Post(':id/shipment/sync') @RequireRoles(Roles.SUPER_ADMIN) syncOrder(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) {return this.tracking.sync(id,req.user);}
   @Get('shipping') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) list() { return this.shipping.list(); }
   @Get('shipping/queue') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) queue() { return this.shipping.readyToShip(); }
   @Get('shipping/status') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) status() { return this.shipping.status(); }

@@ -16,8 +16,8 @@ export class ShippingService {
     assertMockIntegrationAllowed('SHIPPING_PROVIDER');
     return { name: 'mock', client: this.mock };
   }
-  async status() { const provider = process.env.SHIPPING_PROVIDER === 'aras' ? 'aras' : 'mock'; const fields = ['ARAS_CUSTOMER_CODE','ARAS_SET_ORDER_USERNAME','ARAS_SET_ORDER_PASSWORD','ARAS_SET_ORDER_ENDPOINT']; return { provider, ready: provider === 'aras' && fields.every(field=>Boolean(process.env[field])), missing: provider === 'aras' ? fields.filter(field=>!process.env[field]) : [] }; }
-  async list() { return (await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id ORDER BY s.created_at DESC LIMIT 100`)).rows; }
+  async status() { const provider = process.env.SHIPPING_PROVIDER === 'aras' ? 'aras' : 'mock'; const fields = ['ARAS_CUSTOMER_CODE','ARAS_SET_ORDER_USERNAME','ARAS_SET_ORDER_PASSWORD','ARAS_SET_ORDER_ENDPOINT']; return { provider, ready: provider === 'aras' && fields.every(field=>Boolean(process.env[field])), missing: provider === 'aras' ? fields.filter(field=>!process.env[field]) : [], tracking:{ configured:Boolean(process.env.ARAS_QUERY_USERNAME&&process.env.ARAS_QUERY_PASSWORD&&process.env.ARAS_CUSTOMER_CODE),enabled:process.env.ARAS_TRACKING_ENABLED==='true',intervalMinutes:5} }; }
+  async list() { return (await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.tracking_checked_at,s.tracking_error,s.tracking_status_code,s.tracking_direction_code,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id ORDER BY s.created_at DESC LIMIT 100`)).rows; }
   async readyToShip() { return (await this.db.query(`SELECT o.id AS order_id,o.order_number,o.total_amount,o.currency,oa.recipient_name,oa.city,oa.district,pk.package_barcode
     FROM orders o
     LEFT JOIN order_addresses oa ON oa.order_id=o.id
@@ -26,14 +26,18 @@ export class ShippingService {
     LEFT JOIN shipments s ON s.order_id=o.id
     WHERE o.status='PROCESSING' AND s.id IS NULL
     ORDER BY o.created_at ASC LIMIT 100`)).rows; }
-  async detail(orderId: string) { const shipment=await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE s.order_id=$1`,[orderId]); if(!shipment.rows[0]) return null; const events=await this.db.query('SELECT id,status,provider_event_id,description,occurred_at FROM shipment_events WHERE shipment_id=$1 ORDER BY occurred_at DESC,id DESC',[shipment.rows[0].id]); return {...shipment.rows[0],events:events.rows}; }
-  async updateStatus(orderId:string,dto:UpdateShipmentStatusDto,userId:string){
+  async detail(orderId: string) { const shipment=await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.tracking_checked_at,s.tracking_error,s.tracking_status_code,s.tracking_direction_code,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE s.order_id=$1`,[orderId]); if(!shipment.rows[0]) return null; const events=await this.db.query('SELECT id,status,provider_event_id,description,occurred_at FROM shipment_events WHERE shipment_id=$1 ORDER BY occurred_at DESC,id DESC',[shipment.rows[0].id]); return {...shipment.rows[0],events:events.rows}; }
+  async updateStatus(orderId:string,dto:UpdateShipmentStatusDto,userId:string|null,observation?:{reference:string;eventId:string;code:string;direction:string;trackingNumber?:string|null}){
     const changed=await this.db.transaction(async client=>{
-      const result=await client.query<{id:string;status:string;order_status:string;contact_email:string|null;order_number:string}>('SELECT s.id,s.status,o.status AS order_status,cs.contact_email,o.order_number FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE s.order_id=$1 FOR UPDATE OF s,o',[orderId]);
+      const result=await client.query<{id:string;status:string;order_status:string;contact_email:string|null;order_number:string;provider:string;provider_reference:string|null}>('SELECT s.id,s.status,s.provider,s.provider_reference,o.status AS order_status,cs.contact_email,o.order_number FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE s.order_id=$1 FOR UPDATE OF s,o',[orderId]);
       const shipment=result.rows[0];if(!shipment)throw new NotFoundException('Gönderi Kaydı Bulunamadı');
+      if(!observation&&shipment.provider==='aras'&&process.env.ARAS_TRACKING_ENABLED==='true'&&process.env.ARAS_QUERY_USERNAME&&process.env.ARAS_QUERY_PASSWORD&&['IN_TRANSIT','DELIVERED','FAILED'].includes(dto.status))throw new ConflictException('Aras Takip Aktif. Gönderi Durumu Aras Üzerinden Güncellenir.');
+      if(observation&&!['PROCESSING','SHIPPED'].includes(shipment.order_status)&&!['DELIVERED','CANCELLED'].includes(shipment.status))throw new ConflictException('Sipariş Kargo Takibine Uygun Değil');
+      if(observation && (shipment.provider!=='aras'||shipment.provider_reference!==observation.reference))throw new ConflictException('Aras Gönderi Bağlantısı Değişmiş');
+      if(observation && ['DELIVERED','CANCELLED'].includes(shipment.status))return {id:shipment.id,status:shipment.status,recipient:shipment.contact_email,orderNumber:shipment.order_number,replayed:true};
       const replayed=shipment.status===dto.status;
       const allowed:Record<string,string[]>={CREATED:['IN_TRANSIT','FAILED','CANCELLED'],IN_TRANSIT:['DELIVERED','FAILED'],FAILED:[],DELIVERED:[],CANCELLED:[]};
-      if(!replayed&&!allowed[shipment.status]?.includes(dto.status))throw new ConflictException('Bu Gönderi Durum Geçişine İzin Verilmiyor');
+      if(!replayed&&!allowed[shipment.status]?.includes(dto.status)&&!(observation&&['CREATED','FAILED'].includes(shipment.status)&&['IN_TRANSIT','DELIVERED','FAILED'].includes(dto.status)))throw new ConflictException('Bu Gönderi Durum Geçişine İzin Verilmiyor');
       const nextOrder=dto.status==='IN_TRANSIT'?'SHIPPED':dto.status==='DELIVERED'?'DELIVERED':null;
       if(nextOrder&& !['PROCESSING','SHIPPED','DELIVERED'].includes(shipment.order_status))throw new ConflictException('Ödeme Ve Hazırlık Kontrolü Tamamlanmadan Kargo İlerletilemez');
       if(nextOrder&&shipment.order_status!==nextOrder){
@@ -43,13 +47,17 @@ export class ShippingService {
       }
       if(!replayed){
         await client.query("UPDATE shipments SET status=$1,dispatched_at=CASE WHEN $1='IN_TRANSIT' THEN COALESCE(dispatched_at,now()) ELSE dispatched_at END,delivered_at=CASE WHEN $1='DELIVERED' THEN COALESCE(delivered_at,now()) ELSE delivered_at END,failure_reason=CASE WHEN $1='FAILED' THEN COALESCE($2,failure_reason,'Teslimat Sorunu') ELSE NULL END,updated_at=now() WHERE id=$3",[dto.status,dto.description?.trim()||null,shipment.id]);
-        await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4)',[shipment.id,dto.status,'manual:'+dto.status+':'+Date.now(),dto.description?.trim()||'Yönetim Panelinden Durum Güncellendi']);
-        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'shipment.status_updated','shipment',shipment.id,JSON.stringify({from:shipment.status,to:dto.status})]);
+        await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4) ON CONFLICT(shipment_id,provider_event_id) DO NOTHING',[shipment.id,dto.status,observation?.eventId??('manual:'+dto.status+':'+Date.now()),dto.description?.trim()||'Yönetim Panelinden Durum Güncellendi']);
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,observation?'shipment.aras.synced':'shipment.status_updated','shipment',shipment.id,JSON.stringify({from:shipment.status,to:dto.status})]);
       }
-      if(dto.status==='DELIVERED'&&this.commissions){
+      if(dto.status==='DELIVERED'&&!replayed&&this.commissions){
         await this.commissions.awardForDeliveredOrder(orderId,userId,client);
         const dealer=(await client.query<{dealer_id:string}>("SELECT COALESCE((a.metadata->>'dealerId')::uuid,dua.dealer_id) AS dealer_id FROM audit_logs a LEFT JOIN dealer_user_accounts dua ON dua.user_id=a.actor_user_id WHERE a.entity_type='order' AND a.entity_id=$1 AND a.action IN ('order.dealer.created','order.admin.created') ORDER BY a.created_at LIMIT 1",[orderId])).rows[0];
         if(dealer?.dealer_id){const items=await client.query<{id:string;product_id:string;quantity:number}>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id',[orderId]);for(const item of items.rows)await this.commissions.confirmForOrderItem({dealerId:dealer.dealer_id,orderId,orderItemId:item.id,productId:item.product_id,quantity:item.quantity},client);}
+      }
+      if(observation){
+        if(replayed)await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4) ON CONFLICT(shipment_id,provider_event_id) DO NOTHING',[shipment.id,dto.status,observation.eventId,dto.description]);
+        await client.query('UPDATE shipments SET tracking_checked_at=now(),tracking_error=NULL,tracking_status_code=$1,tracking_direction_code=$2,tracking_number=COALESCE($4,tracking_number) WHERE id=$3',[observation.code,observation.direction,shipment.id,observation.trackingNumber??null]);
       }
       return {id:shipment.id,status:dto.status,recipient:shipment.contact_email,orderNumber:shipment.order_number,replayed};
     });
