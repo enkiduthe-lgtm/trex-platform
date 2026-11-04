@@ -484,7 +484,7 @@ export default function Products() {
           </div>
           <div className={styles.catalogLinks}>
             <Link href="/stok">▦ Stok girişi</Link>
-            <Link href="/depo-operasyon">⌂ Depo operasyonu</Link>
+            <Link href="/siparisler?durum=PROCESSING">Sipariş Hazırlama</Link>
           </div>
         </div>
         {message && (
