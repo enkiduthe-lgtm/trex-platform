@@ -34,3 +34,10 @@ Zamanlayıcı API süreci çalışırken işler. Uyuyan ücretsiz Render instanc
 ## Kabul Kontrolü
 
 Canlıda önce bir mevcut gönderinin salt okunur GetQueryDS cevabının şeması/referansı doğrulanmalı; ardından durum güncellemesi ve teslimatta prim tekilleştirmesi denetlenmelidir. Bu testler tamamlanmadan canlı Aras doğrulandı olarak işaretlemeyin.
+
+## SetOrder Sözleşmesi — 4 Kasım 2026
+Mevcut Render gönderi adresi customerws.araskargo.com.tr/arascargoservice.asmx olarak salt okunur doğrulandı. Resmî işlem açıklaması: https://customerws.araskargo.com.tr/arascargoservice.asmx?op=SetOrder . SOAP 1.1 zarfı http://schemas.xmlsoap.org/soap/envelope/, Content-Type text/xml; charset=utf-8 ve SOAPAction "http://tempuri.org/SetOrder". Önceki kodda sorgulama servisine ait IArasCargoIntegrationService/SetOrder action yanlış kullanılmıştı; düzeltildi. Sorgulama/GetQueryDS adresi farklıdır, değiştirilmedi.
+
+CodAmount, CodCollectionType, CodBillingType ve IsCod alanları gerçek SetOrder şemasında mevcuttur. Şema bunları string olarak tanımlar; değerlerin sözleşmedeki anlamları bu sayfada açıklanmaz. Sorgulama PDF’sindeki tahsilat tipi değerleri, gönderi oluşturmanın bütün kodları doğrulandı anlamına gelmez. Kodları tahmin ederek COD gönderisi oluşturmayın. Bu değişiklik yalnız SOAP uyumunu düzeltir; kapıda tahsilat aktarımı hâlâ tamamlanmamıştır.
+
+scripts/verify-aras-request.cjs gerçek provider kodunu sahte HTTP cevabı ile çalıştırıp header/zarf, XML escape, paket barkodu ve sonuç ayrıştırmasını doğrular; Aras’a gönderi isteği göndermez.

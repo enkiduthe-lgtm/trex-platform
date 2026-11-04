@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import styles from "./shipping.module.css";
 import { downloadXlsx } from '../lib/xlsx';
 type Config = { provider: string; ready: boolean; missing: string[];tracking?:{configured:boolean;enabled:boolean;intervalMinutes:number} };
 type Shipment = {
@@ -36,11 +37,11 @@ type ShipmentEvent = { id: string; status: string; description: string | null; o
 type ShipmentDetail = { order_id: string; events: ShipmentEvent[] };
 const status: Record<string, string> = {
   PENDING: "Bekliyor",
-  CREATED: "Gönderi oluşturuldu",
+  CREATED: "Gönderi Oluşturuldu",
   IN_TRANSIT: "Taşımada",
-  DELIVERED: "Teslim edildi",
+  DELIVERED: "Teslim Edildi",
   FAILED: "Başarısız",
-  CANCELLED: "İptal edildi",
+  CANCELLED: "İptal Edildi",
 };
 export default function Shipping() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -50,6 +51,9 @@ export default function Shipping() {
   const [busy, setBusy] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, ShipmentDetail>>({});
   const [shipmentFilter, setShipmentFilter] = useState<"ALL" | "ACTIVE" | "DELIVERED" | "FAILED" | "CANCELLED">("ALL");
+  const [dateFrom,setDateFrom]=useState('');
+  const [dateTo,setDateTo]=useState('');
+  const validDates=!dateFrom||!dateTo||dateFrom<=dateTo;
   const load = () =>
     Promise.all([
       api<Config>("/admin/orders/shipping/status"),
@@ -126,23 +130,26 @@ export default function Shipping() {
   );
   const failed = shipments.filter((s) => s.status === "FAILED");
   const delivered = shipments.filter((s) => s.status === "DELIVERED");
-  const visibleShipments = shipments.filter((shipment) => shipmentFilter === "ALL" || (shipmentFilter === "ACTIVE" && (shipment.status === "CREATED" || shipment.status === "IN_TRANSIT")) || shipment.status === shipmentFilter);
+  const visibleShipments = shipments.filter(shipment=>{
+    const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Istanbul'}).format(new Date(shipment.created_at));
+    return validDates&&(!dateFrom||day>=dateFrom)&&(!dateTo||day<=dateTo);
+  }).filter((shipment) => shipmentFilter === "ALL" || (shipmentFilter === "ACTIVE" && (shipment.status === "CREATED" || shipment.status === "IN_TRANSIT")) || shipment.status === shipmentFilter);
   function exportShipments() {
     if (!visibleShipments.length) { setMessage('Bu filtrede dışa aktarılacak gönderi bulunamadı.'); return; }
     const rows = [
       ['Sipariş no', 'Kargo firması', 'Takip no', 'Durum', 'Alıcı', 'İlçe', 'İl', 'Sorun notu', 'Oluşturulma'],
-      ...visibleShipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR')]),
+      ...visibleShipments.map(shipment => [shipment.order_number, shipment.provider, shipment.tracking_number ?? '', status[shipment.status] ?? shipment.status, shipment.recipient_name ?? '', shipment.district ?? '', shipment.city ?? '', shipment.failure_reason ?? '', new Date(shipment.created_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})]),
     ];
     downloadXlsx('trex-kargo-gonderileri.xlsx', 'Kargo Gönderileri', rows);
   }
   return (
     <main>
       <AdminNav />
-      <section>
-        <p>SİPARİŞLER / KARGO</p>
-        <h1>Kargo işlemleri</h1>
+      <section className={styles.page}>
+        <p>Siparişler / Kargo</p>
+        <header className={styles.toolbar}><h1>Kargo İşlemleri</h1><button type="button" disabled={busy!==null} onClick={()=>void load()}>Kayıtları Yenile</button></header>
         {message && <p role="status">{message}</p>}
-        <div className="cards">
+        <div className={styles.summary}>
           <article>
             <p>KARGOYA HAZIR</p>
             <h2>{queue.length}</h2>
@@ -166,80 +173,32 @@ export default function Shipping() {
         </div>
         {config && (
           <article className="form-card">
-            <h2>Aras Kargo bağlantısı</h2>
+            <h2>Aras Kargo Bağlantısı</h2>
             <p>
               {config.provider === "aras"
                 ? config.ready
-                  ? "Bağlantı bilgileri hazır. İlk canlı gönderiden önce Aras SetOrder şeması doğrulanmalıdır."
-                  : `Bağlantı eksik: ${config.missing.join(", ")}`
-                : "Deneme kargo adaptörü seçili. Canlı gönderi oluşturmaz."}
+                  ? "Bağlantı Bilgileri Kayıtlı."
+                  : "Bağlantı Bilgileri Eksik."
+                : "Deneme Bağlantısı Seçili. Gerçek Gönderi Oluşturulmaz."}
             </p>
             <p>
-              Canlı Aras gönderisi için Render ortam değişkenlerinde müşteri
-              kodu, SetOrder kullanıcı adı/şifresi ve Aras’ın verdiği sözleşme
-              endpoint’i bulunmalıdır.
+              Kargo Kaydı Oluşturmadan Önce Teslimat Adresini Ve Paket Bilgilerini Kontrol Edin.
             </p>
           </article>
         )}
-        <section className="form-card"><h2>Aras Otomatik Takip</h2><p>{config?.tracking?.configured?(config.tracking.enabled?'Otomatik Takip Açık · Kontrol Aralığı 5 Dakika':'Sorgulama Bilgileri Hazır · Otomatik Takip Kapalı'):'Sorgulama Servisi Ayarları Bekleniyor'}</p><p>Son Kontrol Tarihi Ve Sorgu Sorunları Gönderi Satırında Gösterilir.</p></section><h2>Kargoya hazır siparişler</h2>
+        <section className="form-card"><h2>Aras Otomatik Takip</h2><p>{config?.tracking?.configured?(config.tracking.enabled?'Otomatik Takip Açık · Servis Çalışırken 5 Dakikada Bir Kontrol':'Sorgulama Bilgileri Hazır · Otomatik Takip Kapalı'):'Sorgulama Servisi Ayarları Bekleniyor'}</p><p>Son Kontrol Tarihi Ve Sorgu Sorunları Gönderi Satırında Gösterilir.</p></section><h2>Kargoya Hazır Siparişler</h2>
         <p>
           Paketlemesi tamamlanan sipariş için kargo kaydı ve takip numarası
           oluşturun.
         </p>
-        <div className="cards">
-          {queue.length ? (
-            queue.map((item) => (
-              <article key={item.order_id}>
-                <p>
-                  {item.recipient_name ?? "Müşteri"} · {item.district ?? ""}{" "}
-                  {item.city ?? ""}
-                </p>
-                <h2>{item.order_number}</h2>
-                <p>
-                  {item.total_amount} {item.currency}
-                </p>
-                <p>Paket barkodu: {item.package_barcode ?? "Paket barkodu yok"}</p>
-                <button
-                  disabled={busy !== null}
-                  onClick={() => void createShipment(item.order_id)}
-                >
-                  Kargo kaydı oluştur
-                </button>
-              </article>
-            ))
-          ) : (
-            <article>
-              <p>Kargo kaydı bekleyen paketlenmiş sipariş yok.</p>
-            </article>
-          )}
-        </div>
-        {failed.length > 0 && (
-          <>
-            <h2>Sorunlu gönderiler</h2>
-            <div className="cards">
-              {failed.map((s) => (
-                <article key={s.id}>
-                  <p>
-                    {s.order_number} ·{" "}
-                    {s.tracking_number ?? "Takip numarası yok"}
-                  </p>
-                  <h3>{s.recipient_name ?? "Müşteri"}</h3>
-                  <p role="alert">
-                    {s.failure_reason ??
-                      "Kargo sağlayıcısı gönderi kaydını oluşturamadı."}
-                  </p>
-                  <Link href={`/siparisler/${s.order_id}`}>Siparişi aç →</Link>
-                </article>
-              ))}
-            </div>
-          </>
-        )}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <h2>Son gönderiler</h2>
+        <section className="table-card"><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Alıcı</th><th>İl / İlçe</th><th>Sipariş Toplamı</th><th>Paket Barkodu</th><th>İşlem</th></tr></thead><tbody>{queue.map(item=><tr key={item.order_id}><td><Link href={`/siparisler/${item.order_id}`}>{item.order_number}</Link></td><td>{item.recipient_name??'—'}</td><td>{item.city??'—'} / {item.district??'—'}</td><td>{Number(item.total_amount).toLocaleString('tr-TR',{style:'currency',currency:item.currency})}</td><td>{item.package_barcode??'Paket Barkodu Yok'}</td><td><div className={styles.actions}><button type="button" disabled={busy!==null} onClick={()=>void createShipment(item.order_id)}>Kargo Kaydı Oluştur</button><Link href={`/siparisler/${item.order_id}`}>Siparişi Aç</Link></div></td></tr>)}</tbody></table>{!queue.length&&<p className="empty-state">Kargo Kaydı Bekleyen Paketlenmiş Sipariş Yok.</p>}</div></section>
+        {failed.length>0&&<section className="table-card"><h2>Sorunlu Gönderiler</h2><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Alıcı</th><th>Takip Numarası</th><th>Sorun</th><th>İşlem</th></tr></thead><tbody>{failed.map(item=><tr key={item.id}><td>{item.order_number}</td><td>{item.recipient_name??'—'}</td><td>{item.tracking_number??'Takip Bekleniyor'}</td><td>{item.failure_reason??item.tracking_error??'Kargo Kaydı Kontrol Edilmeli'}</td><td><Link href={`/siparisler/${item.order_id}`}>Siparişi Aç</Link></td></tr>)}</tbody></table></div></section>}
+        <div className={styles.toolbar}>
+          <h2>Son Gönderiler</h2><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></label><label>Bitiş Tarihi<input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>
           <label>Durum <select value={shipmentFilter} onChange={(event) => setShipmentFilter(event.target.value as typeof shipmentFilter)}><option value="ALL">Tümü</option><option value="ACTIVE">Aktif gönderiler</option><option value="DELIVERED">Teslim edildi</option><option value="FAILED">Sorunlu</option><option value="CANCELLED">İptal edildi</option></select></label>
-          <button type="button" disabled={!visibleShipments.length} onClick={exportShipments}>Excel&apos;e Aktar</button>
+          <button type="button" disabled={!validDates||!visibleShipments.length} onClick={exportShipments}>Excel&apos;e Aktar</button>
         </div>
-<div className="table-card"><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Kargo Firması</th><th>Durum</th><th>Takip / Barkod</th><th>Alıcı</th><th>İl / İlçe</th><th>İşlemler</th><th>Takip Geçmişi</th></tr></thead><tbody>{visibleShipments.map(s=><tr key={s.id}><td><Link href={`/siparisler/${s.order_id}`}>{s.order_number}</Link></td><td>{s.provider==='aras'?'Aras Kargo':s.provider}</td><td>{status[s.status]??s.status}{s.tracking_checked_at&&<small>Son Kontrol: {new Date(s.tracking_checked_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</small>}{s.tracking_error&&<small role="alert">{s.tracking_error}</small>}{s.failure_reason&&<small role="alert">{s.failure_reason}</small>}</td><td><b>{s.tracking_number??'Takip Bekleniyor'}</b><small>{s.package_barcode??'Barkod Yok'}</small></td><td>{s.recipient_name??'—'}</td><td>{s.city??'—'} / {s.district??'—'}</td><td><div className="button-row">{!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&s.status==='CREATED'&&<><button disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'IN_TRANSIT')}>Kargoya Ver</button><button className="secondary" disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'CANCELLED')}>Gönderiyi İptal Et</button></>}{!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&s.status==='IN_TRANSIT'&&<><button disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'DELIVERED')}>Teslim Edildi</button><button className="secondary" disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'FAILED')}>Teslimat Sorunu</button></>}<button className="secondary" disabled={busy!==null} onClick={()=>void loadHistory(s.order_id)}>Takip Geçmişi</button>{s.label_url&&<a href={s.label_url} target="_blank" rel="noopener noreferrer">Etiketi Aç</a>}</div></td><td>{details[s.order_id]?details[s.order_id].events.map(event=><p key={event.id}>{new Date(event.occurred_at).toLocaleString('tr-TR')} · {status[event.status]??event.status} {event.description??''}</p>):'Takip Geçmişi Butonuna Tıklayın'}</td></tr>)}</tbody></table>{!visibleShipments.length&&<p className="empty-state">Bu Duruma Ait Kargo Kaydı Yok.</p>}</div></div>
+{!validDates&&<p role="alert">Bitiş Tarihi Başlangıç Tarihinden Önce Olamaz.</p>}<div className="table-card"><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Kargo Firması</th><th>Durum</th><th>Takip / Barkod</th><th>Alıcı</th><th>İl / İlçe</th><th>İşlemler</th><th>Takip Geçmişi</th></tr></thead><tbody>{visibleShipments.map(s=><tr key={s.id}><td><Link href={`/siparisler/${s.order_id}`}>{s.order_number}</Link></td><td>{s.provider==='aras'?'Aras Kargo':s.provider}</td><td>{status[s.status]??s.status}{s.tracking_checked_at&&<small>Son Kontrol: {new Date(s.tracking_checked_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</small>}{s.tracking_error&&<small role="alert">{s.tracking_error}</small>}{s.failure_reason&&<small role="alert">{s.failure_reason}</small>}</td><td><b>{s.tracking_number??'Takip Bekleniyor'}</b><small>{s.package_barcode??'Barkod Yok'}</small></td><td>{s.recipient_name??'—'}</td><td>{s.city??'—'} / {s.district??'—'}</td><td><div className={styles.actions}>{!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&s.status==='CREATED'&&<><button disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'IN_TRANSIT')}>Kargoya Ver</button><button className="secondary" disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'CANCELLED')}>Gönderiyi İptal Et</button></>}{!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&s.status==='IN_TRANSIT'&&<><button disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'DELIVERED')}>Teslim Edildi</button><button className="secondary" disabled={busy!==null} onClick={()=>void updateShipment(s.order_id,'FAILED')}>Teslimat Sorunu</button></>}<button className="secondary" disabled={busy!==null} onClick={()=>void loadHistory(s.order_id)}>Takip Geçmişi</button>{s.label_url&&<a href={s.label_url} target="_blank" rel="noopener noreferrer">Etiketi Aç</a>}</div></td><td>{details[s.order_id]?<table className={styles.history}><thead><tr><th>Tarih</th><th>Durum</th><th>Açıklama</th></tr></thead><tbody>{details[s.order_id].events.map(event=><tr key={event.id}><td>{new Date(event.occurred_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td><td>{status[event.status]??event.status}</td><td>{event.description??'—'}</td></tr>)}</tbody></table>:'Takip Geçmişi Butonuna Tıklayın'}</td></tr>)}</tbody></table>{!visibleShipments.length&&<p className="empty-state">Bu Duruma Ait Kargo Kaydı Yok.</p>}</div></div>
       </section>
     </main>
   );

@@ -21,7 +21,7 @@ export class ArasShippingProvider implements ShippingProvider {
     const integrationCode = this.limit(input.orderId.replaceAll('-', '').toUpperCase(), 32);
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/soap+xml; charset=utf-8', SOAPAction: 'http://tempuri.org/IArasCargoIntegrationService/SetOrder' },
+      headers: { 'content-type': 'text/xml; charset=utf-8', SOAPAction: '"http://tempuri.org/SetOrder"' },
       body: this.envelope({ username, password, orderReference, integrationCode, input }),
       signal: AbortSignal.timeout(15_000),
     }).catch(() => { throw new ServiceUnavailableException('Aras Kargo servisine ulaşılamadı'); });
@@ -44,7 +44,7 @@ export class ArasShippingProvider implements ShippingProvider {
     // the same unique barcode printed on the physical TREX package label.
     const pieceBarcode = this.limit(input.packageBarcode || input.orderId.replace(/\D/g, '') || orderReference.replace(/\D/g, ''), 64);
     return `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tem="http://tempuri.org/"><soap:Body><SetOrder xmlns="http://tempuri.org/"><orderInfo><Order>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/"><soap:Body><SetOrder xmlns="http://tempuri.org/"><orderInfo><Order>
 <UserName>${this.xml(username)}</UserName><Password>${this.xml(password)}</Password><TradingWaybillNumber>${this.xml(orderReference)}</TradingWaybillNumber>
 <ReceiverName>${this.xml(this.limit(input.recipientName, 100))}</ReceiverName><ReceiverAddress>${this.xml(this.limit(input.addressLine, 250))}</ReceiverAddress><ReceiverPhone1>${this.xml(phone)}</ReceiverPhone1><ReceiverCityName>${this.xml(this.limit(input.city, 40))}</ReceiverCityName><ReceiverTownName>${this.xml(this.limit(input.district, 16))}</ReceiverTownName>
 <VolumetricWeight>1</VolumetricWeight><PieceCount>1</PieceCount><IntegrationCode>${this.xml(integrationCode)}</IntegrationCode><PayorTypeCode>1</PayorTypeCode><IsWorldWide>0</IsWorldWide>
