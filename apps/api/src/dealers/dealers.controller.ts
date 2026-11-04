@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -29,6 +29,7 @@ export class DealersController {
   @Patch(':id/parent') parent(@Param('id') id: string, @Body() dto: SetParentDto, @Req() req: UserRequest) { return this.dealers.setParent(id, dto.parentDealerId, req.user); }
   @Patch(':id/price-group') priceGroup(@Param('id') id:string,@Body() dto:SetDealerPriceGroupDto,@Req() req:UserRequest) { return this.dealers.setPriceGroup(id,dto.priceGroupId,req.user); }
   @Patch(':id/level') levelForDealer(@Param('id') id:string,@Body() dto:SetDealerLevelDto,@Req() req:UserRequest) { return this.dealers.setLevel(id,dto.dealerLevelId,req.user); }
+  @Get(':id/detail') detail(@Param('id',new ParseUUIDPipe()) id:string) { return this.dealers.detail(id); }
   @Get(':id/commercial') commercial(@Param('id') id:string) { return this.dealers.commercialSummary(id); }
   @Post(':id/bank-accounts') bankAccount(@Param('id') id:string,@Body() dto:CreateDealerBankAccountDto,@Req() req:UserRequest) { return this.dealers.addBankAccount(id,dto,req.user); }
   @Post(':id/ledger') ledger(@Param('id') id:string,@Body() dto:CreateDealerLedgerEntryDto,@Req() req:UserRequest) { return this.dealers.addLedgerEntry(id,dto,req.user); }

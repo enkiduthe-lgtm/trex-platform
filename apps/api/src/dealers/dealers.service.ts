@@ -47,6 +47,18 @@ export class DealersService {
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
   async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
+  async detail(id:string) {
+    const dealer=await this.db.query(`SELECT d.id,d.code,d.company_name,d.status,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.tax_number,d.tax_office,d.monthly_sales_target,d.created_at,l.name AS dealer_level_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id WHERE d.id=$1`,[id]);
+    if(!dealer.rowCount)throw new NotFoundException('Bayi Bulunamadı');
+    const source=this.dealerOrderSource();
+    const [orders,returns,commissions,commercial]=await Promise.all([
+      this.db.query(`${source} SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at FROM dealer_orders d JOIN orders o ON o.id=d.entity_id WHERE d.dealer_id=$1 ORDER BY o.created_at DESC,o.id`,[id]),
+      this.db.query(`${source} SELECT r.id,r.status,r.reason,r.requested_at,r.completed_at,o.id AS order_id,o.order_number FROM dealer_orders d JOIN orders o ON o.id=d.entity_id JOIN returns r ON r.order_id=o.id WHERE d.dealer_id=$1 ORDER BY r.requested_at DESC,r.id`,[id]),
+      this.db.query(`SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.paid_at,e.reversed_at,e.note,o.id AS order_id,o.order_number,oi.product_name,oi.quantity FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id WHERE e.dealer_id=$1 AND e.recipient_user_id IS NULL ORDER BY e.created_at DESC,e.id`,[id]),
+      this.commercialSummary(id),
+    ]);
+    return {dealer:dealer.rows[0],orders:orders.rows,returns:returns.rows,commissions:commissions.rows,commercial};
+  }
   private dealerOrderSource() {
     const uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
     return `WITH dealer_orders AS(SELECT DISTINCT ON(entity_id) entity_id,CASE WHEN metadata->>'dealerId' ~* '${uuid}' THEN (metadata->>'dealerId')::uuid END dealer_id,CASE WHEN metadata->>'dealerLevelId' ~* '${uuid}' THEN (metadata->>'dealerLevelId')::uuid END level_id FROM audit_logs WHERE entity_type='order' AND action='order.dealer.created' ORDER BY entity_id,created_at,id)`;
