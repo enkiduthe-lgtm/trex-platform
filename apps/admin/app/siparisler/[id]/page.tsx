@@ -215,10 +215,6 @@ export default function OrderDetail() {
         method: "POST",
         body: JSON.stringify({ status: shipmentStatus }),
       });
-      await api(`/admin/orders/${id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: orderStatus }),
-      });
       setOperationMessage(
         orderStatus === "SHIPPED"
           ? "Gönderi kargoya verildi olarak işaretlendi."
