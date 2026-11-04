@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api, apiBaseUrl } from "../lib/api";
 import styles from "./products.module.css";
+import { effectiveDealerPrice } from "../lib/dealer-prices";
 
 type Product = {
   version: number;
@@ -990,8 +991,8 @@ export default function Products() {
                 <p>{detailProduct.description?.trim() || "Bu ürün için kayıtlı açıklama bulunmuyor."}</p>
               </section>
               <section className={styles.descriptionCard}><h3>Bayi Seviye Fiyatları</h3><table><thead><tr><th>Seviye Adı</th><th>Tekli Fiyat</th><th>2’li Toplam</th><th>3’lü Toplam</th><th>5’li Toplam</th></tr></thead><tbody>{levels.map(level => {
-                const currentPrice = prices.find(item => item.product_id === detailProduct.id && item.scope === 'DEALER_LEVEL' && (item.pack_size??1)===1 && item.dealer_level_id === level.id && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
-                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? money(currentPrice.amount) : 'Tanımlanmamış'}</td>{[2,3,5].map(size=>{const pack=prices.find(item=>item.product_id===detailProduct.id&&item.scope==='DEALER_LEVEL'&&item.dealer_level_id===level.id&&item.pack_size===size&&new Date(item.starts_at)<=new Date()&&(!item.ends_at||new Date(item.ends_at)>new Date()));return <td key={size}>{pack?money(pack.amount):'Tanımlanmamış'}</td>;})}</tr>;
+                const currentPrice = effectiveDealerPrice(prices,detailProduct.id,level.id,1);
+                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? money(currentPrice.amount) : 'Tanımlanmamış'}</td>{[2,3,5].map(size=>{const pack=effectiveDealerPrice(prices,detailProduct.id,level.id,size);return <td key={size}>{pack?money(pack.amount):'Tanımlanmamış'}</td>;})}</tr>;
               })}</tbody></table></section>
               <footer>
                 <button type="button" onClick={() => { setEditError(''); setEditing(detailProduct); setDetailProduct(null); }}>Ürünü Düzenle</button>

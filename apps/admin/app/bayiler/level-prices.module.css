@@ -1,0 +1,13 @@
+.root{width:100%;box-sizing:border-box;scroll-margin-top:160px;}
+.toolbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.root table.priceTable{min-width:1100px;width:100%;table-layout:fixed;}
+.root table.priceTable th,.root table.priceTable td{width:auto;padding:14px;vertical-align:top;}
+.root table.priceTable th:first-child{width:25%;}
+.root table.priceTable th:nth-child(2){width:12%;}
+.root table.names{min-width:500px;max-width:none;width:100%;}
+.root table.names th:first-child{width:45%;}
+.root table.names th:nth-child(2){width:auto;}
+.priceCell{display:grid;gap:10px;min-width:140px;}
+.priceCell strong{display:block;min-height:26px;color:#30233b;}
+.root .priceCell button,.root .priceCell input{width:100%;box-sizing:border-box;min-height:42px;margin:0;}
+@media(max-width:600px){.toolbar{align-items:stretch;}.toolbar button{width:100%;}}
