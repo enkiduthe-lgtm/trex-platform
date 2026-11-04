@@ -1,0 +1,11 @@
+import { OrdersService } from './orders.service';
+import { ForbiddenException, ConflictException } from '@nestjs/common';
+const owner={id:'owner',role:'SUPER_ADMIN',email:'owner@example.com',sessionId:'s'} as const;
+describe('Director-only order list deletion',()=>{
+ function setup(status='CANCELLED',archived_at:string|null=null){const query=jest.fn().mockResolvedValue({rows:[]});query.mockResolvedValueOnce({rows:[{status,archived_at}]});const transaction=jest.fn(async(work:any)=>work({query}));return {query,transaction,service:new OrdersService({query,transaction} as never)};}
+ it.each(['ADMIN','DEALER','FINANCE','WAREHOUSE'])('denies %s before database access',async role=>{const s=setup();await expect(s.service.archiveOrder('id','Neden',{...owner,role} as never)).rejects.toBeInstanceOf(ForbiddenException);await expect(s.service.archivedOrders({...owner,role} as never)).rejects.toBeInstanceOf(ForbiddenException);expect(s.transaction).not.toHaveBeenCalled();expect(s.query).not.toHaveBeenCalled();});
+ it.each(['PAID','PROCESSING','SHIPPED','DELIVERED','PENDING_PAYMENT'])('does not hide active %s orders',async status=>{const s=setup(status);await expect(s.service.archiveOrder('id','Neden',owner)).rejects.toBeInstanceOf(ConflictException);expect(s.query).toHaveBeenCalledTimes(1);});
+ it('only changes list archival fields and records an audit event',async()=>{const s=setup();await s.service.archiveOrder('id','  Hatalı Kayıt  ',owner);expect(s.query).toHaveBeenCalledTimes(3);expect(s.query.mock.calls[1][0]).toMatch(/^UPDATE orders SET archived_at/);expect(s.query.mock.calls[1][1]).toEqual(['id','Hatalı Kayıt','owner']);expect(s.query.mock.calls[2][1][1]).toBe('order.list.deleted');});
+ it('restores list visibility without changing financial records',async()=>{const s=setup('CANCELLED','2026-11-04');await s.service.archiveOrder('id',null,owner);expect(s.query.mock.calls[1][1]).toEqual(['id',null,'owner']);expect(s.query.mock.calls[2][1][1]).toBe('order.list.restored');});
+ it('repeated deletion adds no duplicate audit event',async()=>{const s=setup('CANCELLED','2026-11-04');await expect(s.service.archiveOrder('id','Neden',owner)).resolves.toHaveProperty('replayed',true);expect(s.query).toHaveBeenCalledTimes(1);});
+});
