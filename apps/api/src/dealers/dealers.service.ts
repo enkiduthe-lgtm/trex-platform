@@ -46,7 +46,7 @@ export class DealersService {
       return application;
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta, IBAN veya bayi kaydı zaten kullanılıyor'); throw error; }
   }
-  async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id ORDER BY d.created_at DESC')).rows; }
+  async list() { return (await this.db.query('SELECT d.id,d.code,d.company_name,d.tax_number,d.status,d.dealer_level_id,d.parent_dealer_id,d.price_group_id,d.created_at,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.monthly_sales_target,l.name AS dealer_level_name,p.company_name AS parent_dealer_name,g.name AS price_group_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id LEFT JOIN dealers p ON p.id=d.parent_dealer_id LEFT JOIN dealer_price_groups g ON g.id=d.price_group_id WHERE d.archived_at IS NULL ORDER BY d.created_at DESC')).rows; }
   async detail(id:string) {
     const dealer=await this.db.query(`SELECT d.id,d.code,d.company_name,d.status,d.contact_name,d.contact_email,d.contact_phone,d.city,d.region,d.company_address,d.tax_number,d.tax_office,d.monthly_sales_target,d.sales_channels,d.social_media,d.created_at,l.name AS dealer_level_name FROM dealers d LEFT JOIN dealer_levels l ON l.id=d.dealer_level_id WHERE d.id=$1`,[id]);
     if(!dealer.rowCount)throw new NotFoundException('Bayi Bulunamadı');
@@ -100,7 +100,7 @@ export class DealersService {
         
         // IBAN bilgisi isteğe bağlıdır; bayi onayı ve sipariş için engel olmaz.
       }
-      const updated = await client.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 RETURNING id,status', [status, dealerId]);
+      const updated = await client.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 AND archived_at IS NULL RETURNING id,status', [status, dealerId]);
       if (!updated.rowCount) throw new NotFoundException('Dealer not found');
       if (status === 'ACTIVE') await client.query("UPDATE users SET is_active=true,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);
       if (status === 'SUSPENDED' || status === 'REJECTED') await client.query("UPDATE users SET is_active=false,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);

@@ -15,8 +15,28 @@ type UserRequest = Request & { user: RequestUser };
 @Controller('admin') @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminController {
   constructor(private readonly db: DatabaseService) {}
+  @Get('account-archives') @RequireRoles(Roles.SUPER_ADMIN)
+  async accountArchives(@Req() req:UserRequest){if(req.user.role!=='SUPER_ADMIN')throw new ConflictException('Bu İşlemi Yalnız Müdür Yapabilir');return (await this.db.query("SELECT id,email AS name,'staff' AS kind,archived_at FROM users WHERE role='ADMIN' UNION ALL SELECT id,COALESCE(NULLIF(company_name,''),code) AS name,'dealer' AS kind,archived_at FROM dealers ORDER BY name")).rows;}
+  @Post('account-archives/:kind/:id') @RequireRoles(Roles.SUPER_ADMIN)
+  async archiveAccount(@Param('kind') kind:string,@Param('id') id:string,@Body() dto:UpdateStaffUserDto,@Req() req:UserRequest){
+    if(req.user.role!=='SUPER_ADMIN')throw new ConflictException('Bu İşlemi Yalnız Müdür Yapabilir');
+    if(!['staff','dealer'].includes(kind)||id===req.user.id)throw new BadRequestException('Bu Hesap Silinemez');
+    return this.db.transaction(async client=>{
+      const result=kind==='staff'
+        ?await client.query("UPDATE users SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,is_active=false,updated_at=now() WHERE id=$1 AND role='ADMIN' RETURNING id",[id,dto.isActive])
+        :await client.query("UPDATE dealers SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,status='SUSPENDED' WHERE id=$1 RETURNING id",[id,dto.isActive]);
+      if(!result.rowCount)throw new BadRequestException('Hesap Bulunamadı');
+      if(kind==='staff')await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL',[id]);
+      else {
+        await client.query('UPDATE users SET is_active=false WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)',[id]);
+        await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1) AND revoked_at IS NULL',[id]);
+      }
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[req.user.id,dto.isActive?'account.restored':'account.archived',kind,id]);
+      return {id};
+    });
+  }
   @Get('ping') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) ping() { return { status: 'ok' }; }
-  @Get('staff') @RequireRoles(Roles.SUPER_ADMIN) async staff() { return (await this.db.query('SELECT id,email,role,is_active,created_at FROM users WHERE role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') ORDER BY created_at DESC')).rows; }
+  @Get('staff') @RequireRoles(Roles.SUPER_ADMIN) async staff() { return (await this.db.query('SELECT id,email,role,is_active,created_at FROM users WHERE archived_at IS NULL AND role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') ORDER BY created_at DESC')).rows; }
   @Post('staff') @RequireRoles(Roles.SUPER_ADMIN) async createStaff(@Body() dto: CreateStaffUserDto, @Req() req: UserRequest) {
     try {
       const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
@@ -29,7 +49,7 @@ export class AdminController {
   }
   @Patch('staff/:id') @RequireRoles(Roles.SUPER_ADMIN) async updateStaff(@Param('id') id: string, @Body() dto: UpdateStaffUserDto, @Req() req: UserRequest) {
     return this.db.transaction(async client => {
-      const changed = await client.query('UPDATE users SET is_active=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [dto.isActive, id]);
+      const changed = await client.query('UPDATE users SET is_active=$1,updated_at=now() WHERE archived_at IS NULL AND id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [dto.isActive, id]);
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
       if (!dto.isActive) await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, dto.isActive ? 'staff.activated' : 'staff.deactivated', 'user', id]);
