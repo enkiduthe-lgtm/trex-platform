@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { reportPeriod } from '../../lib/report-period';
 import { useEffect, useMemo, useState } from 'react';
 import { AdminNav } from '../../components/admin-nav';
 import { api } from '../../lib/api';
@@ -20,7 +21,7 @@ export default function MemberReport() {
     catch (e) { setError(e instanceof Error ? e.message : 'Üye Raporu Yüklenemedi.'); }
     finally { setBusy(false); }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { const period=reportPeriod(window.location.search);setFrom(period.dateFrom??'');setTo(period.dateTo??'');void load(); }, []);
   const valid = !from || !to || from <= to;
   const rows = useMemo(() => {
     const groups = new Map<string, { day: string; count: number; active: number }>();

@@ -1,4 +1,5 @@
 'use client';
+import { reportPeriod } from '../../lib/report-period';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -46,7 +47,8 @@ export default function SalesReport() {
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get('group');
     if (requested && Object.hasOwn(salesGroups, requested)) setGroup(requested as SalesGroup);
-    void load(filters); return () => { requestId.current++; };
+    const initial={...filters,...reportPeriod(window.location.search)};setFilters(initial);
+    void load(initial); return () => { requestId.current++; };
   }, []);
   const reportItems = useMemo(() => group === 'customer' ? items.filter(row => row.customer_id) : items, [items, group]);
   const grouped = useMemo(() => group ? groupSales(reportItems, group) : [], [reportItems, group]);

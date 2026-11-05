@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { downloadXlsx } from '../lib/xlsx';
 import { salesGroups } from '../lib/sales-groups';
 import styles from './reports.module.css';
+import { reportPeriodLink } from '../lib/report-period';
 
 type Row = { status?: string; sales_channel?: string; label?: string; sku?: string; count: number; amount: string };
 type Report = { dateFrom: string; dateTo: string; currency: string; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
@@ -69,8 +70,8 @@ export default function Reports() {
   {operations&&<ReportTable title="Dönem Operasyon Özeti — Tüm Para Birimleri" headers={['Açık İade','Tamamlanan İade','Aktif Kargo','Sorunlu Kargo','Vadesi Geçen Destek']} rows={[[operations.returns_open,operations.returns_refunded,operations.shipments_active,operations.shipments_failed,operations.support_overdue]]}/>}
   <section className={styles.catalog}><div className={styles.catalogHeader}><h2>Rapor Kataloğu</h2><label>Rapor Ara<input value={reportSearch} onChange={e=>setReportSearch(e.target.value)}/></label></div>
    <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>
-    <tr><td>Detaylı Satış Raporu</td><td>Satışlar</td><td>Hazır</td><td><Link href="/raporlar/satis">Raporu Aç</Link></td></tr>
-    {shownCatalog.map(([name,description,category])=>{const group=Object.entries(salesGroups).find(([,title])=>title===name)?.[0];const target=group?`/raporlar/satis?group=${group}`:name==='Stok Durum Raporu'?'/raporlar/envanter':name==='Kritik Stok Seviyesindeki Ürünler'?'/raporlar/envanter?critical=true':name==='Günlük Yeni Üye Kaydı'?'/raporlar/uyeler':null;return <tr key={name}><td><b>{name}</b><small>{group ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{target?'Hazır':'Geliştirme Bekliyor'}</td><td>{target?<Link href={target}>Raporu Aç</Link>:<button disabled>Henüz Hazır Değil</button>}</td></tr>;})}
+    <tr><td>Detaylı Satış Raporu</td><td>Satışlar</td><td>Hazır</td><td><Link href={reportPeriodLink('/raporlar/satis',data??filters)}>Raporu Aç</Link></td></tr>
+    {shownCatalog.map(([name,description,category])=>{const group=Object.entries(salesGroups).find(([,title])=>title===name)?.[0];const target=group?`/raporlar/satis?group=${group}`:name==='Stok Durum Raporu'?'/raporlar/envanter':name==='Kritik Stok Seviyesindeki Ürünler'?'/raporlar/envanter?critical=true':name==='Günlük Yeni Üye Kaydı'?'/raporlar/uyeler':null;return <tr key={name}><td><b>{name}</b><small>{group ? 'Sipariş Sayıları, Ürün Adetleri Ve Tutarlar Durum Ve Para Birimine Göre Ayrı Gösterilir.' : description}</small></td><td>{category}</td><td>{target?'Hazır':'Geliştirme Bekliyor'}</td><td>{target?<Link href={target.startsWith('/raporlar/satis')||target==='/raporlar/uyeler'?reportPeriodLink(target,data??filters):target}>Raporu Aç</Link>:<button disabled>Henüz Hazır Değil</button>}</td></tr>;})}
    </tbody></table></div>
   </section>
  </section></main>;
