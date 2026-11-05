@@ -20,7 +20,7 @@ const effectivePrice = `SELECT amount,currency FROM product_prices
 @Injectable()
 export class AdminOrderService {
   constructor(private readonly db: DatabaseService) {}
-  async options(dealerId?: string, requestedChannel?: string) {
+  async options(dealerId?: string, requestedChannel?: string, currency = 'TRY') {
     const salesChannel = (requestedChannel ?? 'RETAIL').trim().toUpperCase() as ManualSalesChannel;
     if (!dealerId && !manualSalesChannels.includes(salesChannel)) throw new BadRequestException('Geçersiz satış kanalı');
     const dealerContext = dealerId ? await this.db.query<{ id:string; dealer_level_id:string|null; price_group_id:string|null }>(
@@ -44,7 +44,21 @@ export class AdminOrderService {
       this.db.query("SELECT id,name FROM warehouses WHERE is_active=true ORDER BY CASE WHEN code='GENEL_STOK' THEN 0 ELSE 1 END,name"),
       dealerId ? Promise.resolve({ rows: [] }) : this.db.query('SELECT id,email,first_name,last_name,phone FROM customers WHERE is_active=true ORDER BY first_name,last_name'),
     ]);
-    return { products: products.rows, warehouses: warehouses.rows, customers: customers.rows };
+    const rate = dealerId ? await this.dealerRate(currency) : 1;
+    const converted = dealerId ? products.rows.map(row=>({...row,currency,amount:row.amount===null?null:this.convertFloor(row.amount,rate),packs:(row.packs??[]).map((pack:{size:number;amount:string})=>({...pack,amount:this.convertFloor(pack.amount,rate)}))})) : products.rows;
+    return { exchangeRate:rate, products: converted, warehouses: warehouses.rows, customers: customers.rows };
+  }
+  private async dealerRate(currency:string) {
+    if(currency==='TRY')return 1;
+    if(!['EUR','USD'].includes(currency))throw new BadRequestException('Geçersiz Para Birimi');
+    const row=await this.db.query<{settings:Record<string,unknown>}>('SELECT settings FROM admin_settings WHERE singleton=true');
+    const rate=Number(row.rows[0]?.settings[currency==='USD'?'manualUsdTry':'manualEurTry']);
+    if(!Number.isFinite(rate)||rate<0.000001||rate>1000000)throw new ConflictException('Müdür Önce Geçerli Ortak Döviz Kuru Girmeli');
+    return Number(rate.toFixed(6));
+  }
+  private convertFloor(amount:string,rate:number) {
+    const divisor=BigInt(Math.round(rate*1000000));
+    return formatCents((cents(amount)*1000000n+divisor-1n)/divisor);
   }
   async create(dto: CreateAdminOrderDto, key: string, actor: RequestUser, dealerId?: string) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key ?? '')) {
@@ -60,7 +74,7 @@ export class AdminOrderService {
     const currency = dto.currency ?? 'TRY';
     if (!['TRY','EUR','USD'].includes(currency)) throw new BadRequestException('Geçersiz para birimi');
     if (currency !== 'TRY' && !['TRANSFER','HAND_CASH'].includes(dto.paymentMethod)) throw new BadRequestException('Kapıda ödeme yalnız TL olabilir');
-    if (currency !== 'TRY' && items.some(item=>item.unitAmount===undefined)) throw new BadRequestException('Dövizli siparişte her ürünün birim fiyatını elle girin');
+    if (!dealerId && currency !== 'TRY' && items.some(item=>item.unitAmount===undefined)) throw new BadRequestException('Dövizli siparişte her ürünün birim fiyatını elle girin');
     if (new Set(items.map(item => item.productId)).size !== items.length) {
       throw new BadRequestException('Aynı ürün için tek satır kullanın');
     }
@@ -82,7 +96,7 @@ export class AdminOrderService {
       const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR UPDATE", [dealerId]) : null;
       if (dealerId && !dealer?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
       if (dealerId && !dealer?.rows[0].dealer_level_id) throw new ForbiddenException('Sipariş İçin Bayi Seviyesi Atanmalı.');
-      if (dealerId && currency !== 'TRY') throw new BadRequestException('Bayi Seviye Fiyatları TL Üzerinden Uygulanır.');
+      const exchangeRate=dealerId?await this.dealerRate(currency):1;
       const warehouse = await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
       if (!warehouse.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
       if (dto.customerId) {
@@ -98,11 +112,13 @@ export class AdminOrderService {
           ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND scope='DEALER_LEVEL' AND dealer_level_id=$2 ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].dealer_level_id])).rows[0]
           : (await client.query<{ amount: string; currency: string }>(effectivePrice, [item.productId, salesChannel])).rows[0];
         if (!price || price.currency.trim() !== 'TRY') throw new ConflictException(`${product.rows[0].name} için geçerli TL fiyatı gerekli`);
+        if(dealerId)price.amount=this.convertFloor(price.amount,exchangeRate);
         let allocations: {quantity:number;amount:string;originalAmount:string}[];
         if (item.packSize) {
           if(item.quantity % item.packSize !== 0 || item.unitAmount !== undefined) throw new BadRequestException('Paket İçin Toplam Paket Fiyatı Ve Paket Katı Adet Girin');
           const pack=(await client.query<{amount:string}>("SELECT amount FROM product_prices WHERE product_id=$1 AND scope='DEALER_LEVEL' AND dealer_level_id=$2 AND pack_size=$3 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY starts_at DESC,id DESC LIMIT 1",[item.productId,dealer!.rows[0].dealer_level_id,item.packSize])).rows[0];
           if(!pack)throw new BadRequestException('Bu Bayi Seviyesinde Paket Fiyatı Tanımlı Değil');
+          pack.amount=this.convertFloor(pack.amount,exchangeRate);
           allocations=allocatePack(cents(pack.amount),cents(item.packAmount??pack.amount),item.packSize,item.quantity/item.packSize);
         } else {
           if(item.packAmount!==undefined)throw new BadRequestException('Önce Paket Seçin');
@@ -153,7 +169,7 @@ export class AdminOrderService {
       await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
       if(isCommission){await client.query("UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE id=$1",[payment.rows[0].id]);await client.query("UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id=$1",[payment.rows[0].id]);}
       await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$3,$2)', [orderId,actor.id,orderStatus]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ commissionModel: dealerId ? 'DEALER_MARGIN_V1' : undefined,dealerLevelId: dealer?.rows[0].dealer_level_id ?? null,dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,orderItemId:item.orderItemId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id,dealerId ? 'order.dealer.created' : 'order.admin.created','order',orderId,JSON.stringify({ commissionModel: dealerId ? 'DEALER_MARGIN_V1' : undefined,dealerLevelId: dealer?.rows[0].dealer_level_id ?? null,dealerId: dealerId ?? null,salesChannel,currency,originalCurrency:'TRY',exchangeRate,priceCurrency:currency,paymentMethod: dto.paymentMethod, warehouseId: dto.warehouseId, total,priceChangeReason:dto.priceChangeReason?.trim(),prices:priced.map(item=>({productId:item.productId,orderItemId:item.orderItemId,originalAmount:item.originalAmount,unitAmount:item.amount})) })]);
       await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,'admin_order',$3,now()+interval '30 days')", [identity,hash,orderId]);
       return { ...order.rows[0], replayed: false };
     });

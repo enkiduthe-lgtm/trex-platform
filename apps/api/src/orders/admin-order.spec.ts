@@ -18,16 +18,16 @@ describe('Administrator order input and access', () => {
   it('does not permit forged paid status or unknown price fields',async () => {
     expect((await validate(plainToInstance(CreateAdminOrderDto,{...dto,status:'PAID',items:[{...dto.items[0],unitAmount:0}]}),{whitelist:true,forbidNonWhitelisted:true})).length).toBeGreaterThan(0);
   });
-  it.each(['ADMIN','SUPER_ADMIN'])('allows %s to create orders',role => {
+  it.each(['ADMIN','SUPER_ADMIN'])('allows %s to create orders',async role => {
     const guard = new RolesGuard(new Reflector());
     const context:any = { getHandler:()=>OrdersController.prototype.create,getClass:()=>OrdersController,switchToHttp:()=>({getRequest:()=>({user:{role}})}) };
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
-  it.each(['WAREHOUSE','FINANCE','DEALER','CUSTOMER',undefined])('blocks %s from order entry',role => {
+  it.each(['WAREHOUSE','FINANCE','DEALER','CUSTOMER',undefined])('blocks %s from order entry',async role => {
     const guard = new RolesGuard(new Reflector());
     for(const handler of [OrdersController.prototype.create,OrdersController.prototype.options,OrdersController.prototype.prices,OrdersController.prototype.cancel,OrdersController.prototype.edit]) {
       const context:any = { getHandler:()=>handler,getClass:()=>OrdersController,switchToHttp:()=>({getRequest:()=>({user:role?{role}:undefined})}) };
-      expect(()=>guard.canActivate(context)).toThrow(ForbiddenException);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     }
   });
   it('rejects duplicate product lines without touching stock',async () => {

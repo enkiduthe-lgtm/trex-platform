@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -76,10 +76,10 @@ export class DealerPortalController {
   }
 
   @Get('creation-options')
-  async creationOptions(@Req() req: UserRequest) {
+  async creationOptions(@Req() req: UserRequest, @Query('currency') currency?:string) {
     const account = await this.db.query<{ dealer_id:string }>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1', [req.user.id]);
     if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
-    return this.adminOrders.options(account.rows[0].dealer_id);
+    return this.adminOrders.options(account.rows[0].dealer_id,undefined,currency??'TRY');
   }
 
   @Post('orders')
