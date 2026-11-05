@@ -39,6 +39,13 @@ export class ArasShippingProvider implements ShippingProvider {
   }
 
   private envelope({ username, password, orderReference, integrationCode, input }: { username: string; password: string; orderReference: string; integrationCode: string; input: ShippingProviderInput }) {
+    const isCod = ['cash_on_delivery_cash', 'cash_on_delivery_card'].includes(input.paymentProvider ?? '');
+    const amount = Number(input.totalAmount);
+    if (isCod && (input.currency !== 'TRY' || !Number.isFinite(amount) || amount <= 0)) {
+      throw new ConflictException('Aras Kap˝da ÷deme Tutar˝ Pozitif Ve TL Olmal˝d˝r');
+    }
+    // SetOrder uses 0/1; tracking query responses use a separate 1/6 code table.
+    const codFields = isCod ? `<IsCod>1</IsCod><CodAmount>${amount.toFixed(2)}</CodAmount><CodCollectionType>${input.paymentProvider === 'cash_on_delivery_card' ? '1' : '0'}</CodCollectionType><CodBillingType>0</CodBillingType>` : '<IsCod>0</IsCod>';
     const phone = input.phone.replace(/\D/g, '').slice(-10);
     // Aras branches process each package by PieceDetail.BarcodeNumber. This is
     // the same unique barcode printed on the physical TREX package label.
@@ -47,7 +54,7 @@ export class ArasShippingProvider implements ShippingProvider {
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/"><soap:Body><SetOrder xmlns="http://tempuri.org/"><orderInfo><Order>
 <UserName>${this.xml(username)}</UserName><Password>${this.xml(password)}</Password><TradingWaybillNumber>${this.xml(orderReference)}</TradingWaybillNumber>
 <ReceiverName>${this.xml(this.limit(input.recipientName, 100))}</ReceiverName><ReceiverAddress>${this.xml(this.limit(input.addressLine, 250))}</ReceiverAddress><ReceiverPhone1>${this.xml(phone)}</ReceiverPhone1><ReceiverCityName>${this.xml(this.limit(input.city, 40))}</ReceiverCityName><ReceiverTownName>${this.xml(this.limit(input.district, 16))}</ReceiverTownName>
-<VolumetricWeight>1</VolumetricWeight><PieceCount>1</PieceCount><IntegrationCode>${this.xml(integrationCode)}</IntegrationCode><PayorTypeCode>1</PayorTypeCode><IsWorldWide>0</IsWorldWide>
+${codFields}<VolumetricWeight>1</VolumetricWeight><PieceCount>1</PieceCount><IntegrationCode>${this.xml(integrationCode)}</IntegrationCode><PayorTypeCode>1</PayorTypeCode><IsWorldWide>0</IsWorldWide>
 <PieceDetails><PieceDetail><VolumetricWeight>1</VolumetricWeight><Weight>1</Weight><BarcodeNumber>${this.xml(pieceBarcode)}</BarcodeNumber><ProductNumber>${this.xml(input.orderNumber)}</ProductNumber><Description>Trex Tea sipari≈üi</Description></PieceDetail></PieceDetails>
 </Order></orderInfo><userName>${this.xml(username)}</userName><password>${this.xml(password)}</password></SetOrder></soap:Body></soap:Envelope>`;
   }

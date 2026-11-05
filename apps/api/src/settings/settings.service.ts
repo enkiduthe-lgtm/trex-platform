@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 
@@ -17,6 +17,9 @@ export class SettingsService {
     return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, typeof settings[`managerMenu${key}`] === 'boolean' ? settings[`managerMenu${key}`] : fallback]));
   }
   async update(settings: Record<string, unknown>, actor: RequestUser) {
+    for (const key of ['manualUsdTry', 'manualEurTry']) {
+      if (key in settings && (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]) || Number(settings[key]) <= 0 || Number(settings[key]) > 1000000)) throw new BadRequestException('Döviz Kuru Sıfırdan Büyük Geçerli Bir Sayı Olmalıdır');
+    }
     await this.db.transaction(async client => {
       const previous = await client.query<{ settings: Record<string, unknown> }>('SELECT settings FROM admin_settings WHERE singleton=true FOR UPDATE');
       const merged = { ...(previous.rows[0]?.settings ?? {}), ...settings };
