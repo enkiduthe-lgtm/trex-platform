@@ -30,7 +30,7 @@ export class ArasTrackingService implements OnModuleInit, OnModuleDestroy {
         if (!lock.rows[0]?.locked) return { busy: true, checked: 0, updated: 0, failed: 0 };
         const rows = await client.query<{ id: string; order_id: string; provider_reference: string }>(`SELECT s.id,s.order_id,s.provider_reference FROM shipments s JOIN orders o ON o.id=s.order_id
           WHERE s.provider='aras' AND s.status IN ('CREATED','IN_TRANSIT','FAILED') AND s.tracking_direction_code IS DISTINCT FROM '3'
-          AND o.status IN ('PROCESSING','SHIPPED') AND s.provider_reference IS NOT NULL
+          AND o.archived_at IS NULL AND o.status IN ('PROCESSING','SHIPPED') AND s.provider_reference IS NOT NULL
           AND ($1::uuid IS NULL OR s.order_id=$1)
           AND ($1::uuid IS NOT NULL OR s.tracking_checked_at IS NULL OR s.tracking_checked_at<now()-interval '5 minutes')
           ORDER BY s.tracking_checked_at NULLS FIRST,s.created_at,s.id LIMIT 20`, [orderId ?? null]);

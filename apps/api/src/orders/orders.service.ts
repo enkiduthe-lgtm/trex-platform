@@ -18,16 +18,18 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');
     return (await this.db.query('SELECT o.id,o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.archived_at,o.archive_reason,u.email AS archived_by_email FROM orders o LEFT JOIN users u ON u.id=o.archived_by WHERE o.archived_at IS NOT NULL ORDER BY o.archived_at DESC,o.id')).rows;
   }
-  async archiveOrder(id:string,reason:string|null,actor:RequestUser) {
+  async archiveOrder(id:string,reason:string|null,actor:RequestUser,testOrderNumber?:string) {
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');
     if(reason!==null&&reason.trim().length<3)throw new BadRequestException('Silme Nedeni En Az Üç Karakter Olmalı');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{status:string;archived_at:string|null}>('SELECT status,archived_at FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      const order=(await client.query<{status:string;archived_at:string|null;order_number:string}>('SELECT status,archived_at,order_number FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order)throw new NotFoundException('Sipariş Bulunamadı');
-      if(reason!==null&&order.status!=='CANCELLED')throw new ConflictException('Önce Siparişi İptal Edin. Ödeme Ve Stok İşlemleri Tamamlanmadan Silinemez.');
+      const testArchive=Boolean(testOrderNumber&&testOrderNumber.trim()===order.order_number&&['PENDING_PAYMENT','PAID','PROCESSING'].includes(order.status));
+      if(testOrderNumber&&!testArchive)throw new ConflictException('Deneme Sipariş Numarası Veya Durumu Doğrulanamadı');
+      if(reason!==null&&order.status!=='CANCELLED'&&!testArchive)throw new ConflictException('Önce Siparişi İptal Edin. Ödeme Ve Stok İşlemleri Tamamlanmadan Silinemez.');
       if((reason!==null)===Boolean(order.archived_at))return {id,replayed:true};
       await client.query('UPDATE orders SET archived_at=CASE WHEN $2::text IS NULL THEN NULL ELSE now() END,archived_by=CASE WHEN $2::text IS NULL THEN NULL ELSE $3::uuid END,archive_reason=$2 WHERE id=$1',[id,reason?.trim()??null,actor.id]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,reason===null?'order.list.restored':'order.list.deleted','order',id,JSON.stringify({reason:reason?.trim()??null})]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,reason===null?'order.list.restored':'order.list.deleted','order',id,JSON.stringify({reason:reason?.trim()??null,testArchive,orderNumber:order.order_number})]);
       return {id,replayed:false};
     });
   }
