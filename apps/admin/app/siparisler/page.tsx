@@ -32,6 +32,9 @@ type Order = {
   preparation_status?: string | null; packed_at?: string | null;
 };
 type OrderNote = { id: string; admin_note: string | null };
+// A registered shipment belongs in the shipping queue while Aras confirms transit.
+const queueStatus = (order: Order) => order.status === 'PROCESSING' && ['CREATED','IN_TRANSIT'].includes(order.shipment_status ?? '') ? 'SHIPPED' : order.status;
+const displayStatus = (order: Order) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[order.status] ?? order.status;
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
   PAID: "Onaylandı",
@@ -140,7 +143,7 @@ function OrdersContent() {
           .join(" ")
           .toLocaleLowerCase("tr-TR");
         return (
-          (statusFilter === "ALL" || order.status === statusFilter) &&
+          (statusFilter === "ALL" || queueStatus(order) === statusFilter) &&
           (!dateFrom || order.created_at.slice(0, 10) >= dateFrom) &&
           (!dateTo || order.created_at.slice(0, 10) <= dateTo) &&
           text.includes(query.toLocaleLowerCase("tr-TR"))
@@ -149,7 +152,7 @@ function OrdersContent() {
     [orders, query, statusFilter, dateFrom, dateTo],
   );
   const countFor = (status: string) =>
-    status === "ALL" ? orders.length : orders.filter((order) => order.status === status).length;
+    status === "ALL" ? orders.length : orders.filter((order) => queueStatus(order) === status).length;
   const toggle = (id: string) =>
     setSelected((items) =>
       items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
@@ -228,7 +231,7 @@ function OrdersContent() {
         order.customer_name ?? order.customer_email ?? "Misafir müşteri",
         order.total_amount,
         order.currency,
-        statusText[order.status] ?? order.status,
+        displayStatus(order),
         order.shipping_provider ?? "",
         new Date(order.created_at).toLocaleString("tr-TR"),
       ]),
@@ -412,7 +415,7 @@ function OrdersContent() {
                     <span
                       className={`${styles.status} ${styles[`status_${order.status}`] ?? ""}`}
                     >
-                      {statusText[order.status] ?? order.status}
+                      {displayStatus(order)}
                     </span>
                   </td>
                   <td>
