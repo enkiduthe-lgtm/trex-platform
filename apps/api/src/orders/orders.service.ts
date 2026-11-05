@@ -190,7 +190,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       const order=(await client.query<{checkout_id:string;status:string;sales_channel:string}>('SELECT checkout_id,status,sales_channel FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.status==='CANCELLED') return {id,status:'CANCELLED',replayed:true};
-      if(!['ADMIN_ORDER','DEALER_PORTAL'].includes(order.sales_channel)||!['PENDING_PAYMENT','PAID','PROCESSING'].includes(order.status)) throw new ConflictException('Bu sipariş güvenli iptal kapsamı dışında; iade akışını kullanın');
+      if(!['ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL'].includes(order.sales_channel)||!['PENDING_PAYMENT','PAID','PROCESSING'].includes(order.status)) throw new ConflictException('Bu sipariş güvenli iptal kapsamı dışında; iade akışını kullanın');
       if(actor.role==='DEALER' && !(await client.query("SELECT 1 FROM audit_logs WHERE entity_id=$1 AND entity_type='order' AND actor_user_id=$2 AND action='order.dealer.created'",[id,actor.id])).rowCount)throw new NotFoundException('Sipariş Bulunamadı');
       await client.query('SELECT id FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id]);
       const payment=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
