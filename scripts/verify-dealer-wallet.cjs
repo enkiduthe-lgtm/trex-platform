@@ -94,6 +94,7 @@ async function main(){
  ALTER TABLE finance_transactions ADD COLUMN approved_at timestamptz;
  `);
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/069_staff_channel_pools.sql'),'utf8'));
+ await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/074_cod_fee_and_dealer_packs.sql'),'utf8'));
  const level=uuid(40),warehouse=uuid(41);await db.query('UPDATE dealers SET dealer_level_id=$1 WHERE id=$2',[level,dealer]);
  await db.query("INSERT INTO products VALUES($1,'Test Product','SKU','ACTIVE')",[product]);
  await db.query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency) VALUES($1,'DEALER_LEVEL',$2,500,'TRY')",[product,level]);
@@ -126,8 +127,8 @@ async function main(){
  // A delivery recorded from the shipping screen must finalize the same order and margin atomically.
  await pg.exec(`ALTER TABLE users ADD COLUMN is_active boolean DEFAULT true,ADD COLUMN role text DEFAULT 'ADMIN';
  CREATE TABLE commission_rules(id uuid PRIMARY KEY,product_id uuid,recipient_user_id uuid,recipient_kind text,amount_per_unit numeric(12,2),is_active boolean,sales_channel_group text);
- CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
- CREATE TABLE shipment_events(shipment_id uuid,status text,provider_event_id text,description text);`);
+ CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status text,provider text DEFAULT 'mock',provider_reference text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
+ CREATE TABLE shipment_events(shipment_id uuid,status text,provider_event_id text,description text,UNIQUE(shipment_id,provider_event_id));`);
  const sale3=await adminOrders.create({...validBody,items:[{productId:product,quantity:1,unitAmount:550}]},uuid(50),actor,dealer);
  assert.equal((await dealerWallet(db,dealer)).available,'0.00');
  await db.query("UPDATE orders SET status='PROCESSING' WHERE id=$1",[sale3.id]);await db.query("INSERT INTO shipments(order_id,status) VALUES($1,'IN_TRANSIT')",[sale3.id]);
