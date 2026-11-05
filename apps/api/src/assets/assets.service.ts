@@ -24,6 +24,11 @@ export class AssetsService {
     const assetId=asset.rows[0].id;
     try {
       const storedUrl=await this.storage.put(key,input.buffer,input.mimeType);
+      if(productId){
+        let stored:Buffer;
+        try{stored=await this.storage.get(key);}catch{throw new ServiceUnavailableException('Görsel Depoya Yazıldı Ancak Geri Okunamadı. Depolama Okuma Yetkisini Kontrol Edin.');}
+        if(!stored.equals(input.buffer))throw new ServiceUnavailableException('Görsel Doğrulanamadı. Yeniden Yüklemeyi Deneyin.');
+      }
       const publicUrl=storedUrl||(productId?`/v1/assets/product/${productId}?asset=${assetId}`:'');
       if(!publicUrl)throw new InternalServerErrorException('Görsel İçin Herkese Açık Depolama Adresi Tanımlanmalı');
       await this.db.transaction(async client=>{
