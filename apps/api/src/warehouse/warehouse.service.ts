@@ -182,7 +182,7 @@ export class WarehouseService {
     return created.rows[0].id;
   }
   async receiveStock(dto:ReceiveStockDto,userId:string) { return this.db.transaction(async client=>{
-    const exists=await client.query('SELECT 1 FROM products WHERE id=$1 AND is_active=true',[dto.productId]); if(!exists.rowCount) throw new NotFoundException('Aktif ürün bulunamadı');
+    const exists=await client.query("SELECT 1 FROM products WHERE id=$1 AND status='ACTIVE'",[dto.productId]); if(!exists.rowCount) throw new NotFoundException('Aktif ürün bulunamadı');
     const warehouseId=await this.resolveReceiptWarehouse(client,dto.warehouseId);
     const lotCode=dto.lotCode?.trim() || `GENEL-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${String(Date.now()).slice(-6)}`;
     const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,warehouseId,dto.quantity]);
