@@ -71,7 +71,7 @@ export class WarehouseService {
     WHERE l.available_quantity>0
     ORDER BY l.expiry_date ASC NULLS LAST,p.name,w.name,l.created_at ASC
     LIMIT 500`)).rows; }
-  async listInventoryMovements() { return (await this.db.query(`SELECT m.id,m.movement_type,m.quantity_delta,m.reference_type,m.reference_id,m.created_at,p.name AS product_name,p.sku,w.name AS warehouse_name,u.email AS created_by_email
+  async listInventoryMovements() { return (await this.db.query(`SELECT m.id,m.movement_type,m.quantity_delta,m.reference_type,m.reference_id,m.created_at,m.note,p.name AS product_name,p.sku,w.name AS warehouse_name,u.email AS created_by_email
     FROM inventory_movements m
     JOIN products p ON p.id=m.product_id
     JOIN warehouses w ON w.id=m.warehouse_id
@@ -187,7 +187,7 @@ export class WarehouseService {
     const lotCode=dto.lotCode?.trim() || `GENEL-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${String(Date.now()).slice(-6)}`;
     const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,warehouseId,dto.quantity]);
     await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)',[dto.productId,warehouseId,lotCode,dto.expiryDate ?? null,dto.quantity,dto.locationCode?.trim() || null]);
-    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by,created_at) VALUES ($1,$2,'RECEIPT',$3,$4,$5,COALESCE($6::timestamptz,now()))",[dto.productId,warehouseId,dto.quantity,'stock_receipt',userId,dto.receivedAt ?? null]);
+    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by,created_at,note) VALUES ($1,$2,'RECEIPT',$3,$4,$5,COALESCE($6::timestamptz,now()),$7)",[dto.productId,warehouseId,dto.quantity,'stock_receipt',userId,dto.receivedAt ?? null,dto.note?.trim()||null]);
     await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.received','inventory',`${dto.productId}:${warehouseId}`,JSON.stringify({quantity:dto.quantity,lotCode,receivedAt:dto.receivedAt ?? null,expiryDate:dto.expiryDate ?? null,locationCode:dto.locationCode ?? null,note:dto.note ?? null})]);
     return {...inventory.rows[0],warehouseId};
   }); }
