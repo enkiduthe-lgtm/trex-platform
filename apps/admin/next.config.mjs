@@ -1,6 +1,7 @@
 const apiTarget=(process.env.TREX_API_URL??process.env.NEXT_PUBLIC_API_URL??'https://trex-api-staging.onrender.com/v1').replace(/\/$/,'');
 if(!/^https?:\/\//.test(apiTarget))throw new Error('TREX_API_URL Tam Bir API Adresi Olmalı');
 export default {
+ async redirects(){return [{source:'/',destination:'/giris',permanent:false}];},
  async rewrites(){return [{source:'/v1/:path*',destination:`${apiTarget}/:path*`}];},
  async headers(){return [{source:'/:path*',headers:[
   {key:'Cache-Control',value:'private, no-store, max-age=0'},
