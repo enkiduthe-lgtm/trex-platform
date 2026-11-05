@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 import { downloadXlsx } from '../lib/xlsx';
@@ -16,6 +16,7 @@ type View = 'stok' | 'raporlar';
 const movementLabel: Record<string, string> = { RECEIPT: 'Stok girişi', ADJUSTMENT: 'Stok düzeltmesi', RESERVATION: 'Sipariş rezervasyonu', RELEASE: 'Rezervasyon çözümü', FULFILLMENT: 'Sipariş çıkışı', TRANSFER_OUT: 'Depodan transfer', TRANSFER_IN: 'Depoya transfer', RETURN_QUARANTINE: 'İade girişi', RETURN_DAMAGED: 'Hasarlı iade' };
 
 export default function Inventory() {
+  const receiptLock=useRef(false);
   const [view, setView] = useState<View>('stok');
   const [movementFrom, setMovementFrom] = useState('');
   const [movementTo, setMovementTo] = useState('');
@@ -43,7 +44,7 @@ export default function Inventory() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [location, setLocation] = useState({ code: '', name: '' });
-  const [receipt, setReceipt] = useState({ productId: '', quantity: '', receivedAt: new Date().toISOString().slice(0, 10), note: '' });
+  const [receipt, setReceipt] = useState({ productId: '', quantity: '', receivedAt: new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Istanbul'}).format(new Date()), note: '' });
   const [transfer, setTransfer] = useState({ stockKey: '', destinationWarehouseId: '', quantity: '', note: '' });
 
   const load = () => Promise.all([
@@ -72,12 +73,12 @@ export default function Inventory() {
     finally { setBusy(false); }
   }
   async function receiveStock(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage('');
+    event.preventDefault();if(receiptLock.current)return;receiptLock.current=true;setBusy(true); setMessage('');
     try {
       await api('/admin/warehouse/receipts', { method: 'POST', body: JSON.stringify({ ...receipt, quantity: Number(receipt.quantity), note: receipt.note || undefined }) });
       setReceipt(current => ({ ...current, quantity: '', note: '' })); setMessage('Stok girişi kaydedildi.'); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Stok girişi kaydedilemedi'); }
-    finally { setBusy(false); }
+    finally { receiptLock.current=false;setBusy(false); }
   }
   async function deleteStock(item: Stock) {
     if (!window.confirm(`${item.product_name} — ${item.warehouse_name} stok kaydı silinsin mi?`)) return;
@@ -106,7 +107,7 @@ export default function Inventory() {
   }
   function exportRows(name: string, rows: Movement[]) {
     const total = rows.reduce((sum, item) => sum + Number(item.quantity_delta), 0);
-    downloadXlsx(`${name}.xlsx`, 'Stok Hareketleri', [['Tarih', 'İşlem', 'Ürün', 'SKU', 'Adet', 'Referans'], ...rows.map(item => [new Date(item.created_at).toLocaleString('tr-TR'), movementLabel[item.movement_type] ?? item.movement_type, item.product_name, item.sku, item.quantity_delta, item.reference_type ?? '']), ['', '', '', 'Toplam', total, '']]);
+    downloadXlsx(`${name}.xlsx`, 'Stok Hareketleri', [['Başlangıç Tarihi',movementFrom||'Tüm Tarihler'],['Bitiş Tarihi',movementTo||'Tüm Tarihler'],['Saat Dilimi','Europe/Istanbul'],[],['Tarih', 'İşlem', 'Ürün', 'SKU', 'Adet', 'Referans'], ...rows.map(item => [new Date(item.created_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'}), movementLabel[item.movement_type] ?? item.movement_type, item.product_name, item.sku, item.quantity_delta, item.reference_type ?? '']), ['', '', '', 'Toplam', total, '']]);
   }
   const table = (rows: Movement[], empty: string) => <div style={{ overflowX: 'auto' }}><table><thead><tr><th>Tarih</th><th>Ürün</th><th>SKU</th><th>İşlem</th><th>Adet</th><th>İşlemi Yapan</th></tr></thead><tbody>{rows.map(item => <tr key={item.id}><td>{new Date(item.created_at).toLocaleString('tr-TR')}</td><td>{item.product_name}</td><td>{item.sku}</td><td>{movementLabel[item.movement_type] ?? item.movement_type}</td><td>{item.quantity_delta > 0 ? '+' : ''}{item.quantity_delta}</td><td>{item.created_by_email ?? 'Sistem'}</td></tr>)}</tbody></table>{!rows.length && <p>{empty}</p>}</div>;
 
@@ -115,6 +116,6 @@ export default function Inventory() {
     {message && <p role="status">{message}</p>}
     {dashboard && <div className="cards"><article><p>HAZIRLANACAK</p><h2>{dashboard.waiting}</h2></article><article><p>TOPLANIYOR</p><h2>{dashboard.picking}</h2></article><article><p>PAKETLEME</p><h2>{dashboard.packing}</h2></article><article><p>KRİTİK STOK</p><h2>{dashboard.critical_stock}</h2></article></div>}
     {view === 'stok' && <><form className="form-card" onSubmit={receiveStock}><h2>Genel Stok Girişi</h2><div className="form-grid"><label>Ürün<select required value={receipt.productId} onChange={e => setReceipt(current => ({ ...current, productId: e.target.value }))}><option value="">Ürün Seçin</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label><label>Stok Giriş Adedi<input required type="number" min="1" step="1" value={receipt.quantity} onChange={e => setReceipt(current => ({ ...current, quantity: e.target.value }))} /></label><label>Stoğa Giriş Tarihi<input required type="date" value={receipt.receivedAt} onChange={e => setReceipt(current => ({ ...current, receivedAt: e.target.value }))} /></label><label>Açıklama <small>(İsteğe Bağlı)</small><input value={receipt.note} placeholder="Stok giriş notu" onChange={e => setReceipt(current => ({ ...current, note: e.target.value }))} /></label></div><button disabled={busy}>Stoğu Kaydet</button></form><section className="form-card"><h2>Mevcut Genel Stok</h2><label>Ürün Veya SKU Ara<input value={stockSearch} onChange={event=>setStockSearch(event.target.value)} placeholder="Ürün Adı Veya SKU" /></label><div className="table-wrap"><table><thead><tr><th>Ürün</th><th>SKU</th><th>Fiziksel Stok</th><th>Rezerve</th><th>Kalan Stok</th></tr></thead><tbody>{generalStock.map(item => <tr key={item.product_id}><td>{item.product_name}</td><td>{item.sku}</td><td>{item.physical_quantity}</td><td>{item.reserved_quantity}</td><td><strong>{item.available_quantity}</strong></td></tr>)}</tbody></table>{!generalStock.length && <p>Henüz stok kaydı yok.</p>}</div></section></>}
-    {view === 'raporlar' && <><section className="form-card"><div className="form-grid"><label>Başlangıç Tarihi<input type="date" value={movementFrom} max={movementTo||undefined} onChange={event=>setMovementFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={movementTo} min={movementFrom||undefined} onChange={event=>setMovementTo(event.target.value)} /></label></div><div className="button-row"><button className="secondary" type="button" onClick={()=>{setMovementFrom('');setMovementTo('');}}>Tarihleri Temizle</button><span>{filteredMovements.length} Hareket</span></div></section><section className="form-card"><h2>Gelen Ürün Bazlı Rapor</h2><button disabled={!incoming.length} onClick={() => exportRows('trex-gelen-urun-raporu', incoming)}>Excel&apos;e Aktar</button>{table(incoming, 'Gelen ürün hareketi yok.')}</section><section className="form-card"><h2>Giden Ürün Bazlı Rapor</h2><button disabled={!outgoing.length} onClick={() => exportRows('trex-giden-urun-raporu', outgoing)}>Excel&apos;e Aktar</button>{table(outgoing, 'Giden ürün hareketi yok.')}</section></>}
+    {view === 'raporlar' && <><section className="form-card"><div className="form-grid"><label>Başlangıç Tarihi<input type="date" value={movementFrom} max={movementTo||undefined} onChange={event=>setMovementFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={movementTo} min={movementFrom||undefined} onChange={event=>setMovementTo(event.target.value)} /></label></div><div className="button-row"><button className="secondary" type="button" onClick={()=>{setMovementFrom('');setMovementTo('');}}>Tarihleri Temizle</button><span>{filteredMovements.length} Hareket · İstanbul Saatine Göre</span></div></section><section className="form-card"><h2>Gelen Ürün Bazlı Rapor</h2><button disabled={!incoming.length} onClick={() => exportRows('trex-gelen-urun-raporu', incoming)}>Excel&apos;e Aktar</button>{table(incoming, 'Gelen ürün hareketi yok.')}</section><section className="form-card"><h2>Giden Ürün Bazlı Rapor</h2><button disabled={!outgoing.length} onClick={() => exportRows('trex-giden-urun-raporu', outgoing)}>Excel&apos;e Aktar</button>{table(outgoing, 'Giden ürün hareketi yok.')}</section><section className="form-card"><h2>Tüm Stok Hareketleri</h2><p>Stok Girişleri, Sipariş Çıkışları, Rezervasyonlar Ve Düzeltmeler.</p><button disabled={!filteredMovements.length} onClick={()=>exportRows('trex-tum-stok-hareketleri',filteredMovements)}>Excel&apos;e Aktar</button>{table(filteredMovements,'Seçilen Tarihlerde Stok Hareketi Yok.')}</section></>}
   </section></main>;
 }
