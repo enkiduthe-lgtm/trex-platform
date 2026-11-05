@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import removal from '../components/removal.module.css';
 import {
   useEffect,
   useMemo,
@@ -263,7 +264,7 @@ function OrdersContent() {
             <h1>Siparişler</h1>
           </div>
           <div className={styles.headerActions}>
-            {isDirector&&<Link href="/siparisler/sil" className={styles.deleteLink}><OrderIcon name="trash"/><span>Sipariş Sil / Silinenler</span></Link>}
+            {isDirector&&<Link href="/siparisler/sil" className={removal.entry}><OrderIcon name="trash"/><span>Sipariş Sil / Silinenler</span></Link>}
             {canCreate && (
               <Link href="/siparisler/yeni" className={styles.financeLink}>
                 + Yeni sipariş
