@@ -40,7 +40,7 @@ export class StaffChannelService {
  async view(actor:RequestUser,month?:string){
   if(month&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw new BadRequestException('Geçerli Ay Seçin');
   const permissions=await this.access(actor);
-  const entries=await this.db.query(`SELECT e.id,e.recipient_user_id,e.staff_role,e.staff_channel_group,e.staff_unit_amount,e.staff_share_count,e.staff_paid_amount,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.finalized_at,e.paid_at,e.note,o.order_number,oi.product_name,oi.sku,oi.quantity,u.email AS recipient_email
+  const entries=await this.db.query(`SELECT e.id,e.order_item_id,e.recipient_user_id,e.staff_role,e.staff_channel_group,e.staff_unit_amount,e.staff_share_count,e.staff_paid_amount,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.finalized_at,e.paid_at,e.note,o.order_number,oi.product_name,oi.sku,oi.quantity,u.email AS recipient_email
    FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id JOIN users u ON u.id=e.recipient_user_id
    WHERE e.calculation_source='STAFF_CHANNEL_POOL_V1' AND ($1::boolean OR e.recipient_user_id=$2)
    AND ($3::text IS NULL OR to_char(e.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM')=$3)
