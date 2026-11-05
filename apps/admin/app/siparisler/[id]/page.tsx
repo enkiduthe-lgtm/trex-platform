@@ -345,7 +345,7 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>1</span>
                   <strong>Hazırla</strong>
                   <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
-                  {canEdit && data.status === "PAID" && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
+                  {canEdit && ["PAID","PROCESSING"].includes(data.status) && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
                 </li>
                 <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>2</span>

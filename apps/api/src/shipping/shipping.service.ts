@@ -24,7 +24,7 @@ export class ShippingService {
     LEFT JOIN picking_sessions ps ON ps.order_id=o.id
     LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
     LEFT JOIN shipments s ON s.order_id=o.id
-    WHERE o.status='PROCESSING' AND s.id IS NULL
+    WHERE o.status='PROCESSING' AND pk.packed_at IS NOT NULL AND pk.package_barcode IS NOT NULL AND s.id IS NULL
     ORDER BY o.created_at ASC LIMIT 100`)).rows; }
   async detail(orderId: string) { const shipment=await this.db.query(`SELECT s.id,s.order_id,s.provider,s.tracking_number,s.status,s.label_url,s.label_format,s.failure_reason,s.tracking_checked_at,s.tracking_error,s.tracking_status_code,s.tracking_direction_code,s.created_at,s.updated_at,s.dispatched_at,s.delivered_at,o.order_number,pk.package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id LEFT JOIN picking_sessions ps ON ps.order_id=o.id LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id WHERE s.order_id=$1`,[orderId]); if(!shipment.rows[0]) return null; const events=await this.db.query('SELECT id,status,provider_event_id,description,occurred_at FROM shipment_events WHERE shipment_id=$1 ORDER BY occurred_at DESC,id DESC',[shipment.rows[0].id]); return {...shipment.rows[0],events:events.rows}; }
   async updateStatus(orderId:string,dto:UpdateShipmentStatusDto,userId:string|null,observation?:{reference:string;eventId:string;code:string;direction:string;trackingNumber?:string|null}){

@@ -29,7 +29,7 @@ type Order = {
   shipping_provider?: string | null;
   tracking_number?: string | null;
   shipment_status?: string | null;
-  preparation_status?: string | null;
+  preparation_status?: string | null; packed_at?: string | null;
 };
 type OrderNote = { id: string; admin_note: string | null };
 const statusText: Record<string, string> = {
@@ -475,8 +475,8 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
                       )}
-                      {canPrepare && order.status === "PAID" && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
-                      {canPrepare && order.status === "PROCESSING" && !['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && (
+                      {canPrepare && ["PAID","PROCESSING"].includes(order.status) && !order.packed_at && !["CREATED","IN_TRANSIT","DELIVERED"].includes(order.shipment_status??"") && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
+                      {canPrepare && order.status === "PROCESSING" && Boolean(order.packed_at) && !['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && (
                         <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>
                           <OrderIcon name="check" /><span>Kargoya Ver</span>
                         </button>

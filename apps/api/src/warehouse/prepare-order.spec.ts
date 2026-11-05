@@ -1,8 +1,8 @@
 import { WarehouseService } from './warehouse.service';
 
 describe('One-click order preparation', () => {
-  function setup(status = 'PAID', existing: unknown = undefined, reservedQuantity = 2) {
-    const query = jest.fn().mockResolvedValueOnce({ rows: [{ status, checkout_id: 'checkout' }] })
+  function setup(status = 'PAID', existing: unknown = undefined, reservedQuantity = 2, preparationAllowed=false) {
+    const query = jest.fn().mockResolvedValueOnce({ rows: [{ status, checkout_id: 'checkout',preparation_allowed:preparationAllowed }] })
       .mockResolvedValueOnce({ rows: existing ? [existing] : [] })
       .mockResolvedValueOnce({ rows: [{ warehouse_id: 'warehouse', product_id: 'product', quantity: reservedQuantity }] })
       .mockResolvedValueOnce({ rows: [{ id: 'item', product_id: 'product', quantity: 2 }] })
@@ -21,6 +21,8 @@ describe('One-click order preparation', () => {
     await expect(service.prepareOrder('order', 'user')).rejects.toThrow('Ödemesi Onaylanan');
     expect(query).toHaveBeenCalledTimes(1);
   });
+  it('prepares a processing COD order before packing',async()=>{const {service}=setup('PROCESSING',{id:'pick',status:'OPEN'},2,true);await expect(service.prepareOrder('order','user')).resolves.toMatchObject({status:'COMPLETED'});});
+  it('does not bypass payment for processing transfers',async()=>{const {service}=setup('PROCESSING',{id:'pick',status:'OPEN'},2,false);await expect(service.prepareOrder('order','user')).rejects.toThrow('Hazırlama Aşamasında');});
   it('does not duplicate already completed preparation', async () => {
     const { query, service } = setup('PAID', { id: 'pick', status: 'COMPLETED' });
     await expect(service.prepareOrder('order', 'user')).resolves.toMatchObject({ id: 'pick', replayed: true });
