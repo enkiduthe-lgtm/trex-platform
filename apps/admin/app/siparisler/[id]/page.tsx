@@ -162,6 +162,14 @@ export default function OrderDetail() {
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [operationBusy, setOperationBusy] = useState(false);
   const [operationMessage, setOperationMessage] = useState("");
+  const [arasCheck,setArasCheck]=useState<{orderNumber:string;integrationCode:string;packageBarcode:string;found:boolean;checkedAt:string}|null>(null);
+  async function verifyArasOnly() {
+    if(operationBusy)return;
+    setOperationBusy(true);setError('');setArasCheck(null);
+    try {setArasCheck(await api(`/admin/orders/${id}/shipment/verify`,{method:'POST'}));}
+    catch(e){setError(e instanceof Error?e.message:'Aras Kaydı Kontrol Edilemedi');}
+    finally{setOperationBusy(false);}
+  }
   async function refreshOrder() {
     setData(await api<Detail>(`/admin/orders/${id}`));
   }
@@ -358,13 +366,15 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>3</span>
                   <strong>Kargoya Ver</strong>
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
-                  <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
+                  <p>{data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Henüz Takip Numarası Yok; Bu Durum Fiziksel Teslimi Doğrulamaz.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
+                  {canEdit && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
                   {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.shipment_status && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
                   {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Doğrula / Yeniden Gönder'}</button>}
                   {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
                   {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
+              {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{new Date(arasCheck.checkedAt).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td></tr></tbody></table></div>}
             </section>
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
               <div className={styles.cardHeader}>

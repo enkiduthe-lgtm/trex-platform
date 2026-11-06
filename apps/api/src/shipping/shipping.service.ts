@@ -65,6 +65,15 @@ export class ShippingService {
     if(notification&&!changed.replayed)await this.notifications?.recordOrderStatus(changed.recipient,changed.orderNumber,notification);
     return {id:changed.id,status:changed.status};
   }
+  async verifyArasRegistration(orderId: string) {
+    const result = await this.db.query<{provider:string;provider_reference:string|null;package_barcode:string|null;order_number:string}>(`SELECT s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1`,[orderId]);
+    const row=result.rows[0];
+    if(!row)throw new NotFoundException('Kargo Kaydı Bulunamadı');
+    if(row.provider!=='aras')throw new ConflictException('Bu Kayıt Aras Gönderisi Değil');
+    if(!row.provider_reference||!row.package_barcode)throw new ConflictException('Entegrasyon Kodu Veya Paket Barkodu Eksik');
+    const found=await this.aras.verifyRegisteredShipment(row.provider_reference,row.package_barcode);
+    return {orderNumber:row.order_number,integrationCode:row.provider_reference,packageBarcode:row.package_barcode,found,checkedAt:new Date().toISOString()};
+  }
   async create(orderId: string, userId?: string) {
     const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null;provider:string;provider_reference:string;package_barcode:string|null;order_number:string }>("SELECT s.id,s.status,s.tracking_number,s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1", [orderId]);
     if (existing.rows[0]?.status === 'CREATED') {

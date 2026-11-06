@@ -1,5 +1,22 @@
 import { ShippingService } from './shipping.service';
 describe('ShippingService', () => {
+  it.each([true,false])('queries Aras registration without resending or changing records (%s)',async found=>{
+    const query=jest.fn().mockResolvedValue({rows:[{provider:'aras',provider_reference:'REF',package_barcode:'PKG',order_number:'ORDER'}]});
+    const aras={verifyRegisteredShipment:jest.fn().mockResolvedValue(found),createShipment:jest.fn()};
+    const service=new ShippingService({query} as never,{} as never,aras as never);
+    await expect(service.verifyArasRegistration('order')).resolves.toEqual({orderNumber:'ORDER',integrationCode:'REF',packageBarcode:'PKG',found,checkedAt:expect.any(String)});
+    expect(aras.verifyRegisteredShipment).toHaveBeenCalledWith('REF','PKG');
+    expect(aras.createShipment).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][0]).toMatch(/^SELECT /);
+  });
+  it('rejects a non-Aras record before contacting Aras',async()=>{
+    const query=jest.fn().mockResolvedValue({rows:[{provider:'mock',provider_reference:'REF',package_barcode:'PKG'}]});
+    const aras={verifyRegisteredShipment:jest.fn()};
+    const service=new ShippingService({query} as never,{} as never,aras as never);
+    await expect(service.verifyArasRegistration('order')).rejects.toThrow('Bu Kayıt Aras Gönderisi Değil');
+    expect(aras.verifyRegisteredShipment).not.toHaveBeenCalled();
+  });
   it('returns an existing created shipment without calling the provider again', async () => {
     const db = { query: jest.fn().mockResolvedValue({ rows: [{ id: 'shipment', status: 'CREATED', tracking_number: 'TRX1' }] }) };
     const provider = { createShipment: jest.fn() };
