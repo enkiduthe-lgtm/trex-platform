@@ -89,7 +89,7 @@
 .titleRow {
   display: flex;
   justify-content: space-between;
-  align-items: end;
+  align-items: flex-end;
   margin: 2px 0 18px;
 }
 .titleRow p {
