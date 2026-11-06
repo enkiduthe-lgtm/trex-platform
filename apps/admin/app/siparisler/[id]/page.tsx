@@ -410,26 +410,13 @@ export default function OrderDetail() {
             </section>
             <section className={styles.detailCard}>
               <div id="musteri" className={styles.cardHeader}><h2>Müşteri Ve Teslimat</h2><span>Müşteri Kartı</span></div>
-              <p>
-                {data.contact_name ??
-                  data.address?.recipient_name ??
-                  "Ad bilgisi yok"}{" "}
-                · {data.customer_email ?? "E-posta bilgisi yok"}
-              </p>
-              {data.address ? (
-                <>
-                  <p>
-                    Alıcı: {data.address.recipient_name} · Telefon:{" "}
-                    {data.address.phone}
-                  </p>
-                  <p>
-                    {data.address.address_line}, {data.address.district} /{" "}
-                    {data.address.city} {data.address.postal_code}
-                  </p>
-                </>
-              ) : (
-                <p>Teslimat adresi bulunamadı. Siparişi göndermeyin.</p>
-              )}
+              <div className={styles.tableWrap}><table><thead><tr><th>Müşteri</th><th>E-Posta</th><th>Alıcı</th><th>Telefon</th><th>Teslimat Adresi</th></tr></thead><tbody><tr>
+                <td>{data.contact_name ?? data.address?.recipient_name ?? 'Belirtilmedi'}</td>
+                <td>{data.customer_email ?? 'Belirtilmedi'}</td>
+                <td>{data.address?.recipient_name ?? 'Belirtilmedi'}</td>
+                <td>{data.address?.phone ?? 'Belirtilmedi'}</td>
+                <td>{data.address ? `${data.address.address_line}, ${data.address.district} / ${data.address.city} ${data.address.postal_code ?? ''}` : 'Teslimat Adresi Yok. Gönderim Yapmayın.'}</td>
+              </tr></tbody></table></div>
             </section>
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
             <div className={styles.cardHeader}><h2>Ürünler</h2><span>{data.items.length} ürün</span></div>
