@@ -237,7 +237,7 @@ export default function OrderDetail() {
       setOperationBusy(false);
     }
   }
-  function printPackageBarcode(packageBarcode: string) {
+  function printPackageBarcode(packageBarcode: string, arasMok = false) {
     const value = packageBarcode.toUpperCase();
     const encoded = `*${value}*`;
     if (!value || value.includes("*") || [...encoded].some((character) => !code39[character])) {
@@ -264,7 +264,10 @@ export default function OrderDetail() {
     const products = data?.items.length
       ? data.items.map((item) => `<li>${escapeLabelHtml(item.product_name)} <b>× ${item.quantity}</b></li>`).join("")
       : "<li>Ürün bilgisi bulunamadı</li>";
-    label.document.write(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 80mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:92mm;box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.print-actions{display:flex;justify-content:center;padding:16px}.print-actions button{padding:12px 24px;font-size:16px;cursor:pointer}@media print{.print-actions{display:none}}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><div class="print-actions"><button type="button" onclick="window.print()">Barkodu Yazdır</button></div><script>window.onload=()=>window.print()</script></body></html>`);
+    const originalWrite = label.document.write.bind(label.document);
+    // Long existing MÖK codes need a wider label to retain scannable bars.
+    const writeLabel = (html:string) => originalWrite(arasMok ? html.replaceAll('Paket barkodu','Aras MÖK Barkodu').replace('TREX TEA PAKET BARKODU','ARAS MÖK BARKODU').replace('size:100mm 80mm','size:160mm 100mm').replace('width:92mm','width:152mm') : html);
+    writeLabel(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 80mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:92mm;box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.print-actions{display:flex;justify-content:center;padding:16px}.print-actions button{padding:12px 24px;font-size:16px;cursor:pointer}@media print{.print-actions{display:none}}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg preserveAspectRatio="none" viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><div class="print-actions"><button type="button" onclick="window.print()">Barkodu Yazdır</button></div><script>window.onload=()=>window.print()</script></body></html>`);
     label.document.close();
   }
   async function cancelOrder() {
@@ -374,6 +377,7 @@ export default function OrderDetail() {
                   {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
+              {arasCheck?.found && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
               {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{new Date(arasCheck.checkedAt).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td></tr></tbody></table></div>}
             </section>
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
