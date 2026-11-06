@@ -1057,3 +1057,27 @@ a[class*="action"] {
 .form-card input,.form-card textarea,.form-card select,.table-card input,.table-card select { color:#24162e;background:#fff; }
 .cards article a,.form-card a,.table-card a { color:#5a187c; }
 .login-page .login-role-switch{grid-template-columns:repeat(3,minmax(0,1fr))}.login-page .login-role-switch button{min-height:48px;padding:10px 12px}@media(max-width:600px){.login-page .login-role-switch{grid-template-columns:1fr}}
+/* Shared readable controls, tabs and content surfaces. */
+:root{--ink:#34283e;--ink-2:#574260;--muted:#6a5b74;--line:#ded6e4}
+body{font-family:"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.5;color:#34283e;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit;font-size:inherit}
+button{line-height:1.35;font-weight:600}
+main>section button:not([role=switch]){min-height:38px;border-radius:7px}
+main>section button svg,main>section a svg{flex-shrink:0;vertical-align:middle}
+main>section :is(.button-row,.staff-actions,.dealer-actions){display:flex;align-items:center;flex-wrap:wrap;gap:8px;background:transparent}
+main>section :is(.button-row,.staff-actions,.dealer-actions)>:is(a,button){display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;padding:8px 12px;margin:0;text-align:center;box-sizing:border-box}
+main>section :is(.form-card,.table-card,.report-card){border:1px solid #ded6e4;border-radius:10px;background:#fff;padding:18px;min-width:0}
+main>section :is(input,select,textarea):not([type=checkbox]):not([type=radio]){border-radius:6px;line-height:1.4}
+main>section :is(th,td){line-height:1.5}
+main>section th{font-weight:650;color:#45334f;background:#f5f1f8}
+.header-nav{gap:4px;padding-top:5px;padding-bottom:5px}
+.header-nav .nav-menu>a,.header-nav>a{border-radius:7px;line-height:1.4;font-weight:650}
+.header-subnav>div{gap:6px;flex-wrap:wrap;padding:8px 0}
+.header-subnav a{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #ded6e4;border-radius:6px;background:#fff;color:#493452;font-size:13px;font-weight:600;line-height:1.4}
+.header-subnav a.active{background:#eee4f5;border-color:#b691cb;color:#4a2361}
+.nav-dropdown{padding:12px;border:1px solid #d8cce1;border-radius:10px;background:#fff;box-shadow:0 12px 30px #2d153d20}
+.nav-dropdown h3{font-size:13px;color:#574260;line-height:1.5}
+.nav-dropdown a{display:flex;align-items:center;min-height:38px;margin:4px 0;padding:8px 10px;border:1px solid #e7dfec;border-radius:6px;background:#faf8fc;color:#382842;font-size:13px;line-height:1.4}
+.nav-dropdown a:hover,.nav-dropdown a:focus-visible{background:#eee4f5;color:#382842;border-color:#b691cb}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #78528f;outline-offset:3px}
+@media(max-width:760px){body{font-size:14px}.header-subnav>div{flex-wrap:nowrap;overflow-x:auto;max-width:100%}.header-subnav a{flex:0 0 auto}.nav-dropdown{max-width:calc(100vw - 24px)}main>section :is(.form-card,.table-card,.report-card){padding:12px}}

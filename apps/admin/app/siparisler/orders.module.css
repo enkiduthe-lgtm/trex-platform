@@ -42,3 +42,16 @@
 .detailCard:has(#musteri)>p{padding:12px 14px;border:1px solid #e9e1ee;border-radius:7px;background:#fff;overflow-wrap:anywhere}
 #musteri{scroll-margin-top:160px}
 @media(max-width:800px){.detailCard .tableWrap{overflow-x:auto}.detailCard .tableWrap table{min-width:520px}.page .headerActions{justify-content:flex-start}}
+/* Order detail stays within its workspace, with secondary tools collapsed. */
+.detailLayout{grid-template-columns:minmax(0,1fr)}
+.detailCard{width:100%;padding:16px 18px}
+.detailCard summary{font-size:14px;font-weight:650;color:#45334f;cursor:pointer;padding:4px 0;list-style-position:inside}
+.detailCard[open]>summary{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e8e0ed}
+.flowGrid{align-items:stretch}
+.flowCard,.flowDone{padding:16px;min-width:0}
+.flowCard .cardActions,.flowDone .cardActions{width:100%;margin:0}
+.flowCard .cardActions span,.flowDone .cardActions span{font-size:11px;line-height:1.5;color:#6a5b74}
+.flowCard button:last-of-type,.flowDone button:last-of-type{margin-top:auto}
+.detailCard .tableWrap td,.detailCard .tableWrap th{font-size:13px;padding:10px 12px;overflow-wrap:anywhere}
+@media(max-width:800px){.detailCard{padding:12px}.detailCard .tableWrap table{min-width:0}.detailCard .tableWrap{overflow-x:auto}.flowGrid{grid-template-columns:1fr}}
+.foldCard{box-shadow:none}.flowCard details,.flowDone details{width:100%}.flowCard summary,.flowDone summary{font-size:12px}

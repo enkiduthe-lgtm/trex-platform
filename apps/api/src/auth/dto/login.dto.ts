@@ -2,6 +2,6 @@ import { IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } fr
 export class LoginDto {
   @IsEmail() @MaxLength(320) email!: string;
   @IsString() @MinLength(1) @MaxLength(128) password!: string;
-  @IsOptional() @IsIn(['MASTER','ADMIN','DEALER']) audience?: 'MASTER' | 'ADMIN' | 'DEALER';
+  @IsIn(['MASTER','ADMIN','DEALER']) audience!: 'MASTER' | 'ADMIN' | 'DEALER';
   @IsOptional() @IsString() @Matches(/^\d{6}$/) mfaCode?: string;
 }

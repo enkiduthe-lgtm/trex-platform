@@ -153,6 +153,13 @@ export default function OrderDetail() {
   useEffect(() => {
     if (!data || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
     autoPrinted.current = true;
+    if(data.shipments.some(shipment=>shipment.provider==='aras')) {
+      void api<{found:boolean;integrationCode:string}>(`/admin/orders/${id}/shipment/verify`,{method:'POST'}).then(result=>{
+        if(!result.found){setError('Aras Kaydı Bulunamadı. MÖK Barkodu Yazdırılmadı.');return;}
+        printPackageBarcode(result.integrationCode,true);
+      }).catch(e=>setError(e instanceof Error?e.message:'Aras Kaydı Doğrulanamadı. Barkod Yazdırılmadı.'));
+      return;
+    }
     printPackageBarcode(data.fulfillment?.package_barcode || data.order_number);
   }, [data]);
   const [error, setError] = useState("");
@@ -197,14 +204,15 @@ export default function OrderDetail() {
     setOperationBusy(true);
     setError("");
     try {
-      const shipment = await api<{ trackingNumber?: string }>(
+      setArasCheck(null);
+      const shipment = await api<{ trackingNumber?: string; replayed?:boolean }>(
         `/admin/orders/${id}/shipment`,
         { method: "POST" },
       );
       setOperationMessage(
         shipment.trackingNumber
           ? `Kargo Kaydı Oluşturuldu. Takip Kodu: ${shipment.trackingNumber}`
-          : "Kargo gönderisi oluşturuldu.",
+          : shipment.replayed ? "Mevcut Aras Kaydı Doğrulandı. Yeni Gönderim Yapılmadı." : "Kargo Kaydı Oluşturuldu. Fiziksel Şube Kabulü Henüz Doğrulanmadı.",
       );
       await refreshOrder();
     } catch (e) {
@@ -321,6 +329,8 @@ export default function OrderDetail() {
   useEffect(() => {
     let active = true;
     setData(null);
+    setArasCheck(null);
+    setOperationMessage('');
     setError("");
     api<Detail>(`/admin/orders/${id}`)
       .then((value) => {
@@ -349,7 +359,8 @@ export default function OrderDetail() {
           <>
             <div className={styles.detailLayout}>
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
-              <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Kargoya Ver</span></div>
+              <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Aras Kaydı Ve MÖK. → Kargo Takibi</span></div>
+              {data.status==='PENDING_PAYMENT'&&<p className={styles.notice}>Önce Ödeme Kontrolünü Tamamlayın. <Link href={`/siparisler/havaleler?order=${encodeURIComponent(data.order_number)}`}>Havale Eşleştirme Ekranını Aç</Link></p>}
               {operationMessage && <p role="status">{operationMessage}</p>}
               <ol className={styles.flowGrid}>
                 <li className={data.fulfillment?.picking_status === 'COMPLETED' ? styles.flowDone : styles.flowCard}>
@@ -363,21 +374,23 @@ export default function OrderDetail() {
                   <strong>Paketle Ve Barkod Oluştur</strong>
                   <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
                   {canEdit && ['PAID','PROCESSING'].includes(data.status) && data.fulfillment?.picking_status === 'COMPLETED' && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
-                  {data.fulfillment?.package_barcode && <button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Barkodu yazdır</button>}
+                  {!data.fulfillment?.packed_at && data.fulfillment?.picking_status!=='COMPLETED' && <button type="button" disabled>Önce Ürünleri Hazırlayın</button>}
+                  {data.fulfillment?.package_barcode && <details><summary>Paket İç Etiketi</summary><button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Paket İç Etiketini Yazdır</button></details>}
                 </li>
                 <li className={data.status === "SHIPPED" || data.status === "DELIVERED" ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>3</span>
-                  <strong>Kargoya Ver</strong>
+                  <strong>Aras Kaydı Ve Kargo Takibi</strong>
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
                   <p>{data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Henüz Takip Numarası Yok; Bu Durum Fiziksel Teslimi Doğrulamaz.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
                   {canEdit && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.shipment_status && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Doğrula / Yeniden Gönder'}</button>}
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && (!data.fulfillment.shipment_status || data.fulfillment.shipment_status === "FAILED") && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
+                  {arasCheck?.found && arasCheck.orderNumber===data.order_number && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
                   {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
                   {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
-              {arasCheck?.found && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
+
               {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{new Date(arasCheck.checkedAt).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td></tr></tbody></table></div>}
             </section>
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
@@ -459,7 +472,7 @@ export default function OrderDetail() {
                 <tbody>
                   {data.payments.map((payment) => (
                     <tr key={payment.id}>
-                      <td>{payment.provider}</td>
+                      <td>{paymentMethod[payment.provider] ?? payment.provider}</td>
                       <td>{paymentStatus[payment.status] ?? payment.status}</td>
                       <td>{money(payment.amount, payment.currency)}</td>
                       <td>
@@ -480,8 +493,8 @@ export default function OrderDetail() {
             {data.payments.length === 0 && <p className={styles.emptyNote}>Ödeme kaydı bulunamadı.</p>}
             </section>
             {role === "SUPER_ADMIN" && (
-              <section id="fatura" className={`${styles.detailCard} ${styles.detailWide}`}>
-                <div className={styles.cardHeader}><h2>Paraşüt fatura hazırlığı</h2><span>Faturalama</span></div>
+              <details id="fatura" className={`${styles.detailCard} ${styles.detailWide} ${styles.foldCard}`}>
+                <summary>Fatura İşlemleri</summary>
                 {invoice ? (
                   <><p>
                     {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura taslağı kaydedildi. Durum: {invoice.provider_status}
@@ -500,7 +513,7 @@ export default function OrderDetail() {
                   </form>
                 )}
                 <div className={styles.cardActions}><Link className={styles.financeLink} href={`/siparisler/${id}/fatura`} target="_blank" rel="noopener noreferrer">Fatura PDF Belgesini Aç / Yazdır</Link></div>
-              </section>
+              </details>
             )}
 
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
@@ -521,7 +534,7 @@ export default function OrderDetail() {
                     {data.shipments.map((shipment) => (
                       <tr key={shipment.id}>
                         <td>{shipment.provider}</td>
-                        <td>{shipment.status}</td>
+                        <td>{{CREATED:'Kargo Kaydı Hazır',IN_TRANSIT:'Kargoda',DELIVERED:'Teslim Edildi',FAILED:'Kontrol Gerekiyor',CANCELLED:'İptal Edildi'}[shipment.status]??shipment.status}</td>
                         <td>{shipment.tracking_number ?? "Henüz yok"}</td>
                         <td>
                           {shipment.package_barcode ?? "Henüz paketlenmedi"}
@@ -541,7 +554,7 @@ export default function OrderDetail() {
               <p className={styles.emptyNote}>Bu sipariş için henüz kargo kaydı yok.</p>
             )}
             </section>
-            <section className={styles.detailCard}>
+            {data.returns.length > 0 && <section className={styles.detailCard}>
             <div className={styles.cardHeader}><h2>İade kayıtları</h2><span>{data.returns.length} kayıt</span></div>
             {data.returns.length ? (
               <div className={styles.tableWrap}>
@@ -577,9 +590,9 @@ export default function OrderDetail() {
             ) : (
               <p className={styles.emptyNote}>Bu sipariş için iade kaydı yok.</p>
             )}
-            </section>
-            <section className={styles.detailCard}>
-            <div className={styles.cardHeader}><h2>İşlem geçmişi</h2><span>{data.activity.length} hareket</span></div>
+            </section>}
+            <details className={styles.detailCard}>
+            <summary>İşlem geçmişi</summary>
             {data.activity.length ? (
               <div className={styles.activityList}>{data.activity.map((item, index) => (
                 <p className={styles.activityItem} key={`${item.action}-${item.created_at}-${index}`}>
@@ -591,9 +604,9 @@ export default function OrderDetail() {
             ) : (
               <p className={styles.emptyNote}>Ek işlem kaydı yok.</p>
             )}
-            </section>
-            <section className={`${styles.detailCard} ${styles.detailWide}`}>
-            <div className={styles.cardHeader}><h2>Bağlı destek talepleri</h2><span>{data.supportTickets.length} talep</span></div>
+            </details>
+            <details className={`${styles.detailCard} ${styles.detailWide}`}>
+            <summary>Bağlı destek talepleri</summary>
             <Link className={styles.financeLink} href={`/destek?order=${id}`}>
               Bu sipariş için destek talebi aç
             </Link>
@@ -627,7 +640,7 @@ export default function OrderDetail() {
             ) : (
               <p className={styles.emptyNote}>Bu siparişe bağlı destek talebi yok.</p>
             )}
-            </section>
+            </details>
             </div>
           </>
         )}

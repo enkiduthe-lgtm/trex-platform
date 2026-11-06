@@ -4,6 +4,7 @@ import request = require('supertest');
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles';
+import { DatabaseService } from '../database/database.service';
 import { CustomersController } from '../customers/customers.controller';
 import { CustomersService } from '../customers/customers.service';
 import { DealersController } from '../dealers/dealers.controller';
@@ -32,7 +33,7 @@ describe('V1 HTTP role boundaries', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [CustomersController, DealersController, ProductsController, InventoryController, OrdersController, WarehouseController],
-      providers: [RolesGuard, { provide: CustomersService, useValue: customers },
+      providers: [RolesGuard, { provide: DatabaseService, useValue: {query:jest.fn().mockResolvedValue({rows:[],rowCount:0})} }, { provide: CustomersService, useValue: customers },
         { provide: DealersService, useValue: dealers }, { provide: ProductsService, useValue: products },
         { provide: InventoryService, useValue: inventory }, { provide: OrdersService, useValue: orders },
         { provide: AdminOrderService, useValue: adminOrders }, { provide: WarehouseService, useValue: warehouse }],
@@ -52,7 +53,7 @@ describe('V1 HTTP role boundaries', () => {
     { path: '/v1/admin/customers', method: 'get', call: customers.list, allowed: ['SUPER_ADMIN', 'ADMIN'] },
     { path: '/v1/admin/dealers', method: 'get', call: dealers.list, allowed: ['SUPER_ADMIN', 'ADMIN'] },
     { path: '/v1/admin/products', method: 'get', call: products.listAdmin, allowed: ['SUPER_ADMIN', 'ADMIN'] },
-    { path: '/v1/admin/product-costs', method: 'get', call: products.listCosts, allowed: ['SUPER_ADMIN', 'ADMIN', 'FINANCE'] },
+    { path: '/v1/admin/product-costs', method: 'get', call: products.listCosts, allowed: ['SUPER_ADMIN'] },
     { path: '/v1/inventory/adjustments', method: 'post', call: inventory.adjust, allowed: ['SUPER_ADMIN', 'ADMIN', 'WAREHOUSE'] },
     { path: '/v1/inventory/reservations', method: 'post', call: inventory.reserve, allowed: ['SUPER_ADMIN', 'ADMIN'] },
     { path: '/v1/admin/orders', method: 'get', call: orders.list, allowed: ['SUPER_ADMIN', 'ADMIN', 'FINANCE', 'WAREHOUSE'] },
