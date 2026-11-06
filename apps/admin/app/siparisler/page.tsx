@@ -405,8 +405,8 @@ function OrdersContent() {
                     <small>{Number(order.item_count)} ürün</small>
                   </td>
                   <td>
-                    <b>{order.customer_name ?? "Misafir müşteri"}</b>
-                    <small>{"Teslimat bilgileri detayda"}</small>
+                    <Link href={`/siparisler/${order.id}#musteri`}><b>{order.customer_name ?? "Misafir Müşteri"}</b></Link>
+                    <small>Müşteri Kartını Aç</small>
                   </td>
                   <td>
                     <b>{money(order.total_amount, order.currency)}</b>
@@ -482,7 +482,7 @@ function OrdersContent() {
                       {canPrepare && ["PAID","PROCESSING"].includes(order.status) && !order.packed_at && !["CREATED","IN_TRANSIT","DELIVERED"].includes(order.shipment_status??"") && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
                       {canPrepare && order.status === "PROCESSING" && Boolean(order.packed_at) && !['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && (
                         <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>
-                          <OrderIcon name="check" /><span>Kargoya Ver</span>
+                          <OrderIcon name="check" /><span>Kargo Kaydını Hazırla</span>
                         </button>
                       )}
                       {order.status === "SHIPPED" && (
@@ -490,7 +490,8 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
-                      {order.status === 'PROCESSING' && ['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Kargo Kaydı / Takip</span></Link>}
+                      {canPrepare && order.status === 'PROCESSING' && order.shipment_status === 'CREATED' && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>{pendingAction === order.id ? 'Aras Kaydı Kontrol Ediliyor…' : 'Aras Kaydını Doğrula / Yeniden Gönder'}</button>}
+                      {order.status === 'PROCESSING' && ['IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Kargo Kaydı / Takip</span></Link>}
                       {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>

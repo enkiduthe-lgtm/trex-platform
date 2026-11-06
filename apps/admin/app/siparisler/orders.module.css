@@ -26,3 +26,19 @@
 .headerActions .deleteLink,.tableWrap .actions>.deleteLink{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:8px 12px;box-sizing:border-box;border:1px solid #d8a0a0!important;background:#fff4f4!important;color:#8a2020!important;border-radius:6px;font-weight:600;text-decoration:none;}
 .deleteLink svg{width:15px;height:15px;}
 .tableWrap .actions>button.deleteLink:disabled{opacity:.55;cursor:not-allowed;}
+/* Compact actions and full-width readable order details. */
+.page{font-family:"Segoe UI",Arial,sans-serif;line-height:1.5;box-sizing:border-box}
+.titleRow{gap:16px;align-items:center}
+.page .headerActions{display:flex;flex-wrap:wrap;justify-content:flex-end;width:auto;max-width:none;gap:8px}
+.page .headerActions>a{width:auto;min-height:34px;min-width:0;padding:7px 11px;font-size:12px;flex:0 0 auto;border-radius:6px}
+.page .headerActions>a svg{width:14px;height:14px}
+.detailCard{min-width:0;padding:20px;box-shadow:0 2px 8px #352d3908}
+.detailCard .tableWrap table{min-width:0;table-layout:auto}
+.detailCard .tableWrap td,.detailCard .tableWrap th{white-space:normal;overflow-wrap:anywhere;padding:12px;font-size:13px}
+.detailCard .tableWrap small,.detailCard .tableWrap time{white-space:normal}
+.flowCard,.flowDone{gap:8px}
+.flowCard button,.flowDone button{width:100%;margin-top:0;min-height:38px}
+.detailCard:has(#musteri){scroll-margin-top:160px;background:#fcfaff}
+.detailCard:has(#musteri)>p{padding:12px 14px;border:1px solid #e9e1ee;border-radius:7px;background:#fff;overflow-wrap:anywhere}
+#musteri{scroll-margin-top:160px}
+@media(max-width:800px){.detailCard .tableWrap{overflow-x:auto}.detailCard .tableWrap table{min-width:520px}.page .headerActions{justify-content:flex-start}}

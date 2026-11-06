@@ -359,7 +359,7 @@ export default function OrderDetail() {
                   <strong>Kargoya Ver</strong>
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
                   <p>{data.fulfillment?.tracking_number ? `Takip kodu: ${data.fulfillment.tracking_number}` : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.tracking_number && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo kaydı açılıyor…" : "Kargo kaydını hazırla"}</button>}
+                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && !data.fulfillment.shipment_status && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
                   {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Doğrula / Yeniden Gönder'}</button>}
                   {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
                   {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
@@ -382,7 +382,7 @@ export default function OrderDetail() {
               </div>
             </section>
             <section className={styles.detailCard}>
-              <div className={styles.cardHeader}><h2>Müşteri ve teslimat</h2><span>Müşteri bilgileri</span></div>
+              <div id="musteri" className={styles.cardHeader}><h2>Müşteri Ve Teslimat</h2><span>Müşteri Kartı</span></div>
               <p>
                 {data.contact_name ??
                   data.address?.recipient_name ??
