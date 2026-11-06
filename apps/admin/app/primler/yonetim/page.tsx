@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AdminNav } from '../../components/admin-nav';
+import { MetricChart } from '../../components/metric-chart';
 import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
 import styles from './prim.module.css';
@@ -42,6 +43,7 @@ export default function ManagementCommissionPage(){
   {!data.canManage&&<div className={styles.notice}>Bu Ekranda Yetkiniz Kapsamındaki Hakedişler Gösterilir. Ürün, Kanal Ve Paylaşım Ayarlarını Yetkili Ana Hesap Düzenler.</div>}
   {message&&<div className={styles.notice} role="status">{message}</div>}
   <div className={styles.summary}><article><span>Seçilen Dönem Net Hakediş</span><strong>{money(net)}</strong></article><article><span>Ödendi Olarak Kaydedilen</span><strong>{money(paid)}</strong></article><article><span>Ödenmemiş Net Bakiye</span><strong>{money(net-paid)}</strong></article><article><label>Hakediş Ayı<input aria-label="Hakediş Ayı" type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label><button type="button" onClick={()=>setMonth('')}>Tüm Dönemler</button><button type="button" disabled={loading||!!busy||!entries.length} onClick={exportReport}>Excel&apos;e Aktar</button></article></div>
+  <div className="analytics-grid"><MetricChart title="Kanal Bazında Net Hakediş" description="Seçili Dönem · Yalnız Erişim Yetkiniz Olan TL Hakedişleri · Ters Kayıtlar Dahil" currency="TRY" data={channels.map(([key,label])=>({label:label.split(' (')[0],value:entries.filter(row=>row.currency==='TRY'&&row.staff_channel_group===key).reduce((sum,row)=>sum+Number(row.amount),0)}))}/><MetricChart title="Hakediş Durumları" description="Seçili Dönem · Erişim Yetkiniz Olan Hakediş Kayıtlarının Adedi" variant="ring" data={Object.entries(entries.reduce<Record<string,number>>((map,row)=>{const key=labels[row.status]??row.status;map[key]=(map[key]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div>
   {data?.canManage&&<>
    <form className={styles.card} onSubmit={(e:FormEvent)=>{e.preventDefault();void save('channel-pools/settings',people);}}><h2>Prim Paylaşım Ayarları</h2><div className={styles.grid}>
     <label>Yönetici Paylaşım Sayısı<input required type="number" min="1" max="100" value={people.executiveCount} onChange={e=>setPeople(p=>({...p,executiveCount:Number(e.target.value)}))}/></label>

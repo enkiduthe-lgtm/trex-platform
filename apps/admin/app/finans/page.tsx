@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { MetricChart } from '../components/metric-chart';
 import { downloadXlsx } from "../lib/xlsx";
 type Account = {
   id: string;
@@ -50,6 +51,7 @@ const kinds: Record<string, string> = {
   TRANSFER_OUT: "Transfer çıkış",
 };
 export default function Finance() {
+  const [chartCurrency,setChartCurrency]=useState('TRY');
   const [accounts, setAccounts] = useState<Account[]>([]),
     [transactions, setTransactions] = useState<Transaction[]>([]),
     [dashboard, setDashboard] = useState<Dashboard | null>(null),
@@ -226,6 +228,8 @@ export default function Finance() {
             </article>
           </div>
         )}
+        <div className="chart-controls"><label>Grafik Para Birimi<select value={chartCurrency} onChange={e=>setChartCurrency(e.target.value)}>{[...new Set(['TRY',...accounts.map(row=>row.currency)])].map(c=><option key={c} value={c}>{c}</option>)}</select></label></div>
+        <div className="analytics-grid"><MetricChart title="Hesap Bakiyeleri" description="Tüm Dönemler · Bakiye Büyüklüğüne Göre İlk 8 Hesap" currency={chartCurrency} data={accounts.filter(row=>row.currency===chartCurrency).sort((a,b)=>Math.abs(Number(b.balance))-Math.abs(Number(a.balance))).slice(0,8).map(row=>({label:row.name,value:Number(row.balance)}))}/><MetricChart title="Para Hareketlerinin Dağılımı" description="Seçili Para Birimi · Tarih Ve Hesap Filtresindeki İşlem Adetleri" variant="ring" data={Object.entries(shownTransactions.filter(row=>row.currency===chartCurrency).reduce<Record<string,number>>((map,row)=>{const key=kinds[row.kind]??row.kind;map[key]=(map[key]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div>
         <div className="split">
           <form className="form-card" onSubmit={addAccount}>
             <h2>{editingAccount?'Para hesabını düzenle':'Yeni hesap'}</h2>
