@@ -185,12 +185,17 @@ function OrdersContent() {
       setPendingAction(null);
     }
   }
-  async function prepareOrder(order: Order, stage: 'prepare' | 'pack' | 'ship' = 'prepare') {
+  async function prepareOrder(order: Order, stage: 'prepare' | 'pack' | 'ship' | 'verify' = 'prepare') {
     if (actionLock.current) return;
     actionLock.current = true;
     setPendingAction(order.id);
     setMessage('');
     try {
+      if(stage==='verify') {
+        const result=await api<{found:boolean;integrationCode:string;packageBarcode:string;checkedAt:string}>(`/admin/orders/${order.id}/shipment/verify`,{method:'POST'});
+        setMessage(`${order.order_number}: ${result.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'} Entegrasyon Kodu: ${result.integrationCode} · Paket Barkodu: ${result.packageBarcode} · Kontrol: ${new Date(result.checkedAt).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}. Yeni Gönderim Yapılmadı.`);
+        return;
+      }
       if (stage === 'pack') {
         const detail = await api<{ fulfillment: { picking_id: string; picking_status: string } | null }>(`/admin/orders/${order.id}`);
         if (!detail.fulfillment || detail.fulfillment.picking_status !== 'COMPLETED') throw new Error('Önce Sipariş Ürünlerini Hazırlayın.');
@@ -490,7 +495,7 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
-                      {canPrepare && order.status === 'PROCESSING' && order.shipment_status === 'CREATED' && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>{pendingAction === order.id ? 'Aras Kaydı Kontrol Ediliyor…' : 'Aras Kaydını Doğrula / Yeniden Gönder'}</button>}
+                      {canPrepare && order.shipping_provider === 'aras' && order.shipment_status && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'verify')}>{pendingAction === order.id ? 'Aras Sorgulanıyor…' : 'Yalnız Aras Kaydını Sorgula'}</button>}
                       {order.status === 'PROCESSING' && ['IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Kargo Kaydı / Takip</span></Link>}
                       {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
