@@ -66,8 +66,11 @@ export class ShippingService {
     return {id:changed.id,status:changed.status};
   }
   async create(orderId: string, userId?: string) {
-    const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null }>('SELECT id,status,tracking_number FROM shipments WHERE order_id=$1', [orderId]);
-    if (existing.rows[0]?.status === 'CREATED') return { shipmentId: existing.rows[0].id, trackingNumber: existing.rows[0].tracking_number, replayed: true };
+    const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null;provider:string;provider_reference:string;package_barcode:string|null;order_number:string }>("SELECT s.id,s.status,s.tracking_number,s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1", [orderId]);
+    if (existing.rows[0]?.status === 'CREATED') {
+      const row=existing.rows[0];
+      if(row.provider!=='aras'||await this.aras.verifyRegisteredShipment(row.provider_reference,row.package_barcode))return {shipmentId:row.id,trackingNumber:row.tracking_number===row.order_number?null:row.tracking_number,replayed:true};
+    }
     const order = await this.db.query<{ id: string; order_number:string; total_amount:string; currency:string; payment_provider:string }>("SELECT o.id,o.order_number,o.total_amount,o.currency,(SELECT p.provider FROM payments p WHERE p.checkout_id=o.checkout_id ORDER BY p.created_at DESC LIMIT 1) AS payment_provider FROM orders o WHERE o.id=$1 AND o.status='PROCESSING'", [orderId]); if (!order.rows[0]) throw new NotFoundException('Kargolanabilir sipariş bulunamadı. Sipariş önce paketleme adımını tamamlamalıdır.');
     const address = await this.db.query<Address>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [orderId]); if (!address.rows[0]) throw new ConflictException('Sipariş teslimat adresi bulunamadı');
     const packed = await this.db.query<{ package_barcode: string | null }>(`SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1`, [orderId]);

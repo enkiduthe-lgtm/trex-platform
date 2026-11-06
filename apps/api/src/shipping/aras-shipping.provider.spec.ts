@@ -1,31 +1,13 @@
-import { ArasShippingProvider } from './aras-shipping.provider';
-
-describe('ArasShippingProvider', () => {
-  const environment = process.env;
-  const fetchMock = jest.fn();
-
-  beforeEach(() => {
-    process.env = {
-      ...environment,
-      ARAS_CUSTOMER_CODE: 'customer',
-      ARAS_SET_ORDER_USERNAME: 'user',
-      ARAS_SET_ORDER_PASSWORD: 'secret',
-      ARAS_SET_ORDER_ENDPOINT: 'https://aras.example.test/service.asmx',
-    };
-    global.fetch = fetchMock as unknown as typeof fetch;
-  });
-
-  afterEach(() => {
-    process.env = environment;
-    jest.resetAllMocks();
-  });
-
-  it('sends the documented SetOrder payload and returns a successful shipment', async () => {
-    fetchMock.mockResolvedValue({ ok: true, text: async () => '<ResultCode>0</ResultCode><ResultMessage>Başarılı</ResultMessage><CargoKey>ARAS123</CargoKey>' });
-    const result = await new ArasShippingProvider().createShipment({ orderId: 'order-id', orderNumber: '20260001', recipientName: 'Ada Çay', phone: '+90 538 040 20 84', city: 'İstanbul', district: 'Beykoz', addressLine: 'Çay Sokak 1' });
-
-    expect(result).toMatchObject({ reference: 'ORDERID', trackingNumber: 'ARAS123' });
-    expect(fetchMock.mock.calls[0][1].body).toContain('<IntegrationCode>ORDERID</IntegrationCode>');
-    expect(fetchMock.mock.calls[0][1].body).toContain('<ReceiverPhone1>5380402084</ReceiverPhone1>');
-  });
+import {ArasShippingProvider} from './aras-shipping.provider';
+describe('Aras registration verification',()=>{
+ const saved=process.env;const mock=jest.fn();
+ const input={orderId:'abc-def',orderNumber:'2026-1',recipientName:'Test',phone:'05000000000',city:'BURSA',district:'NİLÜFER',addressLine:'Test',packageBarcode:'PKG-1'};
+ const success='<s:Envelope><s:Body><SetOrderResponse><SetOrderResult><OrderResultInfo><ResultCode>0</ResultCode><ResultMessage>OK</ResultMessage></OrderResultInfo></SetOrderResult></SetOrderResponse></s:Body></s:Envelope>';
+ const found=(ref='ABCDEF',barcode='PKG-1')=>`<s:Envelope><s:Body><GetOrderWithIntegrationCodeResponse><GetOrderWithIntegrationCodeResult><Order><IntegrationCode>${ref}</IntegrationCode><PieceDetails><PieceDetail><BarcodeNumber>${barcode}</BarcodeNumber></PieceDetail></PieceDetails></Order></GetOrderWithIntegrationCodeResult></GetOrderWithIntegrationCodeResponse></s:Body></s:Envelope>`;
+ const reply=(xml:string)=>({ok:true,text:async()=>xml});
+ beforeEach(()=>{process.env={...saved,ARAS_CUSTOMER_CODE:'c',ARAS_SET_ORDER_USERNAME:'u',ARAS_SET_ORDER_PASSWORD:'s',ARAS_SET_ORDER_ENDPOINT:'https://test.invalid'};global.fetch=mock as never;});afterEach(()=>{process.env=saved;mock.mockReset();});
+ it('requires a matching remote order and barcode and never fabricates tracking',async()=>{mock.mockResolvedValueOnce(reply(success)).mockResolvedValueOnce(reply(found()));await expect(new ArasShippingProvider().createShipment(input)).resolves.toMatchObject({reference:'ABCDEF',trackingNumber:null,payload:{registrationVerified:true}});expect(mock.mock.calls[1][1].headers.SOAPAction).toContain('GetOrderWithIntegrationCode');});
+ it.each([found('OTHER'),found('ABCDEF','WRONG')])('rejects mismatched remote data',async xml=>{mock.mockResolvedValueOnce(reply(success)).mockResolvedValueOnce(reply(xml));await expect(new ArasShippingProvider().createShipment(input)).rejects.toThrow('Eşleşmiyor');});
+ it('rejects a success code outside the SetOrder response',async()=>{mock.mockResolvedValueOnce(reply('<ResultCode>0</ResultCode>'));await expect(new ArasShippingProvider().createShipment(input)).rejects.toThrow('Geçersiz');expect(mock).toHaveBeenCalledTimes(1);});
+ it('does not report success when the remote result is empty',async()=>{mock.mockResolvedValueOnce(reply(success)).mockResolvedValueOnce(reply('<s:Envelope><s:Body><GetOrderWithIntegrationCodeResponse><GetOrderWithIntegrationCodeResult/></GetOrderWithIntegrationCodeResponse></s:Body></s:Envelope>'));await expect(new ArasShippingProvider().createShipment(input)).rejects.toThrow('Bulunamadı');});
 });

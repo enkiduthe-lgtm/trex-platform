@@ -8,6 +8,13 @@ describe('ShippingService', () => {
     expect(provider.createShipment).not.toHaveBeenCalled();
   });
 
+  it('verifies an existing Aras record before replay and never returns placeholder tracking',async()=>{
+    const db={query:jest.fn().mockResolvedValue({rows:[{id:'shipment',status:'CREATED',provider:'aras',provider_reference:'REF',package_barcode:'PKG',order_number:'ORDER',tracking_number:'ORDER'}]})};
+    const aras={verifyRegisteredShipment:jest.fn().mockResolvedValue(true),createShipment:jest.fn()};
+    await expect(new ShippingService(db as never,{} as never,aras as never).create('order')).resolves.toMatchObject({replayed:true,trackingNumber:null});
+    expect(aras.verifyRegisteredShipment).toHaveBeenCalledWith('REF','PKG');expect(aras.createShipment).not.toHaveBeenCalled();
+  });
+
   it('lists only packed orders without an existing shipment in the shipment queue', async () => {
     const db={query:jest.fn().mockResolvedValue({rows:[{order_id:'order',order_number:'2026-0001'}]})};
     const service=new ShippingService(db as never,{} as never,{} as never);
