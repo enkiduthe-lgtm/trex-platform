@@ -1105,7 +1105,7 @@ export default function Products() {
                     <td>
                       <Link className={styles.stockLink} href="/stok">
                         ▦ {product.available_quantity ?? 0} adet
-                        <small>Kalan stok · depo ve lot bilgisi</small>
+                        <small>Genel Stok · Stok Hareketleri</small>
                       </Link>
                     </td>
                     <td>

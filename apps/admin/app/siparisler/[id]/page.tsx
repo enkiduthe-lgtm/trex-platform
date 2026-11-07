@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { DealerLevelBadge } from "../../components/dealer-level-badge";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
+import { nextPreparationAction } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
+const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,shipment_status:order.fulfillment?.shipment_status,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
 const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
 
 type Detail = {
+  customer_id?: string | null;
+  dealer_id?: string | null; dealer_name?: string | null; dealer_level_name?: string | null;
   order_number: string;
   sales_channel: string;
   status: string;
@@ -367,13 +372,13 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>1</span>
                   <strong>Hazırla</strong>
                   <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
-                  {canEdit && ["PAID","PROCESSING"].includes(data.status) && data.fulfillment?.picking_status !== 'COMPLETED' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
+                  {canEdit && preparationAction(data) === 'prepare' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
                 </li>
                 <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>2</span>
                   <strong>Paketle Ve Barkod Oluştur</strong>
                   <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
-                  {canEdit && ['PAID','PROCESSING'].includes(data.status) && data.fulfillment?.picking_status === 'COMPLETED' && !data.fulfillment?.packed_at && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
+                  {canEdit && preparationAction(data) === 'pack' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
                   {!data.fulfillment?.packed_at && data.fulfillment?.picking_status!=='COMPLETED' && <button type="button" disabled>Önce Ürünleri Hazırlayın</button>}
                   {data.fulfillment?.package_barcode && <details><summary>Paket İç Etiketi</summary><button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Paket İç Etiketini Yazdır</button></details>}
                 </li>
@@ -383,7 +388,7 @@ export default function OrderDetail() {
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
                   <p>{data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Henüz Takip Numarası Yok; Bu Durum Fiziksel Teslimi Doğrulamaz.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
                   {canEdit && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.packed_at && (!data.fulfillment.shipment_status || data.fulfillment.shipment_status === "FAILED") && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
+                  {canEdit && preparationAction(data) === 'ship' && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
                   {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
                   {arasCheck?.found && arasCheck.orderNumber===data.order_number && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
                   {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
@@ -409,7 +414,9 @@ export default function OrderDetail() {
               </div>
             </section>
             <section className={styles.detailCard}>
+              {data.dealer_id && <div className={styles.cardActions}><strong>Siparişi Veren Bayi: {data.dealer_name || 'Bayi'}</strong><DealerLevelBadge name={data.dealer_level_name}/>{canEdit && <Link className={styles.secondaryAction} href={`/bayiler/${data.dealer_id}`}>Bayi Kartını Aç</Link>}</div>}
               <div id="musteri" className={styles.cardHeader}><h2>Müşteri Ve Teslimat</h2><span>Müşteri Kartı</span></div>
+              {canEdit && data.customer_id && <div className={styles.cardActions}><Link className={styles.secondaryAction} href={`/musteriler?customer=${encodeURIComponent(data.customer_id)}`}>Müşteri Kartı Ve Geçmiş Siparişleri Aç</Link></div>}
               <div className={styles.tableWrap}><table><thead><tr><th>Müşteri</th><th>E-Posta</th><th>Alıcı</th><th>Telefon</th><th>Teslimat Adresi</th></tr></thead><tbody><tr>
                 <td>{data.contact_name ?? data.address?.recipient_name ?? 'Belirtilmedi'}</td>
                 <td>{data.customer_email ?? 'Belirtilmedi'}</td>

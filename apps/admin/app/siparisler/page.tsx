@@ -12,6 +12,9 @@ import {
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { orderQueueStatus, nextPreparationAction } from "../lib/order-queue";
+import { currencyTotals } from "../lib/report-totals";
+import { financeDate } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
 import styles from "./orders.module.css";
 
@@ -33,9 +36,9 @@ type Order = {
   preparation_status?: string | null; packed_at?: string | null;
 };
 type OrderNote = { id: string; admin_note: string | null };
-// A registered shipment belongs in the shipping queue while Aras confirms transit.
-const queueStatus = (order: Order) => order.status === 'PROCESSING' && ['CREATED','IN_TRANSIT'].includes(order.shipment_status ?? '') ? 'SHIPPED' : order.status;
-const displayStatus = (order: Order) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[order.status] ?? order.status;
+// Carrier registration does not imply physical dispatch.
+const queueStatus = orderQueueStatus;
+const displayStatus = (order: Order) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[queueStatus(order)] ?? order.status;
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
   PAID: "Onaylandı",
@@ -58,7 +61,9 @@ const date = (value: string) =>
   });
 const tabs = [
   { value: "PENDING_PAYMENT", label: "Onay bekleyenler" },
+  { value: "PAID", label: "Onaylananlar" },
   { value: "PROCESSING", label: "Hazırlananlar" },
+  { value: "REGISTERED", label: "Kargo Kaydı Hazır" },
   { value: "SHIPPED", label: "Kargolananlar" },
   { value: "DELIVERED", label: "Teslim edilenler" },
   { value: "REFUNDED", label: "İade Edilenler" },
@@ -100,6 +105,10 @@ function OrdersContent() {
       .catch(() => setCanCreate(false));
   }, []);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [hasOlder,setHasOlder]=useState(false);
+  const [loadingOlder,setLoadingOlder]=useState(false);
+  const olderLock=useRef(false);
+  const listGeneration=useRef(0);
   const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
   const [savingNote, setSavingNote] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -112,27 +121,40 @@ function OrdersContent() {
   useEffect(() => {
     const requestedStatus = searchParams.get("durum");
     setStatusFilter(
-      requestedStatus && requestedStatus in statusText
+      requestedStatus && tabs.some(tab => tab.value === requestedStatus)
         ? requestedStatus
         : "ALL",
     );
     setSelected([]);
   }, [searchParams]);
-  const load = () =>
-    Promise.all([api<Order[]>("/admin/orders"), api<OrderNote[]>("/admin/orders/notes")])
+  const load = () => {
+    listGeneration.current += 1;
+    return Promise.all([api<Order[]>("/admin/orders"), api<OrderNote[]>("/admin/orders/notes")])
       .then(([loadedOrders, loadedNotes]) => {
         setOrders(loadedOrders);
+        setHasOlder(loadedOrders.length === 100);
         setOrderNotes(Object.fromEntries(loadedNotes.map((item) => [item.id, item.admin_note ?? ""])));
       })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi"),
       );
+  };
   useEffect(() => {
     void load();
   }, []);
-  const visible = useMemo(
-    () =>
-      orders.filter((order) => {
+  async function loadOlder() {
+    if(olderLock.current || !orders.length)return;
+    olderLock.current=true;setLoadingOlder(true);
+    const generation=listGeneration.current;
+    try {
+      const rows=await api<Order[]>(`/admin/orders?before=${encodeURIComponent(orders[orders.length-1].id)}`);
+      if(generation !== listGeneration.current)return;
+      setOrders(current=>{const ids=new Set(current.map(order=>order.id));return [...current,...rows.filter(order=>!ids.has(order.id))];});
+      setHasOlder(rows.length===100);
+    }catch(e){setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
+    finally{olderLock.current=false;setLoadingOlder(false);}
+  }
+  const filterOrders = useMemo(() => (order: Order) => {
         const text = [
           order.order_number,
           order.customer_name,
@@ -145,13 +167,12 @@ function OrdersContent() {
           .toLocaleLowerCase("tr-TR");
         return (
           (statusFilter === "ALL" || queueStatus(order) === statusFilter) &&
-          (!dateFrom || order.created_at.slice(0, 10) >= dateFrom) &&
-          (!dateTo || order.created_at.slice(0, 10) <= dateTo) &&
+          (!dateFrom || financeDate(order.created_at) >= dateFrom) &&
+          (!dateTo || financeDate(order.created_at) <= dateTo) &&
           text.includes(query.toLocaleLowerCase("tr-TR"))
         );
-      }),
-    [orders, query, statusFilter, dateFrom, dateTo],
-  );
+  }, [query, statusFilter, dateFrom, dateTo]);
+  const visible = useMemo(() => orders.filter(filterOrders), [orders, filterOrders]);
   const countFor = (status: string) =>
     status === "ALL" ? orders.length : orders.filter((order) => queueStatus(order) === status).length;
   const toggle = (id: string) =>
@@ -224,11 +245,29 @@ function OrdersContent() {
       setMessage(error instanceof Error ? error.message : "Sipariş açıklaması kaydedilemedi");
     } finally { setSavingNote(null); }
   }
-  function exportOrders() {
-    const source = selected.length
-      ? visible.filter((order) => selected.includes(order.id))
-      : visible;
-    const total = source.reduce((sum, order) => sum + Number(order.total_amount), 0);
+  const [exporting, setExporting] = useState(false);
+  async function exportOrders() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const source = selected.length ? visible.filter(order => selected.includes(order.id)) : [...visible];
+      if (!selected.length && hasOlder) {
+        const seen = new Set(orders.map(order => order.id));
+        let cursor = orders[orders.length - 1]?.id;
+        while (cursor) {
+          const page = await api<Order[]>('/admin/orders?before=' + encodeURIComponent(cursor));
+          const fresh = page.filter(order => !seen.has(order.id));
+          if (page.length && !fresh.length) throw new Error('Sipariş Geçmişi Okunamadı. Listeyi Yenileyip Tekrar Deneyin.');
+          for (const order of fresh) {
+            seen.add(order.id);
+            if (filterOrders(order)) source.push(order);
+          }
+          if (page.length < 100) break;
+          cursor = page[page.length - 1].id;
+        }
+      }
+      if (!source.length) { setMessage('Seçilen Filtrelerde Sipariş Bulunamadı.'); return; }
+    const totals = currencyTotals(source.map(order => ({ currency: order.currency, amount: order.total_amount })));
     const rows = [
       ["Satış Kanalı", "Sipariş No", "Müşteri", "Tutar", "Para Birimi", "Durum", "Kargo", "Tarih"],
       ...source.map((order) => [
@@ -241,9 +280,12 @@ function OrdersContent() {
         order.shipping_provider ?? "",
         new Date(order.created_at).toLocaleString("tr-TR"),
       ]),
-      ["", "", "", total.toFixed(2), "Toplam", "", "", ""],
+      ...totals.map(total => ["", "", "Toplam", total.amount, total.currency, "", "", ""]),
     ];
     downloadXlsx("trex-siparisler.xlsx", "Siparişler", rows);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sipariş Raporu Hazırlanamadı.");
+    } finally { setExporting(false); }
   }
   return (
     <main>
@@ -305,8 +347,8 @@ function OrdersContent() {
             />
           </label>
           <div className={styles.bulk}>
-            <button type="button" disabled={!visible.length} onClick={exportOrders}>
-              Excel&apos;e Aktar{selected.length ? ` (${selected.length})` : ""}
+            <button type="button" disabled={exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
+              {exporting ? "Rapor Hazırlanıyor…" : "Excel’e Aktar"}{selected.length ? ` (${selected.length})` : ""}
             </button>
             {selected.length > 0 && (
               <>
@@ -426,7 +468,7 @@ function OrdersContent() {
                   </td>
                   <td>
                     <b>{order.shipping_provider ?? "Kargo bekliyor"}</b>
-                    <small>{order.tracking_number ?? (order.status === "PROCESSING" ? "Paketleme sonrası oluşur" : order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"))}</small>
+                    <small>{order.tracking_number ?? (order.shipment_status === "CREATED" ? "Şube Kabulü / Takip Bekleniyor" : order.status === "PROCESSING" ? "Paketleme Sonrası Oluşur" : order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"))}</small>
                   </td>
                   <td>
                     <time>{date(order.created_at)}</time>
@@ -484,20 +526,20 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Havale eşleştir</span>
                         </Link>
                       )}
-                      {canPrepare && ["PAID","PROCESSING"].includes(order.status) && !order.packed_at && !["CREATED","IN_TRANSIT","DELIVERED"].includes(order.shipment_status??"") && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
-                      {canPrepare && order.status === "PROCESSING" && Boolean(order.packed_at) && !['CREATED','IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && (
+                      {canPrepare && ["prepare","pack"].includes(nextPreparationAction(order) ?? "") && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
+                      {canPrepare && nextPreparationAction(order) === 'ship' && (
                         <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>
                           <OrderIcon name="check" /><span>Kargo Kaydını Hazırla</span>
                         </button>
                       )}
-                      {order.status === "SHIPPED" && (
+                      {queueStatus(order) === "SHIPPED" && (
                         <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}>
                           <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
                       {canPrepare && order.shipping_provider === 'aras' && order.shipment_status && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'verify')}>{pendingAction === order.id ? 'Aras Sorgulanıyor…' : 'Yalnız Aras Kaydını Sorgula'}</button>}
-                      {order.status === 'PROCESSING' && ['IN_TRANSIT','DELIVERED'].includes(order.shipment_status ?? '') && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Kargo Kaydı / Takip</span></Link>}
-                      {order.status === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
+                      {queueStatus(order) === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
+                      {order.status === "REFUNDED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İade Detayı</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
                   </td>
@@ -525,9 +567,10 @@ function OrdersContent() {
           )}
         </div>
         <p className={styles.count}>
-          {visible.length} sipariş gösteriliyor · Finans onayı gereken
+          {visible.length} Sipariş Gösteriliyor · {orders.length} Kayıt Yüklendi. {hasOlder && "Filtreler Yüklenen Kayıtlarda Uygulanır; Daha Eski Kayıtları Aşağıdan Yükleyebilirsiniz."} Finans onayı gereken
           siparişler doğrudan ödeme onayı akışına yönlendirilir.
         </p>
+        {hasOlder && <button type="button" className={styles.approveLink} disabled={loadingOlder || pendingAction !== null} onClick={()=>void loadOlder()}>{loadingOlder ? "Yükleniyor…" : "Daha Eski Siparişleri Yükle"}</button>}
       </section>
     </main>
   );

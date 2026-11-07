@@ -1082,3 +1082,17 @@ main>section th{font-weight:650;color:#45334f;background:#f5f1f8}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #78528f;outline-offset:3px}
 @media(max-width:760px){body{font-size:14px}.header-subnav>div{flex-wrap:nowrap;overflow-x:auto;max-width:100%}.header-subnav a{flex:0 0 auto}.nav-dropdown{max-width:calc(100vw - 24px)}main>section :is(.form-card,.table-card,.report-card){padding:12px}}
 .analytics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;width:100%;margin:20px 0;align-items:stretch}.analytics-grid>section{height:100%}.chart-controls{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin:14px 0 10px}.chart-controls label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#63516e}.chart-controls select{width:auto!important;min-width:95px!important;min-height:34px!important;padding:6px 10px!important;background:#fff;border:1px solid #ddd3e5;border-radius:7px}.modern-graph{min-width:0}.modern-graph .chart-controls{margin-top:0}.modern-graph>section{height:auto}@media(max-width:1000px){.analytics-grid{grid-template-columns:1fr}}@media(max-width:650px){.chart-controls{justify-content:flex-start}.analytics-grid{gap:12px;margin:14px 0}}
+/* Compact menus stay attached to their anchor and within the viewport. */
+.admin-header .nav-dropdown{min-width:0;padding:7px;gap:6px;border-radius:9px;overflow-y:auto;overscroll-behavior:contain;z-index:80}
+.admin-header .nav-menu:not([data-open=true]) .nav-dropdown{display:none}
+.admin-header .nav-menu[data-open=true] .nav-dropdown{display:grid}
+.admin-header .nav-dropdown section{min-width:0;padding:4px}
+.admin-header .nav-dropdown h3{font-size:11px;letter-spacing:.02em;margin:0 0 6px;padding-bottom:5px}
+.admin-header .nav-dropdown a{min-height:30px;margin:3px 0;padding:6px 8px;font-size:12px;border-radius:5px;line-height:1.35;white-space:normal;overflow-wrap:anywhere}
+@media(pointer:coarse){.admin-header .nav-dropdown a{min-height:42px}}
+
+/* Compact, visible navigation actions and actual dealer level labels. */
+.admin-header .nav-dropdown a{background:#f1e8f8;border-color:#d3bee2;color:#382448;font-weight:650}
+.admin-header .nav-dropdown a:hover,.admin-header .nav-dropdown a:focus-visible{background:#dfc9ef;border-color:#8c57ae;color:#281336;outline-offset:2px}
+.dealer-level-badge{display:inline-flex;align-items:center;gap:9px;padding:9px 12px;margin:4px 0 8px;border:1px solid #b8cde5;border-radius:9px;background:#edf5ff;color:#21466b;max-width:100%}
+.dealer-level-badge>span{display:grid;gap:3px;min-width:0}.dealer-level-badge small{font-size:11px}.dealer-level-badge strong{white-space:normal;overflow-wrap:anywhere}.dealer-level-badge svg{flex-shrink:0}

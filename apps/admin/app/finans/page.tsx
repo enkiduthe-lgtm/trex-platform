@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { MetricChart } from '../components/metric-chart';
+import { currencyTotals } from "../lib/report-totals";
 import { downloadXlsx } from "../lib/xlsx";
 type Account = {
   id: string;
@@ -185,7 +186,7 @@ export default function Finance() {
         t.counterparty_name ?? "",
         t.description,
       ]),
-      ["", "", "", "Toplam", shownTransactions.reduce((sum, transaction) => sum + Number(transaction.amount), 0).toFixed(2), "", ""],
+      ...currencyTotals(shownTransactions).map(total => ["", "", total.currency, "Toplam", total.amount, "", ""]),
     ];
     downloadXlsx("trex-finans-hareketleri.xlsx", "Para Hareketleri", rows);
   }

@@ -60,10 +60,19 @@ export default function Customers() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const notesGate = useRef(createRequestGate());
+  const linkedCustomerOpened=useRef(false);
   const saveLock = useRef(createActionLock());
   const load = () =>
     Promise.all([api<Customer[]>("/admin/customers"), api<CustomerTag[]>("/admin/customers/tags")])
-      .then(([data, availableTags]) => { setRows(data); setTags(availableTags); setSelected(current => current ? data.find(customer => customer.id === current.id) ?? current : null); })
+      .then(([data, availableTags]) => { setRows(data); setTags(availableTags);
+        const requestedId=new URLSearchParams(window.location.search).get('customer');
+        if(requestedId && !linkedCustomerOpened.current){
+          linkedCustomerOpened.current=true;
+          const customer=data.find(item=>item.id===requestedId);
+          if(customer)void open(customer);
+          else setMessage('İstenen Müşteri Kartı Bulunamadı Veya Bu Hesapla Görüntülenemiyor.');
+        }
+        setSelected(current => current ? data.find(customer => customer.id === current.id) ?? current : null); })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "Müşteriler yüklenemedi."),
       );
