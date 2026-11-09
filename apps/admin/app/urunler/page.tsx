@@ -299,20 +299,23 @@ export default function Products() {
     try {
       const current = await api<{ user: { role: string } }>("/auth/me");
       const owner = current.user.role === "SUPER_ADMIN";
-      const [a, b, g, c, d] = await Promise.all([
-        api<Product[]>("/admin/products"),
-        api<Level[]>("/admin/dealers/levels"),
-        Promise.resolve([] as PriceGroup[]),
-        api<Price[]>("/admin/prices"),
-        owner ? api<Cost[]>("/admin/product-costs") : Promise.resolve([] as Cost[]),
+      const [productRows, levelRows, priceRows, costRows] = await Promise.allSettled([
+        api<Product[]>('/admin/products'),
+        api<Level[]>('/admin/dealers/levels'),
+        api<Price[]>('/admin/prices'),
+        owner ? api<Cost[]>('/admin/product-costs') : Promise.resolve([] as Cost[]),
       ]);
+      if (productRows.status === 'rejected') throw productRows.reason;
       setRole(current.user.role);
-        setProducts(a);
-        setFailedImages({});
-        setLevels(b);
-        setPriceGroups(g);
-        setPrices(c);
-        setCosts(d);
+      setProducts(productRows.value);
+      setFailedImages({});
+      setLevels(levelRows.status === 'fulfilled' ? levelRows.value : []);
+      setPriceGroups([]);
+      setPrices(priceRows.status === 'fulfilled' ? priceRows.value : []);
+      setCosts(costRows.status === 'fulfilled' ? costRows.value : []);
+      const unavailable = [levelRows, priceRows, costRows].flatMap((result, index) =>
+        result.status === 'rejected' ? [['Bayi Seviyeleri', 'Fiyat Bilgileri', 'Maliyet Bilgileri'][index]] : []);
+      if (unavailable.length) setMessage(unavailable.join(', ') + ' Yüklenemedi. Yetkinizi Ve Bağlantınızı Kontrol Edin.');
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Ürünler yüklenemedi");
     }
