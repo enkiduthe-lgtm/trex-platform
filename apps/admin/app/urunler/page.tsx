@@ -42,8 +42,8 @@ type Cost = {
   unit_cost: string;
   supplier_name: string | null;
 };
-const money = (value: string) =>
-  Number(value).toLocaleString("tr-TR", { style: "currency", currency: "TRY" });
+const money = (value: string, currency = "TRY") =>
+  Number(value).toLocaleString("tr-TR", { style: "currency", currency });
 function parseCsvLine(line: string, separator: string) {
   const values: string[] = [];
   let value = "";
@@ -1002,7 +1002,7 @@ export default function Products() {
                   <div><dt>Stok</dt><dd>{detailProduct.available_quantity ?? 0} Adet</dd></div>
                   <div><dt>Durum</dt><dd>{detailProduct.status === "ACTIVE" ? "Yayında" : "Taslak"}</dd></div>
                   <div><dt>Ürün Adı</dt><dd>{detailProduct.name}</dd></div>
-                  <div><dt>Satış Fiyatı</dt><dd>{priceStatus!=='ready'?(priceStatus==='loading'?'Yükleniyor…':'Fiyat Bilgileri Alınamadı'):globalPrice(detailProduct.id) ? money(globalPrice(detailProduct.id)!.amount) : 'Tanımlanmamış'}</dd></div>
+                  <div><dt>Satış Fiyatı</dt><dd>{priceStatus!=='ready'?(priceStatus==='loading'?'Yükleniyor…':'Fiyat Bilgileri Alınamadı'):globalPrice(detailProduct.id) ? money(globalPrice(detailProduct.id)!.amount,globalPrice(detailProduct.id)!.currency) : 'Tanımlanmamış'}</dd></div>
                   <div className={styles.detailWide}><dt>Ürün Bağlantısı</dt><dd>/{detailProduct.slug}</dd></div>
                 </dl>
               </div>
@@ -1012,7 +1012,7 @@ export default function Products() {
               </section>
               <section className={styles.descriptionCard}><h3>Bayi Seviye Fiyatları</h3>{priceStatus==='ready'&&levelsReady?<table><thead><tr><th>Seviye Adı</th><th>Tekli Fiyat</th><th>2’li Toplam</th><th>3’lü Toplam</th><th>5’li Toplam</th></tr></thead><tbody>{levels.map(level => {
                 const currentPrice = effectiveDealerPrice(prices,detailProduct.id,level.id,1);
-                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? money(currentPrice.amount) : 'Tanımlanmamış'}</td>{[2,3,5].map(size=>{const pack=effectiveDealerPrice(prices,detailProduct.id,level.id,size);return <td key={size}>{pack?money(pack.amount):'Tanımlanmamış'}</td>;})}</tr>;
+                return <tr key={level.id}><td>{level.name}</td><td>{currentPrice ? money(currentPrice.amount,currentPrice.currency) : 'Tanımlanmamış'}</td>{[2,3,5].map(size=>{const pack=effectiveDealerPrice(prices,detailProduct.id,level.id,size);return <td key={size}>{pack?money(pack.amount,pack.currency):'Tanımlanmamış'}</td>;})}</tr>;
               })}</tbody></table>:<div><p role="status">{priceStatus==='loading'?'Fiyat Bilgileri Yükleniyor…':'Fiyat Veya Seviye Bilgileri Alınamadı.'}</p><button type="button" disabled={priceStatus==='loading'} onClick={()=>void load()}>Bilgileri Yenile</button></div>}</section>
               <footer>
                 <button type="button" onClick={() => { setEditError(''); setEditing(detailProduct); setDetailProduct(null); }}>Ürünü Düzenle</button>
@@ -1105,7 +1105,7 @@ export default function Products() {
                       </small>
                     </td>
                     <td>
-                      <b>{priceStatus!=='ready'?(priceStatus==='loading'?'Yükleniyor…':'Fiyat Bilgileri Alınamadı'):sale ? money(sale.amount) : 'Fiyat Girilmedi'}</b>
+                      <b>{priceStatus!=='ready'?(priceStatus==='loading'?'Yükleniyor…':'Fiyat Bilgileri Alınamadı'):sale ? money(sale.amount,sale.currency) : 'Fiyat Girilmedi'}</b>
                       <small>
                         {priceStatus==='error'?<button type="button" className={styles.secondaryAction} onClick={()=>void load()}>Fiyatları Yenile</button>:priceStatus==='loading'?'Güncel Fiyatlar Sorgulanıyor':sale?'Site Satış Fiyatı':'Fiyat Menüsünden Ekleyin'}
                       </small>
