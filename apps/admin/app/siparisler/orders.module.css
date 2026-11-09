@@ -55,3 +55,13 @@
 .detailCard .tableWrap td,.detailCard .tableWrap th{font-size:13px;padding:10px 12px;overflow-wrap:anywhere}
 @media(max-width:800px){.detailCard{padding:12px}.detailCard .tableWrap{max-width:100%;overflow-x:auto}.flowGrid{grid-template-columns:1fr}}
 .foldCard{box-shadow:none}.flowCard details,.flowDone details{width:100%}.flowCard summary,.flowDone summary{font-size:12px}
+
+.tableWrap table { border-collapse:separate;border-spacing:0 10px; }
+.tableWrap tbody td { border-top:2px solid #c9bfce;border-bottom:2px solid #c9bfce;background:#fff; }
+.tableWrap tbody td:first-child { border-left:2px solid #c9bfce;border-radius:8px 0 0 8px; }
+.tableWrap tbody td:last-child { border-right:2px solid #c9bfce;border-radius:0 8px 8px 0; }
+.tableWrap tbody tr:hover td { background:#faf7fc; }
+.tableWrap .actions { min-width:210px;grid-template-columns:repeat(2,minmax(100px,1fr));grid-auto-rows:minmax(34px,auto);gap:6px; }
+.tableWrap .actions>a,.tableWrap .actions>button,.printActions a { min-height:34px;padding:6px 8px;font-size:11px; }
+.headerActions { display:flex;flex-wrap:wrap;justify-content:flex-end;width:auto;max-width:100%;gap:6px; }
+.headerActions>a { min-height:34px;padding:6px 10px;font-size:11px; }

@@ -1121,15 +1121,6 @@ export default function Products() {
                     </td>
                     <td>
                       <div className={styles.actions}>
-                        <button
-                          type="button"
-                          className={styles.mediaAction}
-                          onClick={() => setImageProduct(product)}
-                          title="Görsel yükle"
-                        >
-                          <span>🖼</span>
-                          <small>Görsel Yükle</small>
-                        </button>
                         {role === "SUPER_ADMIN" && <button
                           type="button"
                           className={styles.priceAction}
@@ -1145,10 +1136,7 @@ export default function Products() {
                           <span>₺</span>
                           <small>Fiyat Gir/Değiştir</small>
                         </button>}
-                        <button type="button" className={styles.statusAction} onClick={() => void updateProductStatus(product, product.status === "ACTIVE" ? "DRAFT" : "ACTIVE")} title={product.status === "ACTIVE" ? "Ürünü taslağa al" : "Ürünü yayına al"}>
-                          <span>{product.status === "ACTIVE" ? "◌" : "●"}</span>
-                          <small>{product.status === "ACTIVE" ? "Yayından Kaldır" : "Yayına Al"}</small>
-                        </button>
+                        {product.status !== "ACTIVE" && <button type="button" className={styles.statusAction} onClick={() => void updateProductStatus(product, "ACTIVE")} title="Ürünü Yayına Al"><span>●</span><small>Yayına Al</small></button>}
                         <Link className={styles.stockAction} href={`/stok?productId=${product.id}`} title="Bu ürün için stok girişi aç">
                           <span>▦</span><small>Stok Gir</small>
                         </Link>

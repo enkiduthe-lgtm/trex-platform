@@ -36,6 +36,10 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
   // Access tokens are intentionally short-lived. Renew once through the secure
   // refresh-cookie flow so an active panel session does not appear empty.
   if (response.status === 401 && !retried && !['/auth/refresh','/auth/login'].includes(path) && await refreshAccessToken()) return api<T>(path, init, true);
+  if (response.status === 401 && !['/auth/login','/auth/refresh','/auth/logout'].includes(path)) {
+    clearToken();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/giris') window.location.replace('/giris');
+  }
   if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message ?? `İşlem tamamlanamadı (${response.status})`); }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }

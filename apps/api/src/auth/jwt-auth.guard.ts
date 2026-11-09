@@ -12,7 +12,7 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) throw new UnauthorizedException('Bearer token required');
     try {
       const claims = await this.jwt.verifyAsync<JwtClaims>(token);
-      const active = await this.db.query<{ email: string; role: Role }>('SELECT u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.is_active=true', [claims.sid, claims.sub]);
+      const active = await this.db.query<{ email: string; role: Role }>('SELECT u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL AND s.expires_at > now() AND s.created_at > now()-interval \'2 hours\' AND u.is_active=true', [claims.sid, claims.sub]);
       const user = active.rows[0];
       if (!user) throw new UnauthorizedException('Session is invalid or expired');
       request.user = { id: claims.sub, email: user.email, role: user.role, sessionId: claims.sid }; return true;

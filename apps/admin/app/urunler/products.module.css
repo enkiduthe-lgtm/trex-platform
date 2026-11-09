@@ -400,3 +400,9 @@
 .actions a,.actions button { width:100%; min-width:0; height:42px; margin:0; padding:8px 10px; border:1px solid #d3c1dd !important; border-radius:7px; background:#f6f1f9 !important; color:#603276 !important; font-size:12px; line-height:1.2; text-align:center; box-shadow:none; }
 .actions small { font-size:11px; }
 @media (max-width: 760px) { .actions { grid-template-columns:repeat(2,minmax(110px,1fr)); min-width:236px; } .actions a, .actions button { width:100%; } }
+
+.actions { grid-template-columns:repeat(2,minmax(100px,1fr));min-width:210px;gap:6px; }
+.actions a,.actions button { height:34px;padding:6px 8px;font-size:11px;border-radius:6px; }
+.actions small { font-size:11px; }
+
+.page .actions a,.page .actions button,.page .toolbar button { min-height:34px;height:34px;padding:6px 8px;font-size:11px; }
