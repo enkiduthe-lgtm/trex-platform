@@ -71,3 +71,18 @@ test('legacy managers retain matching without gaining collection entry or full h
   assert.equal(result.createTransfer, false);
   assert.equal(result.transferHistory, false);
 });
+
+test('dealer approval and level editing require separate grants', () => {
+  const approve = orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.VIEW', 'DEALERS.APPROVE'] });
+  assert.equal(approve.approveDealer, true);
+  assert.equal(approve.editDealer, false);
+  assert.equal(approve.createDealer, false);
+  const edit = orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.VIEW', 'DEALERS.EDIT'] });
+  assert.equal(edit.editDealer, true);
+  assert.equal(edit.approveDealer, false);
+  assert.equal(edit.createDealer, false);
+});
+test('dealer creation requires both view and create permission', () => {
+  assert.equal(orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.CREATE'] }).createDealer, false);
+  assert.equal(orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.VIEW', 'DEALERS.CREATE'] }).createDealer, true);
+});
