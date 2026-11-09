@@ -1,10 +1,11 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api, apiBaseUrl } from "../lib/api";
 import styles from "./products.module.css";
+import { createActionLock } from '../lib/async-controls';
 import { effectiveDealerPrice } from "../lib/dealer-prices";
 
 type Product = {
@@ -250,6 +251,8 @@ export default function Products() {
     [costs, setCosts] = useState<Cost[]>([]);
   const [role, setRole] = useState("");
   const [message, setMessage] = useState("");
+  const commercialLock=useRef(createActionLock());
+  const [savingCommercial,setSavingCommercial]=useState(false);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [selected, setSelected] = useState<string[]>([]);
@@ -371,6 +374,8 @@ export default function Products() {
   }
   async function savePrice(event: FormEvent) {
     event.preventDefault();
+    if(!commercialLock.current.acquire())return;
+    setSavingCommercial(true);
     try {
       await api("/admin/prices", {
         method: "POST",
@@ -388,17 +393,19 @@ export default function Products() {
               : undefined,
         }),
       });
-      setPrice((data) => ({ ...data, amount: "" }));
+      setPrice((data) => JSON.stringify(data)===JSON.stringify(price) ? { ...data, amount: "" } : data);
       setMessage("TL fiyatı kaydedildi.");
       void load();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Fiyat kaydedilemedi",
       );
-    }
+    } finally { commercialLock.current.release(); setSavingCommercial(false); }
   }
   async function saveCost(event: FormEvent) {
     event.preventDefault();
+    if(!commercialLock.current.acquire())return;
+    setSavingCommercial(true);
     try {
       await api("/admin/product-costs", {
         method: "POST",
@@ -409,14 +416,14 @@ export default function Products() {
           note: cost.note || undefined,
         }),
       });
-      setCost({ productId: "", unitCost: "", supplierName: "", note: "" });
+      setCost(current=>JSON.stringify(current)===JSON.stringify(cost)?{ productId: "", unitCost: "", supplierName: "", note: "" }:current);
       setMessage("Ürün maliyeti kaydedildi.");
       void load();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Maliyet kaydedilemedi",
       );
-    }
+    } finally { commercialLock.current.release(); setSavingCommercial(false); }
   }
   function closeImageDialog() {
     if (uploadingImage) return;
@@ -810,7 +817,7 @@ export default function Products() {
                 />
               </label>
               <footer>
-                <button>Fiyatı kaydet</button>
+                <button disabled={savingCommercial}>{savingCommercial?'Kaydediliyor…':'Fiyatı Kaydet'}</button>
               </footer>
             </form>
             <form className={styles.editor} onSubmit={saveCost}>
@@ -869,7 +876,7 @@ export default function Products() {
                 />
               </label>
               <footer>
-                <button>Maliyeti kaydet</button>
+                <button disabled={savingCommercial}>{savingCommercial?'Kaydediliyor…':'Maliyeti Kaydet'}</button>
               </footer>
             </form>
           </div>
