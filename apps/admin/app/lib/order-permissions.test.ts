@@ -50,3 +50,24 @@ test('manual shipping status and customer cards require their own permissions', 
   assert.equal(result.ship, false);
   assert.equal(result.edit, false);
 });
+
+test('finance viewing, collection entry and approval remain separate', () => {
+  const view = orderPermissions('ADMIN', { configured: true, grants: ['FINANCE.VIEW'] });
+  assert.equal(view.transfers, true);
+  assert.equal(view.transferHistory, true);
+  assert.equal(view.createTransfer, false);
+  assert.equal(view.approveTransfer, false);
+  const entry = orderPermissions('ADMIN', { configured: true, grants: ['FINANCE.VIEW', 'FINANCE.CREATE'] });
+  assert.equal(entry.createTransfer, true);
+  assert.equal(entry.approveTransfer, false);
+  const approval = orderPermissions('ADMIN', { configured: true, grants: ['FINANCE.VIEW', 'FINANCE.APPROVE'] });
+  assert.equal(approval.approveTransfer, true);
+  assert.equal(approval.createTransfer, false);
+});
+test('legacy managers retain matching without gaining collection entry or full history', () => {
+  const result = orderPermissions('ADMIN', { configured: false, grants: null });
+  assert.equal(result.transfers, true);
+  assert.equal(result.approveTransfer, true);
+  assert.equal(result.createTransfer, false);
+  assert.equal(result.transferHistory, false);
+});

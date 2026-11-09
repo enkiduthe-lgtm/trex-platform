@@ -18,7 +18,9 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     viewShipping: allowed('SHIPPING', 'VIEW', ['ADMIN', 'WAREHOUSE']),
     viewCustomer: allowed('CUSTOMERS', 'VIEW', ['ADMIN']),
     viewDealer: allowed('DEALERS', 'VIEW', ['ADMIN']),
-    transfers: allowed('FINANCE', 'VIEW', ['ADMIN', 'FINANCE']),
-    createTransfer: allowed('FINANCE', 'CREATE', ['ADMIN', 'FINANCE']),
+    transfers: allowed('FINANCE', 'VIEW', ['ADMIN']),
+    approveTransfer: allowed('FINANCE', 'APPROVE', ['ADMIN']),
+    transferHistory: allowed('FINANCE', 'VIEW', []),
+    createTransfer: allowed('FINANCE', 'CREATE', []),
   };
 }

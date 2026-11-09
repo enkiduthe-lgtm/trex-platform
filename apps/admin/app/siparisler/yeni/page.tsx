@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { AdminNav } from '../../components/admin-nav';
+import { useOrderPermissions } from '../../lib/use-order-permissions';
 import { api } from '../../lib/api';
 import styles from '../orders.module.css';
 import { matchesCustomer } from '../../lib/customer-search';
@@ -16,6 +17,7 @@ type Options = {
 const money = (value:number,currency='TRY') => value.toLocaleString('tr-TR',{style:'currency',currency});
 export default function NewOrder() {
   const router = useRouter();
+  const { permissions, loading: accessLoading, error: accessError } = useOrderPermissions();
   const [options,setOptions] = useState<Options|null>(null);
   const [message,setMessage] = useState('');
   const [customerSearch,setCustomerSearch] = useState('');
@@ -32,12 +34,12 @@ export default function NewOrder() {
   const [codServiceFee,setCodServiceFee] = useState('75');
   const [items,setItems] = useState([{ productId:'',quantity:1,unitAmount:'' }]);
   useEffect(() => {
-    if (!form.salesChannel) { setOptions(null); return; }
+    if (!permissions.create || !form.salesChannel) { setOptions(null); return; }
     let cancelled=false;
     setOptions(null);
     api<Options>(`/admin/orders/creation-options?channel=${encodeURIComponent(form.salesChannel)}`).then(result=>{if(!cancelled)setOptions(result);}).catch(error => {if(!cancelled)setMessage(error instanceof Error ? error.message : 'Sipariş Bilgileri Yüklenemedi');});
     return ()=>{cancelled=true;};
-  },[form.salesChannel]);
+  },[form.salesChannel,permissions.create]);
   function chooseCustomer(id:string) {
     const customer = options?.customers.find(item => item.id===id);
     if (customer) {
@@ -48,7 +50,7 @@ export default function NewOrder() {
   }
   async function submit(event:FormEvent) {
     event.preventDefault();
-    if(lock.current) return;
+    if(lock.current || accessLoading || !permissions.create) return;
     lock.current=true; setBusy(true); setMessage('');
     const payload = JSON.stringify({ ...form,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined,priceChangeReason:form.priceChangeReason || undefined,customerId:form.customerId || undefined,items:items.map(item=>({...item,unitAmount:item.unitAmount===''?undefined:Number(item.unitAmount)})) });
     if(attempt.current?.payload!==payload) attempt.current={ payload,key:crypto.randomUUID() };
@@ -62,14 +64,14 @@ export default function NewOrder() {
   }
   const total = items.reduce((sum,item) => sum+Number(item.unitAmount!==''?item.unitAmount:(form.currency==='TRY'?options?.products.find(product => product.id===item.productId)?.amount:0) ?? 0)*item.quantity,0);
   const unavailable = !options || !options.warehouses.length || !options.products.some(product => product.amount!==null&&product.currency?.trim()==='TRY');
-  return <main><AdminNav/><section className={styles.page}>
+  return <main><AdminNav/><section className={styles.page}>{accessLoading ? <p role="status">İşlem Yetkileri Kontrol Ediliyor…</p> : (accessError || !permissions.create) && <p role="alert">{accessError || 'Yeni Sipariş Oluşturma Yetkiniz Yok.'}</p>}
     <Link href="/siparisler">← Siparişler</Link><h1>Yeni yönetici siparişi</h1>
     <p className={styles.notice}>Stok sipariş için ayrılır. Havale ve elden nakit siparişleri tahsilat onayını bekler. Elden nakit seçmek, para alındığı anlamına gelmez. Kapıda ödeme siparişleri depoya hazırlanmak üzere gönderilir; ödeme, teslimatta tahsil edilip finans tarafından onaylanana kadar bekliyor görünür.</p>
     {message&&<p role="alert" className={styles.notice}>{message}</p>}
     <section className={styles.notice}><label>Satış kanalı<select required value={form.salesChannel} onChange={event=>{setForm({...form,salesChannel:event.target.value});setItems([{productId:'',quantity:1,unitAmount:''}]);}}><option value="">Kanal seçin</option><option value="RETAIL">Perakende Satış</option><option value="WHOLESALE">Toptan Satış</option><option value="PUBLIC_WEB">Site Satış</option><option value="INSTAGRAM">Instagram Satış</option><option value="DEALER_PORTAL">Bayi Satış</option><option value="MARKETPLACE">Pazaryeri Satış</option></select></label><p>Seçim, sipariş raporları ve kanal bazlı fiyatlandırmada kullanılır. Pazaryeri entegrasyonu bağlandığında kayıtlar otomatik bu kanala düşer.</p></section>
     {form.salesChannel&&!options&&!message&&<p>Ürün ve depo seçenekleri yükleniyor…</p>}
     {options&&<form onSubmit={submit} className={styles.newOrder}>
-      <fieldset disabled={busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
+      <fieldset disabled={accessLoading||!permissions.create||busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
         <div className="customer-picker">{recentCustomer && !form.customerId && <div className="customer-suggestions"><button type="button" onClick={()=>chooseCustomer(recentCustomer.id)}><small>Son Kullanılan Müşteri</small><strong>{recentCustomer.first_name} {recentCustomer.last_name}</strong><span>{recentCustomer.email} · {recentCustomer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button></div>}<label>Kayıtlı Müşteri Ara<input value={customerSearch} onChange={event=>setCustomerSearch(event.target.value)} placeholder="Ad, Telefon Veya E-Posta" autoComplete="off" /></label>{customerSearch.trim() && <div className="customer-suggestions">{!matchedCustomers.length&&<p role="status">Eşleşen Müşteri Bulunamadı.</p>}{matchedCustomers.map(customer=><button type="button" key={customer.id} onClick={()=>{chooseCustomer(customer.id);setCustomerSearch('');}}><strong>{customer.first_name} {customer.last_name}</strong><span>{customer.email} · {customer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button>)}</div>}<label>Seçilen Müşteri<select value={form.customerId} onChange={event=>chooseCustomer(event.target.value)}><option value="">Yeni / Misafir Müşteri</option>{options.customers.map(customer=><option key={customer.id} value={customer.id}>{customer.first_name} {customer.last_name} · {customer.email}</option>)}</select></label></div>
         <label>Depo<select required value={form.warehouseId} onChange={event=>setForm({...form,warehouseId:event.target.value})}><option value="">Depo seçin</option>{options.warehouses.map(warehouse=><option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
         <label>Alıcı adı<input required maxLength={160} value={form.recipientName} onChange={event=>setForm({...form,recipientName:event.target.value})}/></label>
@@ -81,7 +83,7 @@ export default function NewOrder() {
         <label className={styles.fullWidth}>Teslimat adresi<textarea required maxLength={500} value={form.addressLine} onChange={event=>setForm({...form,addressLine:event.target.value})}/></label>
       </div></fieldset>
       {unavailable&&<p role="alert">Önce aktif bir depo ve TL fiyatı olan aktif ürün ekleyin.</p>}
-      <fieldset disabled={busy||unavailable}><legend>Ürünler</legend>
+      <fieldset disabled={accessLoading || !permissions.create || busy||unavailable}><legend>Ürünler</legend>
         {items.map((item,index)=>{const product=options.products.find(value=>value.id===item.productId);return <div key={index} className={styles.itemRow}>
           <label>Ürün<select required value={item.productId} onChange={event=>setItems(current=>current.map((value,i)=>i===index?{...value,productId:event.target.value,unitAmount:''}:value))}><option value="">Ürün seçin</option>{options.products.filter(value=>value.amount!==null&&value.currency?.trim()==='TRY').map(value=><option key={value.id} value={value.id} disabled={items.some((line,i)=>i!==index&&line.productId===value.id)}>{value.name} · {value.sku} · {money(Number(value.amount))}</option>)}</select></label>
           <label>Adet<input required type="number" min={1} max={100000} step={1} value={item.quantity} onChange={event=>setItems(current=>current.map((value,i)=>i===index?{...value,quantity:Number(event.target.value)}:value))}/></label>
@@ -93,7 +95,7 @@ export default function NewOrder() {
         <p>TL için özel fiyat boşsa sistem fiyatı kullanılır. Dövizde her tutarı elle girin; otomatik kur dönüşümü yapılmaz. Buradaki fiyat yalnız bu siparişi etkiler.</p>
         {items.some(item=>item.unitAmount!=='')&&<label>Fiyat değişiklik nedeni<input required maxLength={500} value={form.priceChangeReason} onChange={event=>setForm({...form,priceChangeReason:event.target.value})}/></label>}
       </fieldset>
-      <fieldset disabled={busy||unavailable}><legend>Ödeme</legend><label>Ödeme yöntemi<select value={form.paymentMethod} onChange={event=>{const method=event.target.value;setForm({...form,paymentMethod:method,currency:method.startsWith('COD_')?'TRY':form.currency});if(method.startsWith('COD_')&&form.currency!=='TRY')setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRANSFER">Havale / EFT</option><option value="HAND_CASH">Elden nakit</option><option value="COD_CARD">Kapıda ödeme — kart</option><option value="COD_CASH">Kapıda ödeme — nakit</option></select></label><label>Para birimi<select value={form.currency} disabled={form.paymentMethod.startsWith('COD_')} onChange={event=>{setForm({...form,currency:event.target.value});setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRY">TL — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Dolar</option></select></label>{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input type="number" min="0" max="9999999999.99" step="0.01" required value={codServiceFee} onChange={event=>setCodServiceFee(event.target.value)}/></label>}<p>Ürün Toplamı: <strong>{money(total,form.currency)}</strong></p><p>Hizmet Bedeli: <strong>{money(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0,form.currency)}</strong></p>{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<p>Tahmini toplam: <strong>{money(total+(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0),form.currency)}</strong> · Kesin fiyat ve stok kayıt sırasında doğrulanır.</p><button type="submit">{busy?'Kaydediliyor…':'Siparişi oluştur'}</button></fieldset>
+      <fieldset disabled={accessLoading || !permissions.create || busy||unavailable}><legend>Ödeme</legend><label>Ödeme yöntemi<select value={form.paymentMethod} onChange={event=>{const method=event.target.value;setForm({...form,paymentMethod:method,currency:method.startsWith('COD_')?'TRY':form.currency});if(method.startsWith('COD_')&&form.currency!=='TRY')setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRANSFER">Havale / EFT</option><option value="HAND_CASH">Elden nakit</option><option value="COD_CARD">Kapıda ödeme — kart</option><option value="COD_CASH">Kapıda ödeme — nakit</option></select></label><label>Para birimi<select value={form.currency} disabled={form.paymentMethod.startsWith('COD_')} onChange={event=>{setForm({...form,currency:event.target.value});setItems(current=>current.map(item=>({...item,unitAmount:''})))}}><option value="TRY">TL — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Dolar</option></select></label>{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input type="number" min="0" max="9999999999.99" step="0.01" required value={codServiceFee} onChange={event=>setCodServiceFee(event.target.value)}/></label>}<p>Ürün Toplamı: <strong>{money(total,form.currency)}</strong></p><p>Hizmet Bedeli: <strong>{money(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0,form.currency)}</strong></p>{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<p>Tahmini toplam: <strong>{money(total+(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0),form.currency)}</strong> · Kesin fiyat ve stok kayıt sırasında doğrulanır.</p><button type="submit">{busy?'Kaydediliyor…':'Siparişi oluştur'}</button></fieldset>
     </form>}
   </section></main>;
 }
