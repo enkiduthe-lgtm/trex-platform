@@ -24,6 +24,7 @@ import styles from "./orders.module.css";
 type Order = {
   id: string;
   order_number: string;
+  admin_note?: string | null;
   status: string;
   total_amount: string;
   currency: string;
@@ -148,16 +149,17 @@ function OrdersContent() {
     setSelected([]);
   }, [searchParams]);
   const load = () => {
-    listGeneration.current += 1;
-    return Promise.all([api<Order[]>("/admin/orders"), api<OrderNote[]>("/admin/orders/notes")])
-      .then(([loadedOrders, loadedNotes]) => {
+    const generation = ++listGeneration.current;
+    return api<Order[]>("/admin/orders")
+      .then((loadedOrders) => {
+        if (generation !== listGeneration.current) return;
         setOrders(loadedOrders);
         setHasOlder(loadedOrders.length === 100);
-        setOrderNotes(Object.fromEntries(loadedNotes.map((item) => [item.id, item.admin_note ?? ""])));
+        setOrderNotes(Object.fromEntries(loadedOrders.map((item) => [item.id, item.admin_note ?? ""])));
       })
-      .catch((e) =>
-        setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi"),
-      );
+      .catch((e) => {
+        if (generation === listGeneration.current) setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
+      });
   };
   useEffect(() => {
     void load();
@@ -170,6 +172,7 @@ function OrdersContent() {
       const rows=await api<Order[]>(`/admin/orders?before=${encodeURIComponent(orders[orders.length-1].id)}`);
       if(generation !== listGeneration.current)return;
       setOrders(current=>{const ids=new Set(current.map(order=>order.id));return [...current,...rows.filter(order=>!ids.has(order.id))];});
+      setOrderNotes(current=>Object.fromEntries([...rows.map(order=>[order.id,order.admin_note ?? ""]),...Object.entries(current)]));
       setHasOlder(rows.length===100);
     }catch(e){setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
     finally{olderLock.current=false;setLoadingOlder(false);}

@@ -4,10 +4,11 @@ import {OrdersService} from './orders.service';
 describe('Central order history',()=>{
   const cursor='7045b6f1-3181-49ce-a919-15ae126507d0';
   it('keeps the array contract and includes dealer orders without an implicit channel filter',async()=>{
-    const rows=[{id:cursor,sales_channel:'DEALER_PORTAL'}];
+    const rows=[{id:cursor,sales_channel:'DEALER_PORTAL',admin_note:'Önce Telefon Edin'}];
     const db={query:jest.fn().mockResolvedValue({rows})};
     expect(await new OrdersService(db as never).list()).toEqual(rows);
     expect(db.query.mock.calls[0][1]).toEqual([null,null]);
+    expect(db.query.mock.calls[0][0]).toContain("o.admin_note");
   });
   it('uses a stable date and id cursor so new orders do not shift older pages',async()=>{
     const db={query:jest.fn().mockResolvedValue({rows:[]})};
