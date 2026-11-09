@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { downloadXlsx } from "../lib/xlsx";
-import { currencyTotals } from '../lib/report-totals';
+import { customerOrderReportRows, type CustomerOrderReportLine } from '../lib/customer-order-report';
 import { financeDateTime, inFinancePeriod } from '../lib/finance-report';
 import { createActionLock, createRequestGate } from '../lib/async-controls';
 import styles from "./customers.module.css";
@@ -30,7 +30,6 @@ type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; move
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
 type CustomerOrder = { id: string; order_number: string; status: string; total_amount: string; currency: string; created_at: string; item_count: number };
 type CustomerSupportTicket = { id: string; ticket_number: string; subject: string; status: string; priority: string; due_at: string; created_at: string; order_number: string | null };
-type CustomerOrderReportLine = { order_number: string; created_at: string; status: string; currency: string; sales_channel: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; payment_method: string };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 function CustomerAmounts({ customer }: { customer: Customer }) {
@@ -59,6 +58,9 @@ export default function Customers() {
   const [orderReportTo, setOrderReportTo] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const reportGate = useRef(createRequestGate());
+  const reportLock = useRef(createActionLock());
   const notesGate = useRef(createRequestGate());
   const linkedCustomerOpened=useRef(false);
   const saveLock = useRef(createActionLock());
@@ -78,7 +80,7 @@ export default function Customers() {
       );
   useEffect(() => {
     void load();
-    return () => { notesGate.current.invalidate(); };
+    return () => { notesGate.current.invalidate(); reportGate.current.invalidate(); };
   }, []);
   const shown = useMemo(
     () =>
@@ -120,28 +122,29 @@ export default function Customers() {
     downloadXlsx('trex-musteriler.xlsx', 'Müşteriler', lines);
   }
   async function exportCustomerOrders() {
-    if (!selected) return;
+    if (!selected || !reportLock.current.acquire()) return;
+    const ticket = reportGate.current.begin();
+    const customerId = selected.id;
+    setReportLoading(true);
     try {
       if (orderReportFrom && orderReportTo && orderReportFrom > orderReportTo) { setMessage('Geçerli Bir Tarih Aralığı Seçin.'); return; }
       const params = new URLSearchParams();
       if (orderReportFrom) params.set('dateFrom', orderReportFrom);
       if (orderReportTo) params.set('dateTo', orderReportTo);
-      const lines = await api<CustomerOrderReportLine[]>(`/admin/customers/${selected.id}/order-report${params.size ? `?${params}` : ''}`);
-      if (!lines.length) { setMessage('Bu tarih aralığında dışa aktarılacak sipariş satırı bulunamadı.'); return; }
-      const totals = currencyTotals(lines.filter(line=>line.status!=='CANCELLED').map(line=>({currency:line.currency,amount:line.line_total})));
-      downloadXlsx(`trex-${selected.id}-siparisler.xlsx`, 'Müşteri Siparişleri', [
-        ['Başlangıç',orderReportFrom || 'Tüm Geçmiş'],['Bitiş',orderReportTo || 'Sınır Yok'],[],
-        ['Sipariş Tarihi', 'Sipariş Numarası', 'Ürün', 'SKU', 'Adet', 'Birim Fiyat', 'Satış Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Satış Kanalı'],
-        ...lines.map((line) => [financeDateTime(line.created_at), line.order_number, line.product_name, line.sku, line.quantity, Number(line.unit_amount), Number(line.line_total), line.currency, line.payment_method || '—', line.status, line.sales_channel]),
-        [],['İptaller Hariç Ürün Tutarı — Kargo Ve Ek Ücretler Hariç'],...totals.map(total=>['Toplam',total.currency,Number(total.amount)]),
-      ]);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Sipariş raporu oluşturulamadı.'); }
+      const lines = await api<CustomerOrderReportLine[]>('/admin/customers/' + customerId + '/order-report' + (params.size ? '?' + params : ''));
+      if (!reportGate.current.isCurrent(ticket)) return;
+      if (!lines.length) { setMessage('Bu Tarih Aralığında Dışa Aktarılacak Sipariş Satırı Bulunamadı.'); return; }
+      downloadXlsx('trex-' + customerId + '-siparisler.xlsx', 'Müşteri Siparişleri', customerOrderReportRows(lines, orderReportFrom, orderReportTo));
+    } catch (error) {
+      if (reportGate.current.isCurrent(ticket)) setMessage(error instanceof Error ? error.message : 'Sipariş Raporu Oluşturulamadı.');
+    } finally { reportLock.current.release(); setReportLoading(false); }
   }
   async function open(customer: Customer) {
     if (saveLock.current.isLocked()) return;
     await readNotes(customer);
   }
   async function readNotes(customer: Customer) {
+    reportGate.current.invalidate();
     const ticket = notesGate.current.begin();
     setSelected(customer);
     setNote("");
@@ -162,6 +165,7 @@ export default function Customers() {
   }
   function close() {
     if (saveLock.current.isLocked()) return;
+    reportGate.current.invalidate();
     notesGate.current.invalidate(); setSelected(null); setNotes([]); setRequests([]); setCustomerOrders([]); setSupportTickets([]); setLoyalty(null); setNote(''); setPoints(''); setPointsReason(''); setRequestForm({subject:'',body:'',priority:'NORMAL'}); setNotesLoading(false);
   }
   async function save(e: FormEvent) {
@@ -389,7 +393,7 @@ export default function Customers() {
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end',marginBottom:12,padding:'10px',border:'1px solid #e5e7eb',borderRadius:8}}>
               <label style={{display:'grid',gap:4,fontSize:11}}>Başlangıç Tarihi<input type="date" value={orderReportFrom} onChange={(event) => setOrderReportFrom(event.target.value)} /></label>
               <label style={{display:'grid',gap:4,fontSize:11}}>Bitiş Tarihi<input type="date" value={orderReportTo} onChange={(event) => setOrderReportTo(event.target.value)} /></label>
-              <button type="button" disabled={notesLoading} onClick={() => void exportCustomerOrders()}>Siparişleri Excel&apos;e Aktar</button>
+              <button type="button" disabled={notesLoading || reportLoading} onClick={() => void exportCustomerOrders()}>{reportLoading ? 'Rapor Hazırlanıyor…' : 'Siparişleri Excel’e Aktar'}</button>
             </div>
             <p>Seçilen Tarihler İstanbul Saatine Göre Tabloya Ve Excel Raporuna Uygulanır.</p>
             <div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Tarih</th><th>Ürün Adedi</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{customerOrders.filter(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo)).map(order=><tr key={order.id}><td>{order.order_number}</td><td>{financeDateTime(order.created_at)}</td><td>{order.item_count}</td><td>{money(order.total_amount,order.currency)}</td><td>{{PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'}[order.status] ?? order.status}</td><td><Link href={`/siparisler/${order.id}`}>Siparişi Aç</Link></td></tr>)}</tbody></table>{!customerOrders.some(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo))&&<p>Seçilen Tarihlerde Sipariş Yok.</p>}</div>
