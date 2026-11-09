@@ -1,0 +1,52 @@
+.workspace { width:100%; min-width:0; }
+.workspace .grid {
+  display:grid;
+  grid-template-columns:repeat(12,minmax(0,1fr));
+  grid-template-areas:
+    "orders orders orders orders performance performance performance performance operations operations operations operations"
+    "chart chart chart chart chart chart chart chart status status status status"
+    "latest latest latest latest latest latest stock stock stock stock stock stock"
+    "shipping shipping shipping shipping support support support support support support support support";
+  gap:18px;
+  align-items:stretch;
+}
+.grid > * { min-width:0; height:100%; box-sizing:border-box; }
+.grid > .orders { grid-area:orders; }
+.grid > .performance { grid-area:performance; }
+.grid > .operations { grid-area:operations; }
+.grid > .chart { grid-area:chart; }
+.grid > .status { grid-area:status; }
+.grid > .latest { grid-area:latest; }
+.grid > .stock { grid-area:stock; }
+.grid > .shipping { grid-area:shipping; }
+.grid > .support { grid-area:support; }
+.workspace .grid > article { display:flex; flex-direction:column; min-height:210px; border-radius:12px; }
+.workspace .grid > article > header { min-height:42px; gap:12px; flex-wrap:wrap; }
+.workspace .grid > article > header a { margin-left:auto; }
+.workspace .chart > section,.workspace .status > section { display:flex; flex-direction:column; height:100%; min-height:390px; border-radius:12px; }
+.workspace .chart section > header,.workspace .status section > header { min-height:66px; }
+.workspace .chart details,.workspace .status details { margin-top:auto; padding-top:14px; }
+.workspace .grid :global(.order-numbers) { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.workspace .grid :global(.order-numbers) strong { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.workspace .grid :global(.funnel) { gap:8px; }
+.workspace .grid :global(.funnel) a { padding:10px 6px; border:1px solid #e8dfed; border-radius:8px; background:#faf7fc; text-align:center; }
+.workspace :global(.period-toolbar) { flex-wrap:wrap; gap:12px; }
+.workspace :global(.period-toolbar) > div:first-child { display:flex; gap:6px; flex-wrap:wrap; }
+.workspace :global(.period-toolbar) :global(.chart-controls) { margin:0 0 0 auto; }
+.workspace :global(.dense-table) { min-width:0; }
+.workspace :global(.dense-table) > a > div,.workspace :global(.dense-table) > div > div { min-width:0; overflow-wrap:anywhere; }
+@media(max-width:1200px) {
+  .workspace .grid { grid-template-areas:
+    "orders orders orders orders orders orders performance performance performance performance performance performance"
+    "operations operations operations operations operations operations operations operations operations operations operations operations"
+    "chart chart chart chart chart chart chart chart chart chart chart chart"
+    "status status status status status status shipping shipping shipping shipping shipping shipping"
+    "latest latest latest latest latest latest stock stock stock stock stock stock"
+    "support support support support support support support support support support support support"; }
+}
+@media(max-width:700px) {
+  .workspace .grid { grid-template-columns:minmax(0,1fr); grid-template-areas:"orders" "performance" "operations" "chart" "status" "latest" "stock" "shipping" "support"; gap:12px; }
+  .workspace .grid > article { min-height:0; }
+  .workspace .chart > section,.workspace .status > section { min-height:0; }
+  .workspace :global(.period-toolbar) :global(.chart-controls) { margin-left:0; }
+}

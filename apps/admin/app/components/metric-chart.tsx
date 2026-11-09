@@ -36,7 +36,7 @@ export function MetricChart({ title, description, data, currency, variant = 'bar
         <circle cx="100" cy="100" r="74" fill="none" stroke="#eeeaf3" strokeWidth="24" />
         {rows.map((row, index) => {
           const part = row.value / total * 100, offset = ringOffset; ringOffset += part;
-          return <circle key={index} cx="100" cy="100" r="74" fill="none" stroke={ringColor(row,index)} strokeWidth={active === index ? 30 : 24} pathLength="100" strokeDasharray={`${part} ${100 - part}`} strokeDashoffset={-offset} transform="rotate(-90 100 100)" opacity={active === null || active === index ? 1 : .35}><title>{row.label}: {format(row.value)}</title></circle>;
+          return <circle key={index} cx="100" cy="100" r="74" fill="none" stroke={ringColor(row,index)} strokeWidth={active === index ? 30 : 24} pathLength="100" strokeDasharray={`${part} ${100 - part}`} strokeDashoffset={-offset} transform="rotate(-90 100 100)" opacity={active === null || active === index ? 1 : .35}><title>{`${row.label}: ${format(row.value)}`}</title></circle>;
         })}
         <text x="100" y="97" textAnchor="middle" className={styles.ringTotal}>{format(total, true)}</text><text x="100" y="119" textAnchor="middle" className={styles.ringCaption}>Toplam</text>
       </svg>
@@ -49,7 +49,7 @@ export function MetricChart({ title, description, data, currency, variant = 'bar
           <rect x={90 + index * step} y="16" width={step} height="196" fill="transparent" />
           <rect x={90 + index * step + step * .23} y={Math.min(y(0), y(row.value))} width={step * .54} height={Math.abs(y(row.value) - y(0))} rx="5" fill={row.color ?? (row.value<0?'#db457b':'#7c3aed')} opacity={active === null || active === index ? 1 : .35} />
           <text x={90 + index * step + step / 2} y="224" textAnchor="middle" className={styles.axis}>{row.label.length > 13 ? row.label.slice(0, 12) + '…' : row.label}</text>
-          <title>{row.label}: {format(row.value)}</title>
+          <title>{`${row.label}: ${format(row.value)}`}</title>
         </g>)}
       </svg>
     </div>}
