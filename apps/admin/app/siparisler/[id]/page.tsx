@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { DealerLevelBadge } from "../../components/dealer-level-badge";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
+import { orderPermissions } from '../../lib/order-permissions';
 import { nextPreparationAction } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
@@ -140,25 +141,45 @@ type Invoice = {
   pdf_url: string | null;
 };
 export default function OrderDetail() {
-  const [canEdit, setCanEdit] = useState(false);
-  const [role, setRole] = useState("");
-  const [automaticTracking,setAutomaticTracking]=useState(false);
-  useEffect(()=>{void api<{tracking?:{enabled:boolean;configured:boolean}}>('/admin/orders/shipping/status').then(v=>setAutomaticTracking(Boolean(v.tracking?.enabled&&v.tracking.configured))).catch(()=>{});},[]);
+  const [permissions, setPermissions] = useState(() => orderPermissions(''));
+  const [permissionsReady, setPermissionsReady] = useState(false);
+  const { edit: canEdit, prepare: canPrepare, ship: canShip, verify: canVerify,
+    updateShipment: canUpdateShipment, viewCustomer: canViewCustomer, viewDealer: canViewDealer } = permissions;
+  const [role, setRole] = useState('');
+  const [automaticTracking, setAutomaticTracking] = useState<boolean | null>(null);
   useEffect(() => {
-    api<{ user: { role: string } }>("/auth/me")
-      .then((value) => {
-        setRole(value.user.role);
-        setCanEdit(["ADMIN", "SUPER_ADMIN"].includes(value.user.role));
-      })
-      .catch(() => { setRole(""); setCanEdit(false); });
+    if (!permissions.viewShipping) return;
+    let active = true;
+    void api<{ tracking?: { enabled: boolean; configured: boolean } }>('/admin/orders/shipping/status')
+      .then(value => { if (active && value.tracking) setAutomaticTracking(Boolean(value.tracking.enabled && value.tracking.configured)); })
+      .catch(() => { if (active) setAutomaticTracking(null); });
+    return () => { active = false; };
+  }, [permissions.viewShipping]);
+  useEffect(() => {
+    let active = true;
+    void api<{ user: { role: string } }>('/auth/me').then(async value => {
+      const currentRole = value.user.role;
+      const profile = currentRole === 'ADMIN'
+        ? await api<{ configured: boolean; grants: string[] | null }>('/admin/access/me')
+        : undefined;
+      if (active) {
+        setRole(currentRole);
+        setPermissions(orderPermissions(currentRole, profile));
+        setPermissionsReady(true);
+      }
+    }).catch(() => {
+      if (active) { setRole(''); setPermissions(orderPermissions('')); setPermissionsReady(true); }
+    });
+    return () => { active = false; };
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const autoPrinted = useRef(false);
   useEffect(() => {
-    if (!data || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
+    if (!data || !permissionsReady || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
     autoPrinted.current = true;
     if(data.shipments.some(shipment=>shipment.provider==='aras')) {
+      if (!canVerify) { setError('Aras Barkod Doğrulaması İçin Kargo Yetkisi Gerekli.'); return; }
       void api<{found:boolean;integrationCode:string}>(`/admin/orders/${id}/shipment/verify`,{method:'POST'}).then(result=>{
         if(!result.found){setError('Aras Kaydı Bulunamadı. MÖK Barkodu Yazdırılmadı.');return;}
         printPackageBarcode(result.integrationCode,true);
@@ -166,7 +187,7 @@ export default function OrderDetail() {
       return;
     }
     printPackageBarcode(data.fulfillment?.package_barcode || data.order_number);
-  }, [data]);
+  }, [data, permissionsReady, canVerify]);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -372,13 +393,13 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>1</span>
                   <strong>Hazırla</strong>
                   <p>{data.fulfillment ? (data.fulfillment.picking_status === "COMPLETED" ? "Ürünler hazırlandı." : "Hazırlama devam ediyor.") : "Siparişi depo hazırlamasına gönderin."}</p>
-                  {canEdit && preparationAction(data) === 'prepare' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
+                  {canPrepare && preparationAction(data) === 'prepare' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Hazırlanıyor…" : "Hazırla"}</button>}
                 </li>
                 <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>2</span>
                   <strong>Paketle Ve Barkod Oluştur</strong>
                   <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
-                  {canEdit && preparationAction(data) === 'pack' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
+                  {canPrepare && preparationAction(data) === 'pack' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
                   {!data.fulfillment?.packed_at && data.fulfillment?.picking_status!=='COMPLETED' && <button type="button" disabled>Önce Ürünleri Hazırlayın</button>}
                   {data.fulfillment?.package_barcode && <details><summary>Paket İç Etiketi</summary><button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Paket İç Etiketini Yazdır</button></details>}
                 </li>
@@ -387,12 +408,12 @@ export default function OrderDetail() {
                   <strong>Aras Kaydı Ve Kargo Takibi</strong>
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
                   <p>{data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Henüz Takip Numarası Yok; Bu Durum Fiziksel Teslimi Doğrulamaz.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
-                  {canEdit && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
-                  {canEdit && preparationAction(data) === 'ship' && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
-                  {canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
+                  {canVerify && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
+                  {canShip && preparationAction(data) === 'ship' && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
+                  {canShip && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
                   {arasCheck?.found && arasCheck.orderNumber===data.order_number && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
-                  {!automaticTracking && canEdit && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
-                  {!automaticTracking && canEdit && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
+                  {automaticTracking === false && canUpdateShipment && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
+                  {automaticTracking === false && canUpdateShipment && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>
               </ol>
 
@@ -414,9 +435,9 @@ export default function OrderDetail() {
               </div>
             </section>
             <section className={styles.detailCard}>
-              {data.dealer_id && <div className={styles.cardActions}><strong>Siparişi Veren Bayi: {data.dealer_name || 'Bayi'}</strong><DealerLevelBadge name={data.dealer_level_name}/>{canEdit && <Link className={styles.secondaryAction} href={`/bayiler/${data.dealer_id}`}>Bayi Kartını Aç</Link>}</div>}
+              {data.dealer_id && <div className={styles.cardActions}><strong>Siparişi Veren Bayi: {data.dealer_name || 'Bayi'}</strong><DealerLevelBadge name={data.dealer_level_name}/>{canViewDealer && <Link className={styles.secondaryAction} href={`/bayiler/${data.dealer_id}`}>Bayi Kartını Aç</Link>}</div>}
               <div id="musteri" className={styles.cardHeader}><h2>Müşteri Ve Teslimat</h2><span>Müşteri Kartı</span></div>
-              {canEdit && data.customer_id && <div className={styles.cardActions}><Link className={styles.secondaryAction} href={`/musteriler?customer=${encodeURIComponent(data.customer_id)}`}>Müşteri Kartı Ve Geçmiş Siparişleri Aç</Link></div>}
+              {canViewCustomer && data.customer_id && <div className={styles.cardActions}><Link className={styles.secondaryAction} href={`/musteriler?customer=${encodeURIComponent(data.customer_id)}`}>Müşteri Kartı Ve Geçmiş Siparişleri Aç</Link></div>}
               <div className={styles.tableWrap}><table><thead><tr><th>Müşteri</th><th>E-Posta</th><th>Alıcı</th><th>Telefon</th><th>Teslimat Adresi</th></tr></thead><tbody><tr>
                 <td>{data.contact_name ?? data.address?.recipient_name ?? 'Belirtilmedi'}</td>
                 <td>{data.customer_email ?? 'Belirtilmedi'}</td>

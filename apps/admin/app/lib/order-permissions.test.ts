@@ -32,3 +32,21 @@ test('director, warehouse and legacy manager behavior follow their roles', () =>
   assert.equal(orderPermissions('ADMIN', { configured: false, grants: null }).edit, true);
   assert.equal(Object.values(orderPermissions('DEALER')).some(Boolean), false);
 });
+
+test('shipping creation does not authorize manual delivery or customer access', () => {
+  const result = orderPermissions('ADMIN', { configured: true, grants: ['SHIPPING.VIEW', 'SHIPPING.CREATE'] });
+  assert.equal(result.viewShipping, true);
+  assert.equal(result.ship, true);
+  assert.equal(result.verify, true);
+  assert.equal(result.updateShipment, false);
+  assert.equal(result.viewCustomer, false);
+  assert.equal(result.viewDealer, false);
+});
+test('manual shipping status and customer cards require their own permissions', () => {
+  const result = orderPermissions('ADMIN', { configured: true, grants: ['SHIPPING.VIEW', 'SHIPPING.APPROVE', 'CUSTOMERS.VIEW'] });
+  assert.equal(result.updateShipment, true);
+  assert.equal(result.viewCustomer, true);
+  assert.equal(result.viewDealer, false);
+  assert.equal(result.ship, false);
+  assert.equal(result.edit, false);
+});
