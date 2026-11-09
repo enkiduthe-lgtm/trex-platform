@@ -16,6 +16,7 @@ import { orderPermissions } from '../lib/order-permissions';
 import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "../lib/order-queue";
 import { paymentLabel } from "../lib/payment-label";
 import { currencyTotals } from "../lib/report-totals";
+import { mergeOrderNotes } from "../lib/order-notes";
 import { matchesOrderSearch } from "../lib/order-search";
 import { inFinancePeriod } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
@@ -132,6 +133,7 @@ function OrdersContent() {
   const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set());
   const noteLocks = useRef(new Set<string>());
+  const dirtyNotes = useRef(new Set<string>());
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -155,7 +157,7 @@ function OrdersContent() {
         if (generation !== listGeneration.current) return;
         setOrders(loadedOrders);
         setHasOlder(loadedOrders.length === 100);
-        setOrderNotes(Object.fromEntries(loadedOrders.map((item) => [item.id, item.admin_note ?? ""])));
+        setOrderNotes(current=>mergeOrderNotes(current,loadedOrders,dirtyNotes.current));
       })
       .catch((e) => {
         if (generation === listGeneration.current) setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
@@ -172,7 +174,7 @@ function OrdersContent() {
       const rows=await api<Order[]>(`/admin/orders?before=${encodeURIComponent(orders[orders.length-1].id)}`);
       if(generation !== listGeneration.current)return;
       setOrders(current=>{const ids=new Set(current.map(order=>order.id));return [...current,...rows.filter(order=>!ids.has(order.id))];});
-      setOrderNotes(current=>Object.fromEntries([...rows.map(order=>[order.id,order.admin_note ?? ""]),...Object.entries(current)]));
+      setOrderNotes(current=>mergeOrderNotes(current,rows,dirtyNotes.current));
       setHasOlder(rows.length===100);
     }catch(e){setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
     finally{olderLock.current=false;setLoadingOlder(false);}
@@ -245,7 +247,7 @@ function OrdersContent() {
     } finally { actionLock.current = false; setPendingAction(null); }
   }
   async function saveOrderNote(order: Order) {
-    if (!canEdit || noteLocks.current.has(order.id)) return;
+    if (!canEdit || noteLocks.current.has(order.id) || !dirtyNotes.current.has(order.id)) return;
     noteLocks.current.add(order.id);
     setSavingNotes(current => new Set(current).add(order.id));
     try {
@@ -253,6 +255,7 @@ function OrdersContent() {
         method: "PATCH",
         body: JSON.stringify({ note: orderNotes[order.id] ?? "" }),
       });
+      dirtyNotes.current.delete(order.id);
       setOrderNotes((current) => ({ ...current, [order.id]: result.admin_note ?? "" }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sipariş açıklaması kaydedilemedi");
@@ -580,12 +583,13 @@ function OrdersContent() {
                       value={orderNotes[order.id] ?? ""}
                       maxLength={1000}
                       placeholder="Açıklama ekle"
-                      onChange={(event) => setOrderNotes((current) => ({ ...current, [order.id]: event.target.value }))}
+                      onChange={(event) => { dirtyNotes.current.add(order.id); setOrderNotes((current) => ({ ...current, [order.id]: event.target.value })); }}
                       onBlur={() => void saveOrderNote(order)}
                       disabled={savingNotes.has(order.id)}
                       style={{ minWidth: 160, minHeight: 42, resize: "vertical" }}
                     /> : <small>{orderNotes[order.id] || "—"}</small>}
                     {savingNotes.has(order.id) && <small>Kaydediliyor…</small>}
+                    {canEdit && dirtyNotes.current.has(order.id) && !savingNotes.has(order.id) && <button type="button" className={styles.approveLink} onClick={() => void saveOrderNote(order)}>Açıklamayı Kaydet</button>}
                   </td>
                 </tr>
               ))}
