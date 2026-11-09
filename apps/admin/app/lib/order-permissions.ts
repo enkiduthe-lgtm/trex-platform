@@ -25,5 +25,7 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     approveTransfer: allowed('FINANCE', 'APPROVE', ['ADMIN']),
     transferHistory: allowed('FINANCE', 'VIEW', []),
     createTransfer: allowed('FINANCE', 'CREATE', []),
+    createExpense: allowed('FINANCE', 'CREATE', []),
+    deleteExpense: allowed('FINANCE', 'DELETE', []),
   };
 }

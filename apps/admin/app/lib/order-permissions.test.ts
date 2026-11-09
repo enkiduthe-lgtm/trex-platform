@@ -86,3 +86,11 @@ test('dealer creation requires both view and create permission', () => {
   assert.equal(orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.CREATE'] }).createDealer, false);
   assert.equal(orderPermissions('ADMIN', { configured: true, grants: ['DEALERS.VIEW', 'DEALERS.CREATE'] }).createDealer, true);
 });
+
+test('expense creation and deletion require independent finance grants',()=>{
+ const create=orderPermissions('ADMIN',{configured:true,grants:['FINANCE.VIEW','FINANCE.CREATE']});
+ assert.equal(create.createExpense,true);assert.equal(create.deleteExpense,false);
+ const remove=orderPermissions('ADMIN',{configured:true,grants:['FINANCE.VIEW','FINANCE.DELETE']});
+ assert.equal(remove.createExpense,false);assert.equal(remove.deleteExpense,true);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['FINANCE.DELETE']}).deleteExpense,false);
+});
