@@ -13,7 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { orderPermissions } from '../lib/order-permissions';
-import { orderQueueStatus, nextPreparationAction } from "../lib/order-queue";
+import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "../lib/order-queue";
 import { currencyTotals } from "../lib/report-totals";
 import { financeDate } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
@@ -30,6 +30,7 @@ type Order = {
   customer_name: string | null;
   item_count: string;
   products?: { product_name: string; sku: string; quantity: number }[];
+  payment_method?: string | null;
   sales_channel?: string;
   marketplace_name?: string | null;
   shipping_provider?: string | null;
@@ -553,7 +554,7 @@ function OrdersContent() {
                           </button>
                         )}
                       {isDirector&&(order.status==='CANCELLED'?<Link className={styles.deleteLink} href={`/siparisler/sil?siparis=${encodeURIComponent(order.id)}`}><OrderIcon name="trash"/><span>Sipariş Sil</span></Link>:<button type="button" className={styles.deleteLink} disabled title="Silmek İçin Önce Siparişi İptal Edin"><OrderIcon name="trash"/><span>Sipariş Sil</span></button>)}
-                      {canViewTransfers && order.status === "PENDING_PAYMENT" && (
+                      {canViewTransfers && needsTransferMatching(order) && (
                         <Link
                           className={styles.approveLink}
                           href={`/siparisler/havaleler?order=${encodeURIComponent(order.order_number)}`}

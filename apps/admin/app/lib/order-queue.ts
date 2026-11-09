@@ -12,3 +12,7 @@ export function nextPreparationAction(order: {status:string;shipment_status?:str
   if(order.packed_at)return order.status==='PROCESSING'?'ship':null;
   return order.preparation_status==='COMPLETED'?'pack':'prepare';
 }
+
+export function needsTransferMatching(order: {status:string;payment_method?:string|null}) {
+  return order.status === "PENDING_PAYMENT" && order.payment_method === "bank_transfer";
+}
