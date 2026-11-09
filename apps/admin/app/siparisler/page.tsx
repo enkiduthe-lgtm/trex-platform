@@ -29,6 +29,7 @@ type Order = {
   customer_email: string | null;
   customer_name: string | null;
   item_count: string;
+  products?: { product_name: string; sku: string; quantity: number }[];
   sales_channel?: string;
   marketplace_name?: string | null;
   shipping_provider?: string | null;
@@ -473,7 +474,12 @@ function OrdersContent() {
                     <Link href={`/siparisler/${order.id}`}>
                       <b>{order.order_number}</b>
                     </Link>
-                    <small>{Number(order.item_count)} ürün</small>
+                    <small>Toplam {Number(order.item_count)} Adet</small>
+                    {!!order.products?.length && <ul className={styles.productSummary} aria-label="Sipariş Ürünleri">
+                      {order.products.map((product,index) => <li key={product.sku + ':' + index}>
+                        <span>{product.product_name}</span><strong>{product.quantity} Adet</strong>
+                      </li>)}
+                    </ul>}
                   </td>
                   <td>
                     <Link href={`/siparisler/${order.id}#musteri`}><b>{order.customer_name ?? "Misafir Müşteri"}</b></Link>

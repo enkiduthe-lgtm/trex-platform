@@ -22,4 +22,14 @@ describe('Central order history',()=>{
     await expect(new OrdersService(db as never).list(undefined,'invalid')).rejects.toBeInstanceOf(BadRequestException);
     expect(db.query).not.toHaveBeenCalled();
   });
+  it('returns saved product names and combines quantity across price-split lines', async () => {
+    const products = [{product_name:'Trex Tea',sku:'TEA',quantity:5}];
+    const db = {query:jest.fn().mockResolvedValue({rows:[{id:cursor,item_count:'5',products}]})};
+    expect((await new OrdersService(db as never).list())[0].products).toEqual(products);
+    const sql = db.query.mock.calls[0][0];
+    expect(sql).toContain('SUM(quantity)::int AS quantity');
+    expect(sql).toContain('GROUP BY product_id,product_name,sku');
+    expect(sql).toContain("'product_name',lines.product_name");
+    expect(sql).toContain("'[]'::jsonb) AS products");
+  });
 });
