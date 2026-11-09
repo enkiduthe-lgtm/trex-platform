@@ -126,7 +126,8 @@ function OrdersContent() {
   const olderLock=useRef(false);
   const listGeneration=useRef(0);
   const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
-  const [savingNote, setSavingNote] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set());
+  const noteLocks = useRef(new Set<string>());
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -249,8 +250,9 @@ function OrdersContent() {
     } finally { actionLock.current = false; setPendingAction(null); }
   }
   async function saveOrderNote(order: Order) {
-    if (!canEdit || savingNote || pendingAction) return;
-    setSavingNote(order.id);
+    if (!canEdit || noteLocks.current.has(order.id)) return;
+    noteLocks.current.add(order.id);
+    setSavingNotes(current => new Set(current).add(order.id));
     try {
       const result = await api<OrderNote>(`/admin/orders/${order.id}/note`, {
         method: "PATCH",
@@ -259,7 +261,10 @@ function OrdersContent() {
       setOrderNotes((current) => ({ ...current, [order.id]: result.admin_note ?? "" }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sipariş açıklaması kaydedilemedi");
-    } finally { setSavingNote(null); }
+    } finally {
+      noteLocks.current.delete(order.id);
+      setSavingNotes(current => { const next = new Set(current); next.delete(order.id); return next; });
+    }
   }
   const [exporting, setExporting] = useState(false);
   async function exportOrders() {
@@ -581,10 +586,10 @@ function OrdersContent() {
                       placeholder="Açıklama ekle"
                       onChange={(event) => setOrderNotes((current) => ({ ...current, [order.id]: event.target.value }))}
                       onBlur={() => void saveOrderNote(order)}
-                      disabled={savingNote === order.id}
+                      disabled={savingNotes.has(order.id)}
                       style={{ minWidth: 160, minHeight: 42, resize: "vertical" }}
                     /> : <small>{orderNotes[order.id] || "—"}</small>}
-                    {savingNote === order.id && <small>Kaydediliyor…</small>}
+                    {savingNotes.has(order.id) && <small>Kaydediliyor…</small>}
                   </td>
                 </tr>
               ))}
