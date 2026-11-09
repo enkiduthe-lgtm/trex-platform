@@ -12,6 +12,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
+import { orderPermissions } from '../lib/order-permissions';
 import { orderQueueStatus, nextPreparationAction } from "../lib/order-queue";
 import { currencyTotals } from "../lib/report-totals";
 import { financeDate } from "../lib/finance-report";
@@ -91,18 +92,31 @@ function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "tra
 function OrdersContent() {
   const searchParams = useSearchParams();
   const [isDirector,setIsDirector]=useState(false);
-  const [canCreate, setCanCreate] = useState(false);
-  const [canPrepare, setCanPrepare] = useState(false);
+  const [permissions, setPermissions] = useState(() => orderPermissions(''));
+  const {
+    create: canCreate, edit: canEdit, prepare: canPrepare, ship: canShip,
+    verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer,
+  } = permissions;
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const actionLock = useRef(false);
   useEffect(() => {
-    api<{ user: { role: string } }>("/auth/me")
-      .then((data) => {
-        setIsDirector(data.user.role === "SUPER_ADMIN");
-        setCanCreate(["ADMIN", "SUPER_ADMIN"].includes(data.user.role));
-        setCanPrepare(["ADMIN", "SUPER_ADMIN", "WAREHOUSE"].includes(data.user.role));
-      })
-      .catch(() => setCanCreate(false));
+    let active = true;
+    void api<{ user: { role: string } }>('/auth/me').then(async data => {
+      const role = data.user.role;
+      const profile = role === 'ADMIN'
+        ? await api<{ configured: boolean; grants: string[] | null }>('/admin/access/me')
+        : undefined;
+      if (active) {
+        setIsDirector(role === 'SUPER_ADMIN');
+        setPermissions(orderPermissions(role, profile));
+      }
+    }).catch(() => {
+      if (active) {
+        setPermissions(orderPermissions(''));
+        setMessage('İşlem Yetkileri Yüklenemedi. Sayfayı Yenileyin.');
+      }
+    });
+    return () => { active = false; };
   }, []);
   const [orders, setOrders] = useState<Order[]>([]);
   const [hasOlder,setHasOlder]=useState(false);
@@ -233,7 +247,7 @@ function OrdersContent() {
     } finally { actionLock.current = false; setPendingAction(null); }
   }
   async function saveOrderNote(order: Order) {
-    if (!canCreate || savingNote || pendingAction) return;
+    if (!canEdit || savingNote || pendingAction) return;
     setSavingNote(order.id);
     try {
       const result = await api<OrderNote>(`/admin/orders/${order.id}/note`, {
@@ -317,12 +331,8 @@ function OrdersContent() {
                 + Yeni sipariş
               </Link>
             )}
-            <Link href="/siparisler/havaleler" className={styles.financeLink}>
-              Bekleyen Havaleler →
-            </Link>
-            <Link href="/siparisler/havaleler#giris" className={styles.financeLink}>
-              Gelen Havale Girişi
-            </Link>
+            {canViewTransfers && <Link href="/siparisler/havaleler" className={styles.financeLink}>Bekleyen Havaleler →</Link>}
+            {canCreateTransfer && <Link href="/siparisler/havaleler#giris" className={styles.financeLink}>Gelen Havale Girişi</Link>}
           </div>
         </div>
         {message && (
@@ -491,7 +501,7 @@ function OrdersContent() {
                       >
                         <OrderIcon name="eye" /><span>Detay</span>
                       </Link>
-                      {canCreate &&
+                      {canEdit &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
                         order.status !== "CANCELLED" && (
                           <Link
@@ -501,7 +511,7 @@ function OrdersContent() {
                             <OrderIcon name="edit" /><span>Düzenle</span>
                           </Link>
                         )}
-                      {canCreate &&
+                      {canEdit &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
                         ["PENDING_PAYMENT", "PROCESSING"].includes(
                           order.status,
@@ -518,7 +528,7 @@ function OrdersContent() {
                           </button>
                         )}
                       {isDirector&&(order.status==='CANCELLED'?<Link className={styles.deleteLink} href={`/siparisler/sil?siparis=${encodeURIComponent(order.id)}`}><OrderIcon name="trash"/><span>Sipariş Sil</span></Link>:<button type="button" className={styles.deleteLink} disabled title="Silmek İçin Önce Siparişi İptal Edin"><OrderIcon name="trash"/><span>Sipariş Sil</span></button>)}
-                      {order.status === "PENDING_PAYMENT" && (
+                      {canViewTransfers && order.status === "PENDING_PAYMENT" && (
                         <Link
                           className={styles.approveLink}
                           href={`/siparisler/havaleler?order=${encodeURIComponent(order.order_number)}`}
@@ -527,7 +537,7 @@ function OrdersContent() {
                         </Link>
                       )}
                       {canPrepare && ["prepare","pack"].includes(nextPreparationAction(order) ?? "") && <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, order.preparation_status === 'COMPLETED' ? 'pack' : 'prepare')}><OrderIcon name="check" /><span>{pendingAction === order.id ? 'İşleniyor…' : order.preparation_status === 'COMPLETED' ? 'Paketle / Barkod Oluştur' : 'Hazırla'}</span></button>}
-                      {canPrepare && nextPreparationAction(order) === 'ship' && (
+                      {canShip && nextPreparationAction(order) === 'ship' && (
                         <button type="button" style={stageActionStyle} className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'ship')}>
                           <OrderIcon name="check" /><span>Kargo Kaydını Hazırla</span>
                         </button>
@@ -537,14 +547,14 @@ function OrdersContent() {
                           <OrderIcon name="check" /><span>Kargo Takip</span>
                         </Link>
                       )}
-                      {canPrepare && order.shipping_provider === 'aras' && order.shipment_status && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'verify')}>{pendingAction === order.id ? 'Aras Sorgulanıyor…' : 'Yalnız Aras Kaydını Sorgula'}</button>}
+                      {canVerify && order.shipping_provider === 'aras' && order.shipment_status && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'verify')}>{pendingAction === order.id ? 'Aras Sorgulanıyor…' : 'Yalnız Aras Kaydını Sorgula'}</button>}
                       {queueStatus(order) === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
                       {order.status === "REFUNDED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İade Detayı</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
                   </td>
                   <td>
-                    {canCreate ? <textarea
+                    {canEdit ? <textarea
                       aria-label={`${order.order_number} açıklaması`}
                       value={orderNotes[order.id] ?? ""}
                       maxLength={1000}
