@@ -6,6 +6,7 @@ import { MetricChart } from '../../components/metric-chart';
 import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
 import styles from './prim.module.css';
+import { createActionLock } from '../../lib/async-controls';
 import { staffProductSummary } from '../../lib/staff-summary';
 
 type Entry={id:string;order_item_id:string;recipient_user_id:string;staff_role:string;staff_channel_group:string;staff_unit_amount:string;staff_share_count:number;amount:string;currency:string;status:string;entry_kind:string;created_at:string;paid_at:string|null;staff_paid_amount:string|null;note:string|null;order_number:string;product_name:string;sku:string;quantity:number;recipient_email:string};
@@ -16,6 +17,8 @@ const labels:Record<string,string>={CONFIRMED:'Kesinleşti',PAID:'Ödendi',PENDI
 const money=(amount:number|string)=>Number(amount).toLocaleString('tr-TR',{style:'currency',currency:'TRY'});
 export default function ManagementCommissionPage(){
  const [data,setData]=useState<Data|null>(null),[month,setMonth]=useState(()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Istanbul',year:'numeric',month:'2-digit'}).format(new Date())),[message,setMessage]=useState(''),[busy,setBusy]=useState('');
+ const saveLock=useRef(createActionLock());
+ const currentMonth=useRef(month);currentMonth.current=month;
  const [people,setPeople]=useState({executiveCount:3,executiveIds:[] as string[],directorId:''});
  const [rate,setRate]=useState({productId:'',channelGroup:'RETAIL',executiveAmount:'',directorAmount:''});
  const [account,setAccount]=useState(''),[financeAccounts,setFinanceAccounts]=useState<{id:string;name:string;currency:string}[]>([]);
@@ -27,7 +30,7 @@ export default function ManagementCommissionPage(){
   if(result.settings)setPeople({executiveCount:result.settings.executive_count,executiveIds:result.settings.executive_ids,directorId:result.settings.director_id});
  }catch(e){if(id!==loadId.current)return;const text=e instanceof Error?e.message:'Bilgiler Alınamadı';const expired=/invalid access token|invalid or expired|session.*expired|401/i.test(text);setNeedsLogin(expired);setLoadError(expired?'Oturumunuzun Süresi Doldu. Prim Ayarlarını Görmek İçin Yeniden Giriş Yapın.':text==='Insufficient role'?'Bu Hesabın Prim Paneline Erişim Yetkisi Yok.':text);}finally{if(id===loadId.current)setLoading(false);}}
  useEffect(()=>{void load(month)},[month]);
- async function save(path:string,body:unknown){setBusy(path);try{await api(`/admin/commissions/${path}`,{method:'POST',body:JSON.stringify(body)});setMessage(path.startsWith('entries/')?'Prim Ödemesi Kaydedildi.':'Kaydedildi. Yeni Ayarlar Sonraki Siparişlerde Geçerli; Geçmiş Hakedişler Korundu.');await load(month);}catch(e){setMessage(e instanceof Error?e.message:'İşlem Tamamlanamadı');}finally{setBusy('');}}
+ async function save(path:string,body:unknown){if(loading||!data||!saveLock.current.acquire())return;setBusy(path);try{await api(`/admin/commissions/${path}`,{method:'POST',body:JSON.stringify(body)});setMessage(path.startsWith('entries/')?'Prim Ödemesi Kaydedildi.':'Kaydedildi. Yeni Ayarlar Sonraki Siparişlerde Geçerli; Geçmiş Hakedişler Korundu.');await load(currentMonth.current);}catch(e){setMessage(e instanceof Error?e.message:'İşlem Tamamlanamadı');}finally{saveLock.current.release();setBusy('');}}
  const entries=data?.entries??[];
  const net=entries.reduce((total,e)=>total+Number(e.amount),0),paid=entries.filter(e=>e.status==='PAID'&&e.entry_kind==='EARN').reduce((n,e)=>n+Number(e.staff_paid_amount??e.amount),0);
  function exportReport(){if(!data||loading||busy)return;downloadXlsx('trex-prim-hakedisleri.xlsx','Prim Hakedişleri',[
