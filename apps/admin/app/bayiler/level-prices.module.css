@@ -11,3 +11,6 @@
 .priceCell strong{display:block;min-height:26px;color:#30233b;}
 .root .priceCell button,.root .priceCell input{width:100%;box-sizing:border-box;min-height:42px;margin:0;}
 @media(max-width:600px){.toolbar{align-items:stretch;}.toolbar button{width:100%;}}
+
+.packSummary{display:grid;gap:4px;line-height:1.5;color:#44403c;}
+.packSummary span{color:#166534;font-weight:700;}

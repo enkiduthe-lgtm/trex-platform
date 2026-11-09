@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { effectiveDealerPrice, DealerPrice } from '../lib/dealer-prices';
+import { dealerPackSummary } from '../lib/dealer-pack-summary';
 import styles from './level-prices.module.css';
 
 type Level = { id: string; name: string; sort_order: number };
@@ -45,9 +46,10 @@ export function LevelEditor({ levels, onSaved }: { levels: Level[]; onSaved: () 
     {loading?<p role="status">Kayıtlı Fiyatlar Yükleniyor…</p>:<div className="table-wrap"><table className={styles.priceTable}><thead><tr><th>Ürün</th><th>Bayi Seviyesi</th><th>Tekli Fiyat</th><th>2’li Toplam</th><th>3’lü Toplam</th><th>5’li Toplam</th></tr></thead><tbody>{shownProducts.flatMap(product=>levels.map(level=><tr key={`${product.id}:${level.id}`}><td><b>{product.name}</b></td><td>{level.name}</td>{sizes.map(size=>{
       const key=`${product.id}:${level.id}:${size}`;
       const current=effectiveDealerPrice(prices,product.id,level.id,size);
+      const summary=current&&size>1?dealerPackSummary(current,effectiveDealerPrice(prices,product.id,level.id,1),size):null;
       const draft=amounts[key]??'';
       const valid=draft!==''&&Number.isFinite(Number(draft))&&Number(draft)>=0&&Number(draft)<=9999999999.99&&/^\d+(\.\d{1,2})?$/.test(draft);
-      return <td key={size}><div className={styles.priceCell}><strong>{current?money(current):'Tanımlanmamış'}</strong>{canPrice&&<><input aria-label={`${product.name} ${level.name} ${size===1?'Tekli':`${size}’li Toplam`} Fiyatı`} type="number" min="0" max="9999999999.99" step="0.01" disabled={busy} value={draft} placeholder={current?.amount??'Yeni Fiyat'} onChange={e=>setAmounts(values=>({...values,[key]:e.target.value}))}/><button type="button" disabled={busy||!valid} onClick={()=>void perform(async()=>{await api('/admin/prices',{method:'POST',body:JSON.stringify({productId:product.id,scope:'DEALER_LEVEL',dealerLevelId:level.id,packSize:size,amount:Number(draft),currency:'TRY'})});setAmounts(values=>({...values,[key]:''}));try { await refresh();setMessage('Seviye Fiyatı Kaydedildi.'); } catch { setMessage('Seviye Fiyatı Kaydedildi. Güncel Fiyatlar Yüklenemedi. Fiyatları Yenile Düğmesini Kullanın.'); }})}>Fiyatı Kaydet</button></>}</div></td>;
+      return <td key={size}><div className={styles.priceCell}><strong>{current?money(current):'Tanımlanmamış'}</strong>{summary&&<small className={styles.packSummary}>Adet Başına: {summary.unitPrice}{summary.saving&&<span>Tekli Alıma Göre {summary.saving} Tasarruf</span>}</small>}{canPrice&&<><input aria-label={`${product.name} ${level.name} ${size===1?'Tekli':`${size}’li Toplam`} Fiyatı`} type="number" min="0" max="9999999999.99" step="0.01" disabled={busy} value={draft} placeholder={current?.amount??'Yeni Fiyat'} onChange={e=>setAmounts(values=>({...values,[key]:e.target.value}))}/><button type="button" disabled={busy||!valid} onClick={()=>void perform(async()=>{await api('/admin/prices',{method:'POST',body:JSON.stringify({productId:product.id,scope:'DEALER_LEVEL',dealerLevelId:level.id,packSize:size,amount:Number(draft),currency:'TRY'})});setAmounts(values=>({...values,[key]:''}));try { await refresh();setMessage('Seviye Fiyatı Kaydedildi.'); } catch { setMessage('Seviye Fiyatı Kaydedildi. Güncel Fiyatlar Yüklenemedi. Fiyatları Yenile Düğmesini Kullanın.'); }})}>Fiyatı Kaydet</button></>}</div></td>;
     })}</tr>))}</tbody></table>{!shownProducts.length&&<p className="empty-state">Gösterilecek Ürün Bulunamadı.</p>}{!levels.length&&<p className="empty-state">Önce Bayi Seviyesi Ekleyin.</p>}</div>}
     {!canPrice&&!loading&&<p>Fiyat Kaydetmek İçin Müdür Yetkisi Gereklidir.</p>}
   </section>;
