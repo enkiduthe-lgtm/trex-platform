@@ -36,10 +36,11 @@ type Order = {
   shipment_status?: string | null;
   preparation_status?: string | null; packed_at?: string | null;
 };
+type ExportLine = { id: string; order_number: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; total_amount: string; cod_service_fee: string; currency: string; payment_method: string; sales_channel: string; marketplace_name: string | null; customer_name: string; status: string; shipment_status: string | null; shipping_provider: string | null; created_at: string };
 type OrderNote = { id: string; admin_note: string | null };
 // Carrier registration does not imply physical dispatch.
 const queueStatus = orderQueueStatus;
-const displayStatus = (order: Order) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[queueStatus(order)] ?? order.status;
+const displayStatus = (order: {status:string;shipment_status?:string|null}) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[queueStatus(order)] ?? order.status;
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
   PAID: "Onaylandı",
@@ -281,21 +282,34 @@ function OrdersContent() {
         }
       }
       if (!source.length) { setMessage('Seçilen Filtrelerde Sipariş Bulunamadı.'); return; }
-    const totals = currencyTotals(source.map(order => ({ currency: order.currency, amount: order.total_amount })));
-    const rows = [
-      ["Satış Kanalı", "Sipariş No", "Müşteri", "Tutar", "Para Birimi", "Durum", "Kargo", "Tarih"],
-      ...source.map((order) => [
-        order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"),
-        order.order_number,
-        order.customer_name ?? order.customer_email ?? "Misafir müşteri",
-        order.total_amount,
-        order.currency,
-        displayStatus(order),
-        order.shipping_provider ?? "",
-        new Date(order.created_at).toLocaleString("tr-TR"),
-      ]),
-      ...totals.map(total => ["", "", "Toplam", total.amount, total.currency, "", "", ""]),
-    ];
+      const lines: ExportLine[] = [];
+      for (let offset = 0; offset < source.length; offset += 100) {
+        const ids = source.slice(offset, offset + 100).map(order => order.id);
+        lines.push(...await api<ExportLine[]>('/admin/orders/export-lines?orders=' + encodeURIComponent(ids.join(','))));
+      }
+      const covered = new Set(lines.map(line => line.id));
+      if (source.some(order => !covered.has(order.id))) throw new Error('Bazı Siparişlerin Ürün Satırları Alınamadı. Listeyi Yenileyip Tekrar Deneyin.');
+      const paymentNames: Record<string, string> = { bank_transfer: 'Havale / EFT', cash: 'Elden Tahsilat', cash_on_delivery_card: 'Kapıda Kart', cash_on_delivery_cash: 'Kapıda Nakit', paytr: 'PayTR', dealer_commission: 'Prim Bakiyesi' };
+      const exportedOrders = [...new Map(lines.map(line => [line.id, line])).values()];
+      const firstRows = new Set<string>();
+      const rows = [
+        ['Satış Kanalı', 'Sipariş No', 'Müşteri', 'Ürün', 'SKU', 'Adet', 'Gerçek Birim Fiyat', 'Ürün Satır Tutarı', 'Hizmet Bedeli', 'Sipariş Toplamı', 'Para Birimi', 'Ödeme Yöntemi', 'Durum', 'Kargo', 'Tarih'],
+        ...lines.map(line => {
+          const first = !firstRows.has(line.id);
+          firstRows.add(line.id);
+          return [line.marketplace_name || channelText[line.sales_channel] || line.sales_channel,
+            line.order_number, line.customer_name, line.product_name, line.sku, line.quantity,
+            Number(line.unit_amount), Number(line.line_total), first ? Number(line.cod_service_fee ?? '0') : '',
+            first ? Number(line.total_amount) : '', line.currency, paymentNames[line.payment_method] ?? line.payment_method,
+            displayStatus(line), line.shipping_provider ?? '', new Date(line.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })];
+        }),
+        ...(['ACTIVE', 'CANCELLED', 'REFUNDED'] as const).flatMap(status => {
+          const orders = exportedOrders.filter(order => status === 'ACTIVE' ? !['CANCELLED', 'REFUNDED'].includes(order.status) : order.status === status);
+          const label = status === 'ACTIVE' ? 'İptal Ve İadeler Hariç Sipariş Toplamı' : status === 'CANCELLED' ? 'İptal Edilen Sipariş Toplamı' : 'İade Edilen Sipariş Toplamı';
+          return currencyTotals(orders.map(order => ({currency:order.currency,amount:order.total_amount}))).map(total =>
+            [label, '', '', '', '', '', '', '', '', Number(total.amount), total.currency, '', '', '', '']);
+        }),
+      ];
     downloadXlsx("trex-siparisler.xlsx", "Siparişler", rows);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sipariş Raporu Hazırlanamadı.");

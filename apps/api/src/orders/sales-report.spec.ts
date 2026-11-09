@@ -23,7 +23,7 @@ describe('Detailed Sales Report', () => {
   it('binds every filter and uses Istanbul date boundaries', async () => {
     await service.salesReport('2026-10-01', '2026-10-29', 'wholesale', ' Coffee ', 'PAID', " O'Neil ");
     expect(query).toHaveBeenCalledWith(expect.stringContaining("AT TIME ZONE 'Europe/Istanbul'"),
-      ['2026-10-01', '2026-10-29', 'WHOLESALE', 'Coffee', 'PAID', "O'Neil"]);
+      ['2026-10-01', '2026-10-29', 'WHOLESALE', 'Coffee', 'PAID', "O'Neil", null]);
     const sql = query.mock.calls[0][0] as string;
     expect(sql).toContain('oi.id AS item_id');
     expect(sql).toContain('o.status::text=$5');
