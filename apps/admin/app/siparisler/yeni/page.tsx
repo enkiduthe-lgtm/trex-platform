@@ -20,6 +20,9 @@ export default function NewOrder() {
   const router = useRouter();
   const { permissions, loading: accessLoading, error: accessError } = useOrderPermissions();
   const [options,setOptions] = useState<Options|null>(null);
+  const [optionsRevision,setOptionsRevision]=useState(0);
+  const [optionsError,setOptionsError]=useState('');
+  const [optionsLoading,setOptionsLoading]=useState(false);
   const [message,setMessage] = useState('');
   const [customerSearch,setCustomerSearch] = useState('');
   const [recentCustomerId,setRecentCustomerId] = useState('');
@@ -35,12 +38,12 @@ export default function NewOrder() {
   const [codServiceFee,setCodServiceFee] = useState('75');
   const [items,setItems] = useState([{ productId:'',quantity:1,unitAmount:'' }]);
   useEffect(() => {
-    if (!permissions.create || !form.salesChannel) { setOptions(null); return; }
+    if (!permissions.create || !form.salesChannel) { setOptions(null);setOptionsLoading(false);setOptionsError(''); return; }
     let cancelled=false;
-    setOptions(null);
-    api<Options>(`/admin/orders/creation-options?channel=${encodeURIComponent(form.salesChannel)}`).then(result=>{if(!cancelled)setOptions(result);}).catch(error => {if(!cancelled)setMessage(error instanceof Error ? error.message : 'Sipariş Bilgileri Yüklenemedi');});
+    setOptions(null);setOptionsError('');setOptionsLoading(true);
+    api<Options>(`/admin/orders/creation-options?channel=${encodeURIComponent(form.salesChannel)}`).then(result=>{if(!cancelled)setOptions(result);}).catch(error => {if(!cancelled)setOptionsError(error instanceof Error ? error.message : 'Sipariş Bilgileri Yüklenemedi');}).finally(()=>{if(!cancelled)setOptionsLoading(false);});
     return ()=>{cancelled=true;};
-  },[form.salesChannel,permissions.create]);
+  },[form.salesChannel,permissions.create,optionsRevision]);
   function chooseCustomer(id:string) {
     const customer = options?.customers.find(item => item.id===id);
     if (customer) {
@@ -52,6 +55,7 @@ export default function NewOrder() {
   async function submit(event:FormEvent) {
     event.preventDefault();
     if(lock.current || accessLoading || !permissions.create) return;
+    if(!options || optionsLoading || unavailable){setMessage('Ürün Ve Depo Bilgileri Hazır Olmadan Sipariş Oluşturulamaz.');return;}
     lock.current=true; setBusy(true); setMessage('');
     const payload = JSON.stringify({ ...form,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined,priceChangeReason:form.priceChangeReason || undefined,customerId:form.customerId || undefined,items:items.map(item=>({...item,unitAmount:item.unitAmount===''?undefined:Number(item.unitAmount)})) });
     if(attempt.current?.payload!==payload) attempt.current={ payload,key:crypto.randomUUID() };
@@ -70,7 +74,7 @@ export default function NewOrder() {
     <p className={styles.notice}>Stok sipariş için ayrılır. Havale ve elden nakit siparişleri tahsilat onayını bekler. Elden nakit seçmek, para alındığı anlamına gelmez. Kapıda ödeme siparişleri depoya hazırlanmak üzere gönderilir; ödeme, teslimatta tahsil edilip finans tarafından onaylanana kadar bekliyor görünür.</p>
     {message&&<p role="alert" className={styles.notice}>{message}</p>}
     <section className={styles.notice}><label>Satış kanalı<select required value={form.salesChannel} disabled={busy} onChange={event=>{setMessage('');setForm({...form,salesChannel:event.target.value});setItems([{productId:'',quantity:1,unitAmount:''}]);}}><option value="">Kanal seçin</option><option value="RETAIL">Perakende Satış</option><option value="WHOLESALE">Toptan Satış</option><option value="PUBLIC_WEB">Site Satış</option><option value="INSTAGRAM">Instagram Satış</option><option value="DEALER_PORTAL">Bayi Satış</option><option value="MARKETPLACE">Pazaryeri Satış</option></select></label><p>Seçim, sipariş raporları ve kanal bazlı fiyatlandırmada kullanılır. Pazaryeri entegrasyonu bağlandığında kayıtlar otomatik bu kanala düşer.</p></section>
-    {form.salesChannel&&!options&&!message&&<p>Ürün ve depo seçenekleri yükleniyor…</p>}
+    {optionsLoading&&<p role="status">Ürün Ve Depo Seçenekleri Yükleniyor…</p>}{optionsError&&<section className={styles.notice}><p role="alert">{optionsError}</p><button type="button" disabled={busy||optionsLoading} onClick={()=>setOptionsRevision(value=>value+1)}>Tekrar Dene</button></section>}
     {options&&<form onSubmit={submit} className={styles.newOrder}>
       <fieldset disabled={accessLoading||!permissions.create||busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
         <div className="customer-picker">{recentCustomer && !form.customerId && <div className="customer-suggestions"><button type="button" onClick={()=>chooseCustomer(recentCustomer.id)}><small>Son Kullanılan Müşteri</small><strong>{recentCustomer.first_name} {recentCustomer.last_name}</strong><span>{recentCustomer.email} · {recentCustomer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button></div>}<label>Kayıtlı Müşteri Ara<input value={customerSearch} onChange={event=>setCustomerSearch(event.target.value)} placeholder="Ad, Telefon Veya E-Posta" autoComplete="off" /></label>{customerSearch.trim() && <div className="customer-suggestions">{!matchedCustomers.length&&<p role="status">Eşleşen Müşteri Bulunamadı.</p>}{matchedCustomers.map(customer=><button type="button" key={customer.id} onClick={()=>{chooseCustomer(customer.id);setCustomerSearch('');}}><strong>{customer.first_name} {customer.last_name}</strong><span>{customer.email} · {customer.phone??'Telefon Yok'}</span><small>Bu Müşteriyi Siparişe Ata</small></button>)}</div>}<label>Seçilen Müşteri<select value={form.customerId} onChange={event=>chooseCustomer(event.target.value)}><option value="">Yeni / Misafir Müşteri</option>{options.customers.map(customer=><option key={customer.id} value={customer.id}>{customer.first_name} {customer.last_name} · {customer.email}</option>)}</select></label></div>
