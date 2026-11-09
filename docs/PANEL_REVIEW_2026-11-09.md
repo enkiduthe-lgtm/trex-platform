@@ -22,6 +22,7 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Panel yardımcı modülleri: son toplu koşuda 35 test geçti.
 - Son kaynak değişikliklerinde panel TypeScript kontrolü geçti.
 - Son fiyat değişikliğinden sonra PricingService grubundaki 5 test geçti.
+- Kullanıcının PowerShell oturumunda tam Next.js üretim derlemesi geçti: derleme, lint / tip denetimi, sayfa verileri, 53/53 statik sayfa, build traces ve optimizasyon tamamlandı. Bu oturumdaki EPERM engeli nedeniyle aynı kontrol kullanıcı oturumunda yapıldı; sonuç kullanıcı çıktısıyla doğrulandı.
 - API derlemesi, son API değişikliklerinden sonra geçti.
 - Sunucu toplu regresyonu: sekiz grupta 57 test doğrulandı. İlk koşuda 54 geçti, eski rol modelini bekleyen üç test hata verdi; Müdür/Yönetici kuralına güncellenen staff-security grubunun 18 testi tekrar koşuda geçti. Diğer yedi grup ilk koşuda geçti.
 - Kontroller: rol ayrımlı giriş, iki saatlik oturum sınırı, hesap pasifleştirme / parola sıfırlamada oturum iptali, merkezi sipariş geçmişi, ürün satırlı Excel, bayi marjı, perakende kanal grubu ve eski prim erişim sınırları.
@@ -39,7 +40,7 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 
 ## Canlıda Kabul Gerektirenler
 
-- Tam panel üretim derlemesi ve ana sayfa grafiklerinin gerçek ekran ölçülerinde görsel kontrolü. Son deneme Windows EPERM mkdir hatasıyla .next-check-20261109-batch/types/app/siparisler/[id] klasöründe durdu. Kullanıcının PowerShell oturumunda build sonucu bekleniyor; derleme geçti sayılmaz.
+- Ana sayfa grafiklerinin ve diğer değişen ekranların gerçek ekran ölçülerinde görsel kontrolü.
 - Müdür, kısıtlı yönetici ve bayi hesaplarıyla ayrı giriş / erişim kabulü.
 - Kayıtlı ürün fiyatlarıyla paket, adet, stok, teslimat primi ve iade senaryosu.
 - Gerçek Excel dosyalarının örnek kayıtlarla açılıp karşılaştırılması.
