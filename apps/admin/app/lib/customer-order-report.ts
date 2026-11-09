@@ -1,3 +1,4 @@
+import { paymentLabel } from "./payment-label";
 import { currencyTotals } from './report-totals';
 import { financeDateTime } from './finance-report';
 
@@ -8,7 +9,6 @@ export type CustomerOrderReportLine = {
 };
 const statuses: Record<string,string> = { PENDING_PAYMENT:'Ödeme Bekliyor', PAID:'Onaylandı', PROCESSING:'Hazırlanıyor', SHIPPED:'Kargoya Verildi', DELIVERED:'Teslim Edildi', CANCELLED:'İptal Edildi', REFUNDED:'İade Edildi' };
 const channels: Record<string,string> = { RETAIL:'Perakende', WHOLESALE:'Toptan', PUBLIC_WEB:'Site', INSTAGRAM:'Instagram', DEALER_PORTAL:'Sistem Bayi', MARKETPLACE:'Pazaryeri', ADMIN_ORDER:'Yönetici Siparişi' };
-const payments: Record<string,string> = { bank_transfer:'Havale / EFT', cash:'Elden Tahsilat', cash_on_delivery_card:'Kapıda Kart', cash_on_delivery_cash:'Kapıda Nakit', dealer_commission:'Prim Bakiyesi', paytr:'PayTR' };
 
 export function customerOrderReportRows(lines: CustomerOrderReportLine[], from: string, to: string) {
   const totals = (status: string) => currencyTotals(lines.filter(line => status === 'ACTIVE'
@@ -18,7 +18,7 @@ export function customerOrderReportRows(lines: CustomerOrderReportLine[], from: 
     ['Başlangıç', from || 'Tüm Geçmiş'], ['Bitiş', to || 'Sınır Yok'], ['Saat Dilimi','Europe/Istanbul'], [],
     ['Sipariş Tarihi','Sipariş Numarası','Ürün','SKU','Adet','Gerçek Birim Fiyat','Ürün Satır Tutarı','Para Birimi','Ödeme Yöntemi','Sipariş Durumu','Satış Kanalı'],
     ...lines.map(line => [financeDateTime(line.created_at),line.order_number,line.product_name,line.sku,line.quantity,
-      Number(line.unit_amount),Number(line.line_total),line.currency,payments[line.payment_method] ?? (line.payment_method || '—'),
+      Number(line.unit_amount),Number(line.line_total),line.currency,paymentLabel(line.payment_method),
       statuses[line.status] ?? line.status,channels[line.sales_channel] ?? line.sales_channel]),
     [], ['Ürün Tutarları · Kargo Ve Hizmet Bedelleri Hariç'],
     ...totals('ACTIVE').map(total => ['İptal Ve İadeler Hariç',total.currency,Number(total.amount)]),

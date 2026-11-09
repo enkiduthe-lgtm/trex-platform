@@ -14,6 +14,7 @@ import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { orderPermissions } from '../lib/order-permissions';
 import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "../lib/order-queue";
+import { paymentLabel } from "../lib/payment-label";
 import { currencyTotals } from "../lib/report-totals";
 import { financeDate } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
@@ -296,7 +297,6 @@ function OrdersContent() {
       }
       const covered = new Set(lines.map(line => line.id));
       if (source.some(order => !covered.has(order.id))) throw new Error('Bazı Siparişlerin Ürün Satırları Alınamadı. Listeyi Yenileyip Tekrar Deneyin.');
-      const paymentNames: Record<string, string> = { bank_transfer: 'Havale / EFT', cash: 'Elden Tahsilat', cash_on_delivery_card: 'Kapıda Kart', cash_on_delivery_cash: 'Kapıda Nakit', paytr: 'PayTR', dealer_commission: 'Prim Bakiyesi' };
       const exportedOrders = [...new Map(lines.map(line => [line.id, line])).values()];
       const firstRows = new Set<string>();
       const rows = [
@@ -307,7 +307,7 @@ function OrdersContent() {
           return [line.marketplace_name || channelText[line.sales_channel] || line.sales_channel,
             line.order_number, line.customer_name, line.product_name, line.sku, line.quantity,
             Number(line.unit_amount), Number(line.line_total), first ? Number(line.cod_service_fee ?? '0') : '',
-            first ? Number(line.total_amount) : '', line.currency, paymentNames[line.payment_method] ?? line.payment_method,
+            first ? Number(line.total_amount) : '', line.currency, paymentLabel(line.payment_method),
             displayStatus(line), line.shipping_provider ?? '', new Date(line.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })];
         }),
         ...(['ACTIVE', 'CANCELLED', 'REFUNDED'] as const).flatMap(status => {
@@ -494,6 +494,7 @@ function OrdersContent() {
                   <td>
                     <b>{money(order.total_amount, order.currency)}</b>
                     <small>{order.currency}</small>
+                    <small>{paymentLabel(order.payment_method)}</small>
                   </td>
                   <td>
                     <span
