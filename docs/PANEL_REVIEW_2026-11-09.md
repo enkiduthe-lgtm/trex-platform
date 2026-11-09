@@ -39,7 +39,7 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 
 ## Canlıda Kabul Gerektirenler
 
-- Tam panel üretim derlemesi ve ana sayfa grafiklerinin gerçek ekran ölçülerinde görsel kontrolü.
+- Tam panel üretim derlemesi ve ana sayfa grafiklerinin gerçek ekran ölçülerinde görsel kontrolü. Son deneme Windows EPERM mkdir hatasıyla .next-check-20261109-batch/types/app/siparisler/[id] klasöründe durdu. Kullanıcının PowerShell oturumunda build sonucu bekleniyor; derleme geçti sayılmaz.
 - Müdür, kısıtlı yönetici ve bayi hesaplarıyla ayrı giriş / erişim kabulü.
 - Kayıtlı ürün fiyatlarıyla paket, adet, stok, teslimat primi ve iade senaryosu.
 - Gerçek Excel dosyalarının örnek kayıtlarla açılıp karşılaştırılması.
