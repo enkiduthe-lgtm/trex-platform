@@ -57,6 +57,7 @@ export default function Customers() {
   const [orderReportFrom, setOrderReportFrom] = useState("");
   const [orderReportTo, setOrderReportTo] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
+  const [detailError,setDetailError]=useState('');
   const [saving, setSaving] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const reportGate = useRef(createRequestGate());
@@ -150,14 +151,15 @@ export default function Customers() {
     setNote("");
     setPoints(""); setPointsReason(""); setLoyalty(null); setRequests([]); setCustomerOrders([]); setSupportTickets([]); setRequestForm({subject:'',body:'',priority:'NORMAL'});
     setNotes([]);
+    setDetailError('');
     setNotesLoading(true);
     setMessage('');
     try {
       const [result, customerLoyalty, customerRequests, orders, tickets] = await Promise.all([api<Note[]>(`/admin/customers/${customer.id}/notes`),api<Loyalty>(`/admin/customers/${customer.id}/loyalty`),api<CustomerRequest[]>(`/admin/customers/${customer.id}/requests`),api<CustomerOrder[]>(`/admin/customers/${customer.id}/orders`),api<CustomerSupportTicket[]>(`/admin/customers/${customer.id}/support-tickets`)]);
       if (notesGate.current.isCurrent(ticket)) { setNotes(result); setLoyalty(customerLoyalty); setRequests(customerRequests); setCustomerOrders(orders); setSupportTickets(tickets); }
     } catch (e) {
-      if (notesGate.current.isCurrent(ticket)) setMessage(
-        e instanceof Error ? e.message : "Müşteri notları yüklenemedi.",
+      if (notesGate.current.isCurrent(ticket)) setDetailError(
+        e instanceof Error ? e.message : "Müşteri Bilgileri Yüklenemedi.",
       );
     } finally {
       if (notesGate.current.isCurrent(ticket)) setNotesLoading(false);
@@ -389,6 +391,7 @@ export default function Customers() {
                 <b>{selected.loyalty_points ?? 0}</b>Trex puan
               </span>
             </div>
+            {notesLoading?<p role="status">Müşteri Bilgileri Yükleniyor…</p>:detailError?<div className="form-card"><p role="alert">{detailError}</p><button type="button" disabled={saving} onClick={()=>void readNotes(selected)}>Tekrar Dene</button></div>:<>
             <h3>Sipariş Geçmişi</h3>
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end',marginBottom:12,padding:'10px',border:'1px solid #e5e7eb',borderRadius:8}}>
               <label style={{display:'grid',gap:4,fontSize:11}}>Başlangıç Tarihi<input type="date" value={orderReportFrom} onChange={(event) => setOrderReportFrom(event.target.value)} /></label>
@@ -441,6 +444,7 @@ export default function Customers() {
                 <small>{new Date(x.created_at).toLocaleString("tr-TR")}</small>
               </article>
             ))}
+            </>}
           </aside>
         )}
       </section>
