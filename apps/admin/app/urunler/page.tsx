@@ -6,7 +6,7 @@ import { AdminNav } from "../components/admin-nav";
 import { api, apiBaseUrl } from "../lib/api";
 import styles from "./products.module.css";
 import { createActionLock } from '../lib/async-controls';
-import { effectiveDealerPrice } from "../lib/dealer-prices";
+import { effectiveDealerPrice, effectivePublicPrice } from "../lib/dealer-prices";
 
 type Product = {
   version: number;
@@ -27,6 +27,8 @@ type Price = {
   dealer_level_id: string | null;
   currency: string;
   starts_at: string;
+  created_at?: string;
+  channel?: string | null;
   ends_at: string | null;
   id: string;
   product_id: string;
@@ -346,7 +348,7 @@ export default function Products() {
     [products, status, query],
   );
   const globalPrice = (id: string) =>
-    prices.find((item) => item.product_id === id && item.scope === "GLOBAL" && new Date(item.starts_at) <= new Date() && (!item.ends_at || new Date(item.ends_at) > new Date()));
+    effectivePublicPrice(prices,id);
   const latestCost = (id: string) =>
     costs.find((item) => item.product_id === id);
   const toggle = (id: string) =>

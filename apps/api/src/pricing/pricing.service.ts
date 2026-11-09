@@ -31,7 +31,7 @@ export class PricingService {
        JOIN products p ON p.id=pp.product_id
        LEFT JOIN dealer_levels dl ON dl.id=pp.dealer_level_id
        WHERE ($1::uuid IS NULL OR pp.product_id=$1)
-       ORDER BY p.name, pp.starts_at DESC`,
+       ORDER BY p.name, pp.starts_at DESC, pp.created_at DESC, pp.id DESC`,
       [productId ?? null],
     );
     return result.rows;
