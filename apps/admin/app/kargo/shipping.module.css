@@ -4,7 +4,7 @@
 .toolbar {display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;padding:16px;background:#fff;border:1px solid #dfd5e6;border-radius:10px;}
 .toolbar h1,.toolbar h2 {margin-right:auto;}
 .toolbar label {display:grid;gap:6px;min-width:160px;}
-.summary {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}
+.summary {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;}
 .summary article {padding:20px;background:#fff;border:1px solid #dfd5e6;border-radius:10px;display:grid;gap:8px;}
 .actions {display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
 .actions button,.actions a {min-height:40px;box-sizing:border-box;display:inline-flex;justify-content:center;align-items:center;padding:8px 14px;border:1px solid #d9cce3;border-radius:6px;min-width:130px;text-decoration:none;}
