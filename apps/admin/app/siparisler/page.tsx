@@ -16,7 +16,8 @@ import { orderPermissions } from '../lib/order-permissions';
 import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "../lib/order-queue";
 import { paymentLabel } from "../lib/payment-label";
 import { currencyTotals } from "../lib/report-totals";
-import { financeDate } from "../lib/finance-report";
+import { matchesOrderSearch } from "../lib/order-search";
+import { inFinancePeriod } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
 import styles from "./orders.module.css";
 
@@ -174,21 +175,10 @@ function OrdersContent() {
     finally{olderLock.current=false;setLoadingOlder(false);}
   }
   const filterOrders = useMemo(() => (order: Order) => {
-        const text = [
-          order.order_number,
-          order.customer_name,
-          order.customer_email,
-          order.sales_channel,
-          order.marketplace_name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase("tr-TR");
         return (
           (statusFilter === "ALL" || queueStatus(order) === statusFilter) &&
-          (!dateFrom || financeDate(order.created_at) >= dateFrom) &&
-          (!dateTo || financeDate(order.created_at) <= dateTo) &&
-          text.includes(query.toLocaleLowerCase("tr-TR"))
+          inFinancePeriod(order.created_at, dateFrom, dateTo) &&
+          matchesOrderSearch(order, query, channelText[order.sales_channel ?? ""])
         );
   }, [query, statusFilter, dateFrom, dateTo]);
   const visible = useMemo(() => orders.filter(filterOrders), [orders, filterOrders]);
@@ -271,6 +261,7 @@ function OrdersContent() {
   const [exporting, setExporting] = useState(false);
   async function exportOrders() {
     if (exporting) return;
+    if (dateFrom && dateTo && dateFrom > dateTo) { setMessage("Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz."); return; }
     setExporting(true);
     try {
       const source = selected.length ? visible.filter(order => selected.includes(order.id)) : [...visible];
@@ -374,7 +365,7 @@ function OrdersContent() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Sipariş no, ad soyad veya kanal ara"
+              placeholder="Sipariş, müşteri, ürün, SKU veya kanal ara"
             />
           </label>
           <div className={styles.bulk}>
