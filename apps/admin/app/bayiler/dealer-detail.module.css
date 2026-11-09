@@ -9,3 +9,8 @@
 .infoGrid p{margin:0;color:#29212e;}
 @media(max-width:1000px){.infoGrid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:550px){.infoGrid{grid-template-columns:1fr;}.tabs{flex-wrap:nowrap;overflow-x:auto;}.tabs a{flex-shrink:0;}}
+
+.header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;}
+.header h1{margin:10px 0 0;}
+.header button,.errorCard button{min-height:38px;padding:8px 16px;border-radius:7px;}
+.errorCard{padding:18px;border:1px solid #e6b8b8;border-radius:10px;background:#fff7f7;color:#7f1d1d;}
