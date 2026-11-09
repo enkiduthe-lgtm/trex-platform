@@ -7,6 +7,7 @@ import { AdminNav } from '../../components/admin-nav';
 import { useOrderPermissions } from '../../lib/use-order-permissions';
 import { api } from '../../lib/api';
 import styles from '../orders.module.css';
+import { customerDeliveryFields } from '../../lib/customer-selection';
 import { matchesCustomer } from '../../lib/customer-search';
 
 type Options = {
@@ -46,7 +47,7 @@ export default function NewOrder() {
       setRecentCustomerId(customer.id);
       try { window.localStorage.setItem('trex_recent_order_customer', customer.id); } catch { /* Seçim depolama olmadan da siparişe uygulanır. */ }
     }
-    setForm(current => ({ ...current,customerId:id,recipientName:customer ? `${customer.first_name} ${customer.last_name}` : '',contactEmail:customer?.email ?? '',phone:customer?.phone ?? '' }));
+    setForm(current => ({ ...current,...customerDeliveryFields(current,id),customerId:id,recipientName:customer ? `${customer.first_name} ${customer.last_name}` : '',contactEmail:customer?.email ?? '',phone:customer?.phone ?? '' }));
   }
   async function submit(event:FormEvent) {
     event.preventDefault();
@@ -68,7 +69,7 @@ export default function NewOrder() {
     <Link href="/siparisler">← Siparişler</Link><h1>Yeni yönetici siparişi</h1>
     <p className={styles.notice}>Stok sipariş için ayrılır. Havale ve elden nakit siparişleri tahsilat onayını bekler. Elden nakit seçmek, para alındığı anlamına gelmez. Kapıda ödeme siparişleri depoya hazırlanmak üzere gönderilir; ödeme, teslimatta tahsil edilip finans tarafından onaylanana kadar bekliyor görünür.</p>
     {message&&<p role="alert" className={styles.notice}>{message}</p>}
-    <section className={styles.notice}><label>Satış kanalı<select required value={form.salesChannel} onChange={event=>{setForm({...form,salesChannel:event.target.value});setItems([{productId:'',quantity:1,unitAmount:''}]);}}><option value="">Kanal seçin</option><option value="RETAIL">Perakende Satış</option><option value="WHOLESALE">Toptan Satış</option><option value="PUBLIC_WEB">Site Satış</option><option value="INSTAGRAM">Instagram Satış</option><option value="DEALER_PORTAL">Bayi Satış</option><option value="MARKETPLACE">Pazaryeri Satış</option></select></label><p>Seçim, sipariş raporları ve kanal bazlı fiyatlandırmada kullanılır. Pazaryeri entegrasyonu bağlandığında kayıtlar otomatik bu kanala düşer.</p></section>
+    <section className={styles.notice}><label>Satış kanalı<select required value={form.salesChannel} disabled={busy} onChange={event=>{setMessage('');setForm({...form,salesChannel:event.target.value});setItems([{productId:'',quantity:1,unitAmount:''}]);}}><option value="">Kanal seçin</option><option value="RETAIL">Perakende Satış</option><option value="WHOLESALE">Toptan Satış</option><option value="PUBLIC_WEB">Site Satış</option><option value="INSTAGRAM">Instagram Satış</option><option value="DEALER_PORTAL">Bayi Satış</option><option value="MARKETPLACE">Pazaryeri Satış</option></select></label><p>Seçim, sipariş raporları ve kanal bazlı fiyatlandırmada kullanılır. Pazaryeri entegrasyonu bağlandığında kayıtlar otomatik bu kanala düşer.</p></section>
     {form.salesChannel&&!options&&!message&&<p>Ürün ve depo seçenekleri yükleniyor…</p>}
     {options&&<form onSubmit={submit} className={styles.newOrder}>
       <fieldset disabled={accessLoading||!permissions.create||busy||unavailable}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
