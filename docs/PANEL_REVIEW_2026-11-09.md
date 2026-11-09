@@ -19,11 +19,23 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 
 ## Yerel Doğrulama
 
-- Panel yardımcı modülleri: 30 test geçti.
+- Panel yardımcı modülleri: son toplu koşuda 35 test geçti.
 - Son kaynak değişikliklerinde panel TypeScript kontrolü geçti.
+- Son fiyat değişikliğinden sonra PricingService grubundaki 5 test geçti.
 - API derlemesi, son API değişikliklerinden sonra geçti.
 - Sunucu toplu regresyonu: sekiz grupta 57 test doğrulandı. İlk koşuda 54 geçti, eski rol modelini bekleyen üç test hata verdi; Müdür/Yönetici kuralına güncellenen staff-security grubunun 18 testi tekrar koşuda geçti. Diğer yedi grup ilk koşuda geçti.
 - Kontroller: rol ayrımlı giriş, iki saatlik oturum sınırı, hesap pasifleştirme / parola sıfırlamada oturum iptali, merkezi sipariş geçmişi, ürün satırlı Excel, bayi marjı, perakende kanal grubu ve eski prim erişim sınırları.
+
+## Sonraki Kontrolde Tamamlananlar
+
+- Bayi ve müşteri kartlarında yükleme hatası ile boş kayıt ayrıldı; tekrar deneme eklendi.
+- Ürün fiyatı / maliyeti, havale ve masraf kaydında işlem sırasında yazılan yeni taslakların korunması.
+- Ürün fiyatı alınamadığında fiyat yokmuş gibi gösterimin kaldırılması; kayıtlı para biriminin kullanılması.
+- Ürün önizlemesinde siteye özel fiyatın genel fiyattan önce seçilmesi; eşit başlangıç tarihinde oluşturulma zamanı ve kimlik sırası.
+- Yeni siparişte müşteri değişince önceki teslimat adresinin temizlenmesi; seçenekler için tekrar deneme.
+- Kargo ve masraf işlemlerinin ayrı yönetici izinlerine bağlanması.
+- Kargo özetinde kayıt hazır / taşımada ayrımı; başarısız yükleme sonrasında eski verilerle işlem ve aktarım engeli.
+- Masraf kayıtları için yükleme durumu ve yenileme; başarısız yükleme sırasında kayıt / silme / aktarım engeli.
 
 ## Canlıda Kabul Gerektirenler
 
