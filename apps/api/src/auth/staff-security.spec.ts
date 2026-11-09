@@ -10,10 +10,10 @@ import { Roles } from './roles';
 
 const request = { user: { id: 'owner' } } as never;
 describe('Staff security', () => {
-  it.each(['ADMIN', 'WAREHOUSE', 'FINANCE'])('accepts staff role %s', role => {
+  it.each(['SUPER_ADMIN', 'ADMIN'])('accepts staff role %s', role => {
     expect(validateSync(plainToInstance(CreateStaffUserDto, { email: 'staff@example.com', password: 'long-password-123', role }))).toHaveLength(0);
   });
-  it.each(['SUPER_ADMIN', 'DEALER', 'CUSTOMER', 'UNKNOWN', null])('rejects role %s', role => {
+  it.each(['WAREHOUSE', 'FINANCE', 'DEALER', 'CUSTOMER', 'UNKNOWN', null])('rejects role %s', role => {
     expect(validateSync(plainToInstance(CreateStaffUserDto, { email: 'staff@example.com', password: 'long-password-123', role })).some(error => error.property === 'role')).toBe(true);
   });
   it('requires a sufficiently long replacement password', () => {
