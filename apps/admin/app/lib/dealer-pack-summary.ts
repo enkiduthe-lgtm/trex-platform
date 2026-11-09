@@ -1,5 +1,5 @@
 import type { DealerPrice } from './dealer-prices';
-export function dealerPackSummary(pack:DealerPrice,single:DealerPrice|undefined,size:number) {
+export function dealerPackSummary(pack:Pick<DealerPrice,'amount'|'currency'>,single:Pick<DealerPrice,'amount'|'currency'>|undefined,size:number) {
   const amount=Number(pack.amount);
   if(!Number.isFinite(amount)||amount<0||!Number.isInteger(size)||size<2)return null;
   const format=(value:number)=>value.toLocaleString('tr-TR',{style:'currency',currency:pack.currency});
