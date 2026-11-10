@@ -65,3 +65,9 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - audit_logs.entity_id çekirdek migrationda text; sipariş / iade kimlikleri uuid. UUID tarafını text olarak karşılaştıracak şekilde sipariş detayı, bayi portalı, bayi raporları / kartı, prim satış özeti ve iade listesi düzeltildi. İş kayıtları veya tablo türleri değiştirilmedi.
 - API derlemesi geçti. Bayi portalı ve sipariş listesi gruplarında 15 test geçti. Eski bayi servis testindeki eksik bildirim bağımlılığı test kurulumuna eklendi.
 - Canlı API henüz bu düzeltmeyi içermiyor. Sipariş detayı / müşteri bağlantısının başarılı ekran kontrolü API yayını sonrasında yapılmalı.
+
+## SQL Tür Hatasının İzole Doğrulaması
+
+- scripts/verify-order-audit-types.cjs canlı bağlantı olmadan bellek içi PGlite PostgreSQL motorunda çalıştırıldı.
+- OrdersService.detail içindeki gerçek ilk SQL sorgusu kaynak dosyadan okunarak çalıştırıldı. Eski karşılaştırmanın text = uuid hatası verdiği, düzeltmenin doğru sipariş / bayi / seviye verisi döndürdüğü doğrulandı. İlgisiz metin kimlikli işlem günlüğü ve işlem geçmişi olmayan sipariş senaryoları geçti.
+- Test bağımlılığı yalnız tmp/order-sql-check içinde; üretim package.json veya lock dosyaları değiştirilmedi. Çalıştırma: node scripts/verify-order-audit-types.cjs tmp/order-sql-check

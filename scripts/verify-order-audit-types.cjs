@@ -1,0 +1,25 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {PGlite}=require(path.resolve(process.argv[2]||'tmp/order-sql-check','node_modules/@electric-sql/pglite'));
+(async()=>{const db=new PGlite();try{
+await db.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,customer_id uuid,checkout_id uuid,order_number text,status text,sales_channel text,total_amount numeric,cod_service_fee numeric,currency text,created_at timestamptz);
+CREATE TABLE customers(id uuid,email text); CREATE TABLE checkout_sessions(id uuid,contact_email text,contact_name text);
+CREATE TABLE dealers(id uuid,company_name text,contact_name text,dealer_level_id uuid); CREATE TABLE dealer_levels(id uuid,name text);
+CREATE TABLE audit_logs(id uuid,entity_type text,action text,entity_id text,metadata jsonb,created_at timestamptz);
+CREATE TABLE payments(checkout_id uuid,status text); CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
+CREATE TABLE picking_sessions(id uuid,order_id uuid,status text); CREATE TABLE packing_sessions(picking_session_id uuid);`);
+const orderId='11111111-1111-4111-8111-111111111111',dealerId='22222222-2222-4222-8222-222222222222',levelId='33333333-3333-4333-8333-333333333333';
+await db.query("INSERT INTO orders(id,order_number,status,sales_channel,total_amount,cod_service_fee,currency,created_at) VALUES($1,'SQL-TEST','PROCESSING','DEALER_PORTAL',100,0,'TRY',now())",[orderId]);
+await db.query("INSERT INTO dealers VALUES($1,'Test Bayi','Test Yetkili',$2)",[dealerId,levelId]);
+await db.query("INSERT INTO dealer_levels VALUES($1,'Test Seviyesi')",[levelId]);
+await db.query("INSERT INTO audit_logs VALUES($1,'order','order.dealer.created',$2,$3,now()),($4,'other','test','not-a-uuid','{}',now())",[orderId,orderId,JSON.stringify({dealerId}),dealerId]);
+const source=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/orders.service.ts'),'utf8');
+const detail=source.slice(source.indexOf('async detail(id:string)'));
+const sql=detail.match(/this\.db\.query[^`]*`([^`]+)`/)[1];
+assert.ok(sql.includes('entity_id=o.id::text'));
+await assert.rejects(db.query(sql.replace('entity_id=o.id::text','entity_id=o.id'),[orderId]),/operator does not exist: text = uuid/);
+const result=await db.query(sql,[orderId]);
+assert.equal(result.rows.length,1);assert.equal(result.rows[0].dealer_id,dealerId);assert.equal(result.rows[0].dealer_level_name,'Test Seviyesi');
+await db.exec('DELETE FROM audit_logs');
+const withoutHistory=await db.query(sql,[orderId]);assert.equal(withoutHistory.rows.length,1);assert.equal(withoutHistory.rows[0].dealer_id,null);
+console.log('PASS: old SQL reproduces text/uuid failure; current detail joins dealer and level; missing or unrelated audit history is safe.');
+}finally{await db.close();}})().catch(error=>{console.error(error.message);process.exitCode=1;});
