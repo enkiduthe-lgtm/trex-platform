@@ -137,6 +137,7 @@ function OrdersContent() {
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set());
   const noteLocks = useRef(new Set<string>());
   const dirtyNotes = useRef(new Set<string>());
+  const noteRevisions = useRef(new Map<string, number>());
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -259,14 +260,18 @@ function OrdersContent() {
   async function saveOrderNote(order: Order) {
     if (!canEdit || noteLocks.current.has(order.id) || !dirtyNotes.current.has(order.id)) return;
     noteLocks.current.add(order.id);
+    const submittedRevision = noteRevisions.current.get(order.id) ?? 0;
+    const submittedNote = orderNotes[order.id] ?? '';
     setSavingNotes(current => new Set(current).add(order.id));
     try {
       const result = await api<OrderNote>(`/admin/orders/${order.id}/note`, {
         method: "PATCH",
-        body: JSON.stringify({ note: orderNotes[order.id] ?? "" }),
+        body: JSON.stringify({ note: submittedNote }),
       });
-      dirtyNotes.current.delete(order.id);
-      setOrderNotes((current) => ({ ...current, [order.id]: result.admin_note ?? "" }));
+      if ((noteRevisions.current.get(order.id) ?? 0) === submittedRevision) {
+        dirtyNotes.current.delete(order.id);
+        setOrderNotes((current) => ({ ...current, [order.id]: result.admin_note ?? "" }));
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sipariş açıklaması kaydedilemedi");
     } finally {
@@ -594,7 +599,7 @@ function OrdersContent() {
                       value={orderNotes[order.id] ?? ""}
                       maxLength={1000}
                       placeholder="Açıklama ekle"
-                      onChange={(event) => { dirtyNotes.current.add(order.id); setOrderNotes((current) => ({ ...current, [order.id]: event.target.value })); }}
+                      onChange={(event) => { const value = event.target.value; noteRevisions.current.set(order.id, (noteRevisions.current.get(order.id) ?? 0) + 1); dirtyNotes.current.add(order.id); setOrderNotes((current) => ({ ...current, [order.id]: value })); }}
                       onBlur={() => void saveOrderNote(order)}
                       disabled={savingNotes.has(order.id)}
                       style={{ minWidth: 160, minHeight: 42, resize: "vertical" }}
