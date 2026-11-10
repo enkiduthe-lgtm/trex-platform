@@ -114,6 +114,22 @@ const orderStatus: Record<string, string> = {
   CANCELLED: "İptal edildi",
   REFUNDED: "İade edildi",
 };
+const returnStatus: Record<string,string> = {
+  REQUESTED:'Talep alındı', APPROVED:'Onaylandı', RECEIVED:'Depoya ulaştı',
+  INSPECTED:'İncelendi', REFUNDED:'Ücret iade edildi', REJECTED:'Reddedildi', CANCELLED:'İptal edildi',
+};
+const activityLabel: Record<string,string> = {
+  'order.admin.created':'Sipariş oluşturuldu', 'order.dealer.created':'Bayi siparişi oluşturuldu',
+  'order.admin.updated':'Sipariş bilgileri düzenlendi', 'order.admin.prices.updated':'Sipariş fiyatları değiştirildi',
+  'order.admin_note.updated':'Sipariş notu güncellendi', 'order.cancelled':'Sipariş iptal edildi',
+  'warehouse.order.prepared':'Ürünler hazırlandı', 'warehouse.pick.started':'Hazırlama başlatıldı',
+  'warehouse.pick.completed':'Hazırlama tamamlandı', 'warehouse.package.completed':'Paketleme tamamlandı',
+  'warehouse.pick_item.updated':'Hazırlanan ürün güncellendi', 'warehouse.pick_item.scanned':'Ürün barkodu okutuldu',
+  'invoice.parasut.draft_created':'Fatura taslağı oluşturuldu', 'invoice.parasut.issued':'Fatura düzenlendi',
+  'order.list.deleted':'Sipariş silinenlere taşındı', 'order.list.restored':'Sipariş geri alındı',
+  'return.requested':'İade talebi alındı', 'return.approved':'İade onaylandı', 'return.rejected':'İade reddedildi',
+  'return.received':'İade depoya ulaştı', 'return.inspected':'İade incelendi', 'return.refunded':'İade ücreti ödendi',
+};
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
 const escapeLabelHtml = (value: string) =>
@@ -603,7 +619,7 @@ export default function OrderDetail() {
                   <tbody>
                     {data.returns.map((item) => (
                       <tr key={item.id}>
-                        <td>{item.status}</td>
+                        <td>{returnStatus[item.status] ?? item.status}</td>
                         <td>{item.reason}</td>
                         <td>
                           {new Date(item.requested_at).toLocaleString("tr-TR")}
@@ -627,13 +643,16 @@ export default function OrderDetail() {
             <details className={styles.detailCard}>
             <summary>İşlem geçmişi</summary>
             {data.activity.length ? (
-              <div className={styles.activityList}>{data.activity.map((item, index) => (
-                <p className={styles.activityItem} key={`${item.action}-${item.created_at}-${index}`}>
-                  <strong>{item.action}</strong> ·{" "}
-                  {item.actor_email ?? "Sistem"} ·{" "}
-                  {new Date(item.created_at).toLocaleString("tr-TR")}
-                </p>
-              ))}</div>
+              <div className={styles.tableWrap}><table>
+                <thead><tr><th>İşlem</th><th>İşlemi Yapan</th><th>Tarih</th></tr></thead>
+                <tbody>{data.activity.map((item, index) => (
+                  <tr key={`${item.action}-${item.created_at}-${index}`}>
+                    <td>{activityLabel[item.action] ?? item.action}</td>
+                    <td>{item.actor_email ?? "Sistem"}</td>
+                    <td>{new Date(item.created_at).toLocaleString("tr-TR")}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
             ) : (
               <p className={styles.emptyNote}>Ek işlem kaydı yok.</p>
             )}
