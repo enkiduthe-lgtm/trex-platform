@@ -30,6 +30,7 @@ type Order = {
   total_amount: string;
   currency: string;
   created_at: string;
+  customer_id?: string | null;
   customer_email: string | null;
   customer_name: string | null;
   item_count: string;
@@ -102,7 +103,7 @@ function OrdersContent() {
   const [permissions, setPermissions] = useState(() => orderPermissions(''));
   const {
     create: canCreate, edit: canEdit, prepare: canPrepare, ship: canShip,
-    verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer,
+    verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer, viewCustomer: canViewCustomer,
   } = permissions;
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const actionLock = useRef(false);
@@ -485,8 +486,8 @@ function OrdersContent() {
                     </ul>}
                   </td>
                   <td>
-                    <Link href={`/siparisler/${order.id}#musteri`}><b>{order.customer_name ?? "Misafir Müşteri"}</b></Link>
-                    <small>Müşteri Kartını Aç</small>
+                    <Link href={canViewCustomer&&order.customer_id?`/musteriler?customer=${encodeURIComponent(order.customer_id)}`:`/siparisler/${order.id}#musteri`}><b>{order.customer_name ?? "Misafir Müşteri"}</b></Link>
+                    <small>{canViewCustomer&&order.customer_id?'Müşteri Kartı Ve Geçmiş Siparişleri':'Siparişin Müşteri Ve Teslimat Bilgileri'}</small>
                   </td>
                   <td>
                     <b>{money(order.total_amount, order.currency)}</b>

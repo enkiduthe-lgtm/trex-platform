@@ -9,6 +9,7 @@ describe('Central order history',()=>{
     expect(await new OrdersService(db as never).list()).toEqual(rows);
     expect(db.query.mock.calls[0][1]).toEqual([null,null]);
     expect(db.query.mock.calls[0][0]).toContain("o.admin_note");
+    expect(db.query.mock.calls[0][0]).toContain("o.customer_id");
   });
   it('uses a stable date and id cursor so new orders do not shift older pages',async()=>{
     const db={query:jest.fn().mockResolvedValue({rows:[]})};
