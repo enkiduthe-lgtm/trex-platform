@@ -118,6 +118,10 @@ const returnStatus: Record<string,string> = {
   REQUESTED:'Talep alındı', APPROVED:'Onaylandı', RECEIVED:'Depoya ulaştı',
   INSPECTED:'İncelendi', REFUNDED:'Ücret iade edildi', REJECTED:'Reddedildi', CANCELLED:'İptal edildi',
 };
+const supportStatus: Record<string,string> = {
+  OPEN:'Açık', IN_PROGRESS:'İşlemde', WAITING_CUSTOMER:'Müşteri bekleniyor', RESOLVED:'Çözüldü', CLOSED:'Kapandı',
+};
+const supportPriority: Record<string,string> = {LOW:'Düşük', NORMAL:'Normal', HIGH:'Yüksek', URGENT:'Acil'};
 const activityLabel: Record<string,string> = {
   'order.admin.created':'Sipariş oluşturuldu', 'order.dealer.created':'Bayi siparişi oluşturuldu',
   'order.admin.updated':'Sipariş bilgileri düzenlendi', 'order.admin.prices.updated':'Sipariş fiyatları değiştirildi',
@@ -658,10 +662,10 @@ export default function OrderDetail() {
             )}
             </details>
             <details className={`${styles.detailCard} ${styles.detailWide}`}>
-            <summary>Bağlı destek talepleri</summary>
-            <Link className={styles.financeLink} href={`/destek?order=${id}`}>
+            <summary>Bağlı destek talepleri ({data.supportTickets.length})</summary>
+            <div className={styles.cardActions}><Link className={styles.financeLink} href={`/destek?order=${id}`}>
               Bu sipariş için destek talebi aç
-            </Link>
+            </Link></div>
             {data.supportTickets.length ? (
               <div className={styles.tableWrap}>
                 <table>
@@ -671,19 +675,21 @@ export default function OrderDetail() {
                       <th>Konu</th>
                       <th>Durum</th>
                       <th>Öncelik</th>
+                      <th>Oluşturuldu</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.supportTickets.map((ticket) => (
                       <tr key={ticket.id}>
                         <td>
-                          <Link href={`/destek?ticket=${ticket.id}`}>
+                          <Link className={styles.secondaryAction} href={`/destek?ticket=${ticket.id}`} aria-label={`${ticket.ticket_number} numaralı destek talebini aç`}>
                             {ticket.ticket_number}
                           </Link>
                         </td>
                         <td>{ticket.subject}</td>
-                        <td>{ticket.status}</td>
-                        <td>{ticket.priority}</td>
+                        <td>{supportStatus[ticket.status] ?? ticket.status}</td>
+                        <td>{supportPriority[ticket.priority] ?? ticket.priority}</td>
+                        <td>{new Date(ticket.created_at).toLocaleString('tr-TR')}</td>
                       </tr>
                     ))}
                   </tbody>
