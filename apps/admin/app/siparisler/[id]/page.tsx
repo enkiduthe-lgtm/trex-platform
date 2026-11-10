@@ -208,9 +208,9 @@ export default function OrderDetail() {
     autoPrinted.current = true;
     if(data.shipments.some(shipment=>shipment.provider==='aras')) {
       if (!canVerify) { setError('Aras Barkod Doğrulaması İçin Kargo Yetkisi Gerekli.'); return; }
-      void api<{found:boolean;integrationCode:string}>(`/admin/orders/${id}/shipment/verify`,{method:'POST'}).then(result=>{
-        if(!result.found){setError('Aras Kaydı Bulunamadı. MÖK Barkodu Yazdırılmadı.');return;}
-        printPackageBarcode(result.integrationCode,true);
+      void api<{found:boolean;packageBarcode:string}>(`/admin/orders/${id}/shipment/verify`,{method:'POST'}).then(result=>{
+        if(!result.found || !result.packageBarcode){setError('Aras parça barkodu doğrulanamadı.');return;}
+        printPackageBarcode(result.packageBarcode,true);
       }).catch(e=>setError(e instanceof Error?e.message:'Aras Kaydı Doğrulanamadı. Barkod Yazdırılmadı.'));
       return;
     }
@@ -310,8 +310,8 @@ export default function OrderDetail() {
       setOperationBusy(false);
     }
   }
-  function printPackageBarcode(packageBarcode: string, arasMok = false) {
-    const value = packageBarcode.toUpperCase();
+  function printPackageBarcode(packageBarcode: string, arasPiece = false) {
+    const value = packageBarcode;
     const encoded = `*${value}*`;
     if (!value || value.includes("*") || [...encoded].some((character) => !code39[character])) {
       setError("Barkod Desteklenmeyen Karakter İçeriyor. Barkod Kaydını Kontrol Edin.");
@@ -337,10 +337,7 @@ export default function OrderDetail() {
     const products = data?.items.length
       ? data.items.map((item) => `<li>${escapeLabelHtml(item.product_name)} <b>× ${item.quantity}</b></li>`).join("")
       : "<li>Ürün bilgisi bulunamadı</li>";
-    const originalWrite = label.document.write.bind(label.document);
-    // Long existing MÖK codes need a wider label to retain scannable bars.
-    const writeLabel = (html:string) => originalWrite(arasMok ? html.replaceAll('Paket barkodu','Aras MÖK Barkodu').replace('TREX TEA PAKET BARKODU','ARAS MÖK BARKODU').replace('size:100mm 80mm','size:160mm 100mm').replace('width:92mm','width:152mm') : html);
-    writeLabel(`<!doctype html><html lang="tr"><head><title>Paket barkodu ${value}</title><style>@page{size:100mm 80mm;margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:92mm;box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.print-actions{display:flex;justify-content:center;padding:16px}.print-actions button{padding:12px 24px;font-size:16px;cursor:pointer}@media print{.print-actions{display:none}}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>TREX TEA PAKET BARKODU</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg preserveAspectRatio="none" viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><div class="print-actions"><button type="button" onclick="window.print()">Barkodu Yazdır</button></div><script>window.onload=()=>window.print()</script></body></html>`);
+    label.document.write(`<!doctype html><html lang="tr"><head><title>${arasPiece ? "Aras parça barkodu" : "Paket barkodu"} ${value}</title><style>@page{size:${arasPiece ? "160mm 100mm" : "100mm 80mm"};margin:4mm}body{font-family:Arial,sans-serif;margin:0;color:#111}.label{border:1px solid #111;padding:4mm;width:${arasPiece ? "152mm" : "92mm"};box-sizing:border-box}h1{font-size:15px;margin:0 0 2mm}.meta{display:flex;justify-content:space-between;gap:5mm;font-size:11px;margin:0 0 2mm}.products{border-top:1px solid #222;border-bottom:1px solid #222;margin:2mm 0;padding:2mm 0}.products strong{font-size:11px}.products ul{padding:0 0 0 4mm;margin:1mm 0;font-size:10px;columns:2}.products li{margin:0 0 1mm}.print-actions{display:flex;justify-content:center;padding:16px}.print-actions button{padding:12px 24px;font-size:16px;cursor:pointer}@media print{.print-actions{display:none}}.code{font-size:15px;letter-spacing:1px;font-weight:bold;text-align:center;margin-top:0}</style></head><body><section class="label"><h1>${arasPiece ? "ARAS PARÇA BARKODU" : "TREX TEA PAKET BARKODU"}</h1><div class="meta"><span>Sipariş: <b>${orderNumber}</b></span><span>Alıcı: <b>${recipient}</b></span></div><section class="products"><strong>Paket içeriği</strong><ul>${products}</ul></section><svg preserveAspectRatio="none" viewBox="0 0 ${cursor + 20} 116" width="100%" height="31mm" role="img" aria-label="${value}">${bars.join("")}</svg><div class="code">${value}</div></section><div class="print-actions"><button type="button" onclick="window.print()">Barkodu Yazdır</button></div><script>window.onload=()=>window.print()</script></body></html>`);
     label.document.close();
   }
   async function cancelOrder() {
@@ -440,7 +437,7 @@ export default function OrderDetail() {
           <>
             <div className={styles.detailLayout}>
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
-              <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Aras Kaydı Ve MÖK. → Kargo Takibi</span></div>
+              <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Aras Kaydı ve Parça Barkodu → Kargo Takibi</span></div>
               {data.status==='PENDING_PAYMENT'&&<p className={styles.notice}>Önce Ödeme Kontrolünü Tamamlayın. <Link href={`/siparisler/havaleler?order=${encodeURIComponent(data.order_number)}`}>Havale Eşleştirme Ekranını Aç</Link></p>}
               {operationMessage && <p role="status">{operationMessage}</p>}
               <ol className={styles.flowGrid}>
@@ -466,7 +463,7 @@ export default function OrderDetail() {
                   {canVerify && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
                   {canShip && preparationAction(data) === 'ship' && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
                   {canShip && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
-                  {arasCheck?.found && arasCheck.orderNumber===data.order_number && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.integrationCode,true)}>Aras MÖK Barkodunu Yazdır</button><span>Mevcut Doğrulanmış Entegrasyon Kodu Basılır. Paket Kaydı Değişmez. 160 × 100 mm, Gerçek Boyutta Yazdırın.</span></div>}
+                  {arasCheck?.found && arasCheck.orderNumber===data.order_number && <div className={styles.cardActions}><button type="button" className={styles.secondaryAction} onClick={()=>printPackageBarcode(arasCheck.packageBarcode,true)}>Aras Parça Barkodunu Yazdır</button><span>Şubede bu etiketi okutun. Yazdırırken gerçek boyutu seçin.</span></div>}
                   {automaticTracking === false && canUpdateShipment && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("IN_TRANSIT", "SHIPPED")}>{operationBusy ? "Kaydediliyor…" : "Kargoya verildi olarak işaretle"}</button>}
                   {automaticTracking === false && canUpdateShipment && data.status === "SHIPPED" && data.fulfillment?.shipment_status === "IN_TRANSIT" && <button type="button" disabled={operationBusy} onClick={() => void moveShipment("DELIVERED", "DELIVERED")}>{operationBusy ? "Kaydediliyor…" : "Teslim edildi olarak işaretle"}</button>}
                 </li>

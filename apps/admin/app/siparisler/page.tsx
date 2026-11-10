@@ -533,7 +533,7 @@ function OrdersContent() {
                         <OrderIcon name="print" /><span>Fatura</span>
                       </Link>
                       <Link className={`${styles.printLink} ${styles.iconLink}`} href={`/siparisler/${order.id}?print=barcode`} target="_blank" rel="noopener noreferrer" title="Sipariş Barkodu Yazdır">
-                        <OrderIcon name="barcode" /><span>{order.shipping_provider==='aras'?'Aras MÖK.':'Paket Etiketi'}</span>
+                        <OrderIcon name="barcode" /><span>{order.shipping_provider==='aras'?'Aras Parça Barkodu':'Paket Etiketi'}</span>
                       </Link>
                     </div>
                   </td>
