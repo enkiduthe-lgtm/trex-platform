@@ -230,7 +230,14 @@ export default function OrderDetail() {
     finally{setOperationBusy(false);}
   }
   async function refreshOrder() {
-    setData(await api<Detail>(`/admin/orders/${id}`));
+    try {
+      setData(await api<Detail>(`/admin/orders/${id}`));
+    } catch {
+      // The mutation has already returned successfully. Hide stale actions;
+      // retrying this screen must only read the updated order, never resend it.
+      setData(null);
+      throw new Error('İşlem kaydedildi ancak güncel sipariş bilgileri yüklenemedi. Tekrar Dene düğmesi yalnız bilgileri yeniler; işlemi yeniden göndermez.');
+    }
   }
   async function startPreparation() {
     if (operationBusy) return;
@@ -342,7 +349,7 @@ export default function OrderDetail() {
     setError("");
     try {
       await api(`/admin/orders/${id}/cancel`, { method: "POST" });
-      setData(await api<Detail>(`/admin/orders/${id}`));
+      await refreshOrder();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sipariş iptal edilemedi");
     } finally {

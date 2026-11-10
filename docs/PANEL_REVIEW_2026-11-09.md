@@ -73,3 +73,12 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Test bağımlılığı yalnız tmp/order-sql-check içinde; üretim package.json veya lock dosyaları değiştirilmedi. Çalıştırma: node scripts/verify-order-audit-types.cjs tmp/order-sql-check
 
 - İzole sipariş detayı kontrolü dokuz gerçek SQL sorgusunun tamamına genişletildi. Kaynak sorgular doğrudan çalıştırıldı; test teslimat adresi, beş adetlik ürün, paket barkodu ve tamamlanmış hazırlık kaydıyla sonuçlar doğrulandı. Bu kontrol canlı veritabanı şema farklarını veya tam HTTP / yetki akışını doğrulamaz.
+
+## Sipariş Detayı Düzenlemeleri — Yayın Bekliyor
+
+- Yükleme ve hata kutusu, yalnız okuma yapan tekrar deneme ve sipariş listesine dönüş.
+- Durum özeti listeyle aynı kuyruk kuralını kullanıyor; kargo kaydı hazır ve fiziksel kargo aşaması ayrı gösteriliyor.
+- Bayi prim bakiyesi ödeme adı, Türkçe iade / destek durumları ve işlem geçmişi tablosu.
+- Kompakt detay tabloları, hizalı tutarlar ve düğmeler; ürün kalemi ile toplam adet ayrı gösteriliyor.
+- İşlem başarılı olup sonrasındaki okuma başarısız olursa eski işlem düğmeleri kaldırılıyor. Tekrar deneme siparişi yeniden okur; hazırlama / kargo / iptal isteğini yeniden göndermez.
+- Son toplu panel yardımcı modül koşusunda 37 test geçti. Bu ekran değişikliklerinin yeni üretim derlemesi ve görsel kabulü henüz yapılmadı; çalışan yerel üretim sunucusu eski derlemeyi gösteriyor.
