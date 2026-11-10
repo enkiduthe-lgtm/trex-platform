@@ -198,6 +198,7 @@ function OrdersContent() {
         );
   }, [query, statusFilter, dateFrom, dateTo]);
   const visible = useMemo(() => orders.filter(filterOrders), [orders, filterOrders]);
+  useEffect(() => { setSelected([]); }, [query, statusFilter, dateFrom, dateTo]);
   const countFor = (status: string) =>
     status === "ALL" ? orders.length : orders.filter((order) => queueStatus(order) === status).length;
   const toggle = (id: string) =>
@@ -280,9 +281,12 @@ function OrdersContent() {
     }
   }
   const [exporting, setExporting] = useState(false);
+  const exportLock = useRef(false);
   async function exportOrders() {
-    if (exporting) return;
+    if (exportLock.current || listLoading || listFailed) return;
     if (dateFrom && dateTo && dateFrom > dateTo) { setMessage("Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz."); return; }
+    if (selected.some(id => !visible.some(order => order.id === id))) { setMessage('Filtre dışında kalan seçimler var. Seçimi kaldırıp rapora girecek siparişleri yeniden seçin.'); return; }
+    exportLock.current = true;
     setExporting(true);
     try {
       const source = selected.length ? visible.filter(order => selected.includes(order.id)) : [...visible];
@@ -332,7 +336,7 @@ function OrdersContent() {
     downloadXlsx("trex-siparisler.xlsx", "Siparişler", rows);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sipariş Raporu Hazırlanamadı.");
-    } finally { setExporting(false); }
+    } finally { exportLock.current = false; setExporting(false); }
   }
   return (
     <main>
@@ -391,7 +395,7 @@ function OrdersContent() {
             />
           </label>
           <div className={styles.bulk}>
-            <button type="button" disabled={exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
+            <button type="button" disabled={listLoading || listFailed || exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
               {exporting ? "Rapor Hazırlanıyor…" : "Excel’e Aktar"}{selected.length ? ` (${selected.length})` : ""}
             </button>
             {selected.length > 0 && (
