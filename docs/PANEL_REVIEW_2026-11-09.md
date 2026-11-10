@@ -51,3 +51,10 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Aras: servis kayıt eşleşmesi şube kabulü değildir. 20261106-000005 için şubede okunamama sorunu, gerçek takip numarası ve kabul doğrulanmadan kapanmış sayılmaz. Mükerrer gönderi oluşturulmaz.
 - Etiket ölçüsü depo tarafından henüz kesinleştirilmedi.
 - Hepsiburada ve N11 bağlantıları, panel eksikleri tamamlandıktan sonra ele alınacak.
+
+## 10 Kasım Yerel Görsel Kontrolü
+
+- Müdür hesabıyla uygulama içi yerel panel erişimi doğrulandı. Ana sayfanın kart ve grafik alanları masaüstü görünümde incelendi.
+- Ana sayfada onaylı sipariş sayısının ödeme bekleyenlere yönlenmesi düzeltildi.
+- Durum grafiğinin kargo kaydı hazır siparişlerini dışarıda bırakması düzeltildi; yeni iki test ve TypeScript kontrolü geçti. Bu son düzeltmeden sonra tam üretim derlemesi ve yeni ekran kontrolü henüz yapılmadı.
+- Yerel panel canlı eski API’ye bağlı: sipariş ürün adları ve ödeme yöntemi gibi eklenen API alanları henüz dönmüyor. Bu alanlar için API ve panel aynı paketle yayınlanıp birlikte doğrulanmalı; eksik veri uydurulmadı.
