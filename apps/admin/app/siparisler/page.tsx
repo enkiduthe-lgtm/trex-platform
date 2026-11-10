@@ -127,6 +127,8 @@ function OrdersContent() {
     return () => { active = false; };
   }, []);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listFailed, setListFailed] = useState(false);
   const [hasOlder,setHasOlder]=useState(false);
   const [loadingOlder,setLoadingOlder]=useState(false);
   const olderLock=useRef(false);
@@ -153,16 +155,23 @@ function OrdersContent() {
   }, [searchParams]);
   const load = () => {
     const generation = ++listGeneration.current;
+    setListLoading(true);
     return api<Order[]>("/admin/orders")
       .then((loadedOrders) => {
-        if (generation !== listGeneration.current) return;
+        if (generation !== listGeneration.current) return false;
+        setListFailed(false);
         setOrders(loadedOrders);
         setHasOlder(loadedOrders.length === 100);
         setOrderNotes(current=>mergeOrderNotes(current,loadedOrders,dirtyNotes.current));
+        return true;
       })
       .catch((e) => {
-        if (generation === listGeneration.current) setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
-      });
+        if (generation === listGeneration.current) {
+          setOrders([]); setSelected([]); setHasOlder(false); setListFailed(true);
+          setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
+        }
+        return false;
+      }).finally(() => { if (generation === listGeneration.current) setListLoading(false); });
   };
   useEffect(() => {
     void load();
@@ -241,8 +250,8 @@ function OrdersContent() {
       } else {
         await api(`/admin/warehouse/orders/${order.id}/prepare`, { method: 'POST' });
       }
-      await load();
-      setMessage(`${order.order_number}: ${stage === 'pack' ? 'Paket Hazırlandı Ve Barkod Oluşturuldu.' : stage === 'ship' ? 'Kargo Kaydı Oluşturuldu.' : 'Ürünler Hazırlandı. Paketleme İşlemine Geçebilirsiniz.'}`);
+      if (await load()) setMessage(`${order.order_number}: ${stage === 'pack' ? 'Paket Hazırlandı Ve Barkod Oluşturuldu.' : stage === 'ship' ? 'Kargo Kaydı Oluşturuldu. Fiziksel Şube Kabulü Henüz Doğrulanmadı.' : 'Ürünler Hazırlandı. Paketleme İşlemine Geçebilirsiniz.'}`);
+      else setMessage(`${order.order_number}: İşlem kaydedildi ancak güncel liste yüklenemedi. Listeyi tekrar yükleyin; işlemi yeniden göndermeyin.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Sipariş Hazırlanamadı');
     } finally { actionLock.current = false; setPendingAction(null); }
@@ -359,6 +368,7 @@ function OrdersContent() {
             {message}
           </p>
         )}
+        {listFailed && <div className={styles.cardActions}><button type="button" disabled={listLoading} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
         <div className={styles.toolbar}>
           <button
             type="button"
@@ -598,7 +608,7 @@ function OrdersContent() {
           </table>
           {visible.length === 0 && (
             <div className={styles.empty}>
-              Bu filtrelerde sipariş bulunamadı.
+              {listLoading ? 'Siparişler yükleniyor…' : listFailed ? 'Sipariş listesi yüklenemedi. Güncel bilgiler alınana kadar işlem düğmeleri gösterilmiyor.' : 'Bu filtrelerde sipariş bulunamadı.'}
             </div>
           )}
         </div>
