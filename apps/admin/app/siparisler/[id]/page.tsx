@@ -174,6 +174,8 @@ export default function OrderDetail() {
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (!data || !permissionsReady || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
@@ -355,6 +357,8 @@ export default function OrderDetail() {
   useEffect(() => {
     let active = true;
     setData(null);
+    setLoading(true);
+    setInvoice(null);
     setArasCheck(null);
     setOperationMessage('');
     setError("");
@@ -365,22 +369,32 @@ export default function OrderDetail() {
       .catch((e) => {
         if (active)
           setError(e instanceof Error ? e.message : "Sipariş yüklenemedi");
-      });
+      }).finally(() => { if (active) setLoading(false); });
     if (role === "SUPER_ADMIN") api<Invoice | null>(`/admin/orders/${id}/invoice`).then((value) => {
       if (active) setInvoice(value);
     }).catch(() => { if (active) setInvoice(null); });
     return () => {
       active = false;
     };
-  }, [id, role]);
+  }, [id, role, loadAttempt]);
   return (
     <main>
       <AdminNav />
       <section className={styles.page}>
         <Link href="/siparisler">← Siparişler</Link>
         <h1>Sipariş detayı {data?.order_number}</h1>
-        {error && <p role="alert">{error}</p>}
-        {!data && !error && <p>Yükleniyor…</p>}
+        {error && data && <p className={styles.notice} role="alert">{error}</p>}
+        {!data && <section className={styles.detailCard} aria-busy={loading}>
+          <h2>{loading ? "Sipariş Yükleniyor" : "Sipariş Açılamadı"}</h2>
+          {loading ? <p role="status">Sipariş, müşteri ve paket bilgileri getiriliyor…</p> : <>
+            <p className={styles.notice} role="alert">{error || "Sipariş bilgilerine ulaşılamadı."}</p>
+            <p>Bilgileri yeniden yükleyebilir veya sipariş listesine dönebilirsiniz.</p>
+            <div className={styles.cardActions}>
+              <button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt(value => value + 1); }}>Tekrar Dene</button>
+              <Link className={styles.secondaryAction} href="/siparisler">Sipariş Listesine Dön</Link>
+            </div>
+          </>}
+        </section>}
         {data && (
           <>
             <div className={styles.detailLayout}>
