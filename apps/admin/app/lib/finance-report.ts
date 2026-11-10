@@ -4,7 +4,8 @@ export function financeDate(value: string) {
   return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
 export function financeDateTime(value: string) {
-  return new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Tarih belirtilmedi' : date.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
 }
 export function inFinancePeriod(value: string, from: string, to: string) {
   const date = financeDate(value);

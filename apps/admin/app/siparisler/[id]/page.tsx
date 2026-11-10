@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { DealerLevelBadge } from "../../components/dealer-level-badge";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
+import { financeDateTime } from "../../lib/finance-report";
 import { createActionLock } from "../../lib/async-controls";
 import { orderPermissions } from '../../lib/order-permissions';
 import { nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
@@ -471,7 +472,7 @@ export default function OrderDetail() {
                 </li>
               </ol>
 
-              {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{new Date(arasCheck.checkedAt).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td></tr></tbody></table></div>}
+              {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{financeDateTime(arasCheck.checkedAt)}</td></tr></tbody></table></div>}
             </section>
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
               <div className={styles.cardHeader}>
@@ -545,13 +546,11 @@ export default function OrderDetail() {
                       <td>{paymentStatus[payment.status] ?? payment.status}</td>
                       <td className={styles.moneyCell}>{money(payment.amount, payment.currency)}</td>
                       <td>
-                        {new Date(payment.created_at).toLocaleString("tr-TR")}
+                        {financeDateTime(payment.created_at)}
                       </td>
                       <td>
                         {payment.verified_at
-                          ? new Date(payment.verified_at).toLocaleString(
-                              "tr-TR",
-                            )
+                          ? financeDateTime(payment.verified_at)
                           : "Henüz doğrulanmadı"}
                       </td>
                     </tr>
@@ -611,7 +610,7 @@ export default function OrderDetail() {
                         <td>
                           {shipment.last_event_description ?? "Hareket yok"}
                           {shipment.last_event_at
-                            ? ` · ${new Date(shipment.last_event_at).toLocaleString("tr-TR")}`
+                            ? ` · ${financeDateTime(shipment.last_event_at)}`
                             : ""}
                         </td>
                       </tr>
@@ -642,13 +641,11 @@ export default function OrderDetail() {
                         <td>{returnStatus[item.status] ?? item.status}</td>
                         <td>{item.reason}</td>
                         <td>
-                          {new Date(item.requested_at).toLocaleString("tr-TR")}
+                          {financeDateTime(item.requested_at)}
                         </td>
                         <td>
                           {item.completed_at
-                            ? new Date(item.completed_at).toLocaleString(
-                                "tr-TR",
-                              )
+                            ? financeDateTime(item.completed_at)
                             : "Devam ediyor"}
                         </td>
                       </tr>
@@ -669,7 +666,7 @@ export default function OrderDetail() {
                   <tr key={`${item.action}-${item.created_at}-${index}`}>
                     <td>{activityLabel[item.action] ?? item.action}</td>
                     <td>{item.actor_email ?? "Sistem"}</td>
-                    <td>{new Date(item.created_at).toLocaleString("tr-TR")}</td>
+                    <td>{financeDateTime(item.created_at)}</td>
                   </tr>
                 ))}</tbody>
               </table></div>
@@ -705,7 +702,7 @@ export default function OrderDetail() {
                         <td>{ticket.subject}</td>
                         <td>{supportStatus[ticket.status] ?? ticket.status}</td>
                         <td>{supportPriority[ticket.priority] ?? ticket.priority}</td>
-                        <td>{new Date(ticket.created_at).toLocaleString('tr-TR')}</td>
+                        <td>{financeDateTime(ticket.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
