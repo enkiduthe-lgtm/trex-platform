@@ -82,3 +82,13 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Kompakt detay tabloları, hizalı tutarlar ve düğmeler; ürün kalemi ile toplam adet ayrı gösteriliyor.
 - İşlem başarılı olup sonrasındaki okuma başarısız olursa eski işlem düğmeleri kaldırılıyor. Tekrar deneme siparişi yeniden okur; hazırlama / kargo / iptal isteğini yeniden göndermez.
 - Son toplu panel yardımcı modül koşusunda 37 test geçti. Bu ekran değişikliklerinin yeni üretim derlemesi ve görsel kabulü henüz yapılmadı; çalışan yerel üretim sunucusu eski derlemeyi gösteriyor.
+
+## Son Toplu Kontrol — 10 Kasım
+
+- API üretim derlemesi başarıyla tamamlandı.
+- Panel yardımcı modüllerindeki 41 test geçti: sipariş akışı / yetki ayrımı, raporlar, fiyatlar, İstanbul tarihleri, çift gönderim kilidi ve müşteri seçimi dahil. Bunlar tam tarayıcı kabul testi değildir.
+- İzole PostgreSQL kontrolünde dokuz gerçek sipariş detayı sorgusu tekrar geçti; text / uuid hatasının eski sorguda oluştuğu ve mevcut sorguda giderildiği doğrulandı.
+- Sipariş listesinde başarısız yenileme eski işlem düğmelerini kaldırıyor; hata mesajı başarı mesajıyla örtülmüyor ve yalnız listeyi yeniden okuyan düğme gösteriliyor.
+- Not kaydı sürerken daha yeni taslak değişiklikleri eski kayıt yanıtıyla ezilmiyor. Filtre değişince rapor seçimi temizleniyor; güncel olmayan listeden aktarım engelleniyor.
+- Yeni sipariş ekranında mevcut eşzamanlı kilit ve aynı içerikte yeniden denemede korunan işlem anahtarı kodda kontrol edildi. Canlı sipariş oluşturulmadı.
+- Yeni panel üretim derlemesi, ekran kabulü ve API / panelin birlikte yayını halen bekliyor. Aras fiziksel şube kabulü bu kontrollerle doğrulanmış sayılmaz.
