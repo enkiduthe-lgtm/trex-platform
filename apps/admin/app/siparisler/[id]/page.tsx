@@ -485,7 +485,7 @@ export default function OrderDetail() {
               </tr></tbody></table></div>
             </section>
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
-            <div className={styles.cardHeader}><h2>Ürünler</h2><span>{data.items.length} ürün</span></div>
+            <div className={styles.cardHeader}><h2>Ürünler</h2><span>{data.items.length} ürün kalemi · Toplam {data.items.reduce((total,item) => total + item.quantity, 0)} adet</span></div>
             <div className={styles.tableWrap}>
               <table>
                 <thead>
@@ -502,7 +502,7 @@ export default function OrderDetail() {
                       <td>{item.product_name}</td>
                       <td>{item.sku}</td>
                       <td>{item.quantity}</td>
-                      <td>{money(item.unit_amount, item.currency)}</td>
+                      <td className={styles.moneyCell}>{money(item.unit_amount, item.currency)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -515,7 +515,7 @@ export default function OrderDetail() {
               <table>
                 <thead>
                   <tr>
-                    <th>Sağlayıcı</th>
+                    <th>Ödeme Yöntemi</th>
                     <th>Durum</th>
                     <th>Tutar</th>
                     <th>Oluşturuldu</th>
@@ -527,7 +527,7 @@ export default function OrderDetail() {
                     <tr key={payment.id}>
                       <td>{paymentMethod[payment.provider] ?? payment.provider}</td>
                       <td>{paymentStatus[payment.status] ?? payment.status}</td>
-                      <td>{money(payment.amount, payment.currency)}</td>
+                      <td className={styles.moneyCell}>{money(payment.amount, payment.currency)}</td>
                       <td>
                         {new Date(payment.created_at).toLocaleString("tr-TR")}
                       </td>

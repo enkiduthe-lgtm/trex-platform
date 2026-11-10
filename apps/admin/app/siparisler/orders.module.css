@@ -70,3 +70,16 @@
 .productSummary li { display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:7px 8px;border:1px solid #e3dce8;border-radius:6px;background:#faf8fc; }
 .productSummary li span { min-width:0;font-size:12px;line-height:1.4;color:#3f3545;overflow-wrap:anywhere; }
 .productSummary li strong { flex-shrink:0;white-space:nowrap;font-size:11px;line-height:1.5;color:#3f3545;background:#eee7f3;padding:1px 5px;border-radius:4px; }
+
+/* Detail tables use compact rows; separated cards belong to the order list. */
+.detailCard .tableWrap table{border-collapse:collapse;border-spacing:0}
+.detailCard .tableWrap tbody td{border:1px solid #e5e1e7;border-radius:0;background:#fff}
+.detailCard .tableWrap tbody td:first-child,.detailCard .tableWrap tbody td:last-child{border:1px solid #e5e1e7;border-radius:0}
+.detailCard .cardHeader{flex-wrap:wrap;align-items:flex-start}
+.detailCard .cardHeader>*{min-width:0;overflow-wrap:anywhere}
+.detailCard .summaryValues strong{min-width:0;overflow-wrap:anywhere}
+.detailCard .cardActions{align-items:center;margin-bottom:12px}
+.detailCard .cardActions>a,.detailCard .cardActions>button{display:inline-flex;align-items:center;justify-content:center;min-height:34px;box-sizing:border-box;padding:7px 10px;font-size:12px;line-height:1.4;text-align:center}
+.detailCard .cardActions>strong{overflow-wrap:anywhere;min-width:0}
+.detailCard .tableWrap .moneyCell{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.detailCard .cardActions>*{flex:1 1 180px}.detailCard .cardHeader>span{flex-basis:100%}}
