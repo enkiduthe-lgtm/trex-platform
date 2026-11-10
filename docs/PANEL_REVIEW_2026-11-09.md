@@ -2,7 +2,16 @@
 
 Bu belge tüm taleplerin tamamlandığı beyanı değildir. Yerel kontroller ile canlı kabul ayrı tutulur.
 
-## Toplu Yayını Bekleyen Paket
+## Canlı Yayın — 10 Kasım 2026
+
+- c47f14a323d9ddee1b9aeac9aa697aac218c4074 API ve panelde canlıya alındı. Aşağıdaki eski "yayın bekliyor" notları bu yayın öncesindeki kontrol geçmişidir.
+- API: dep-dbpcgvutlv9c73f71l50 — Render günlüğü 10:42:08 GMT+3 canlı durumunu doğruladı.
+- Panel: dep-dbpcgm2jnfac7392aptg — Render durumu Deploy succeeded / Live; günlük 10:42:41 GMT+3 canlıya geçişi doğruladı.
+- Canlı API /v1/health/live yanıtı {"status":"ok"}. https://trextea.com.tr/giris ayrı Müdür / Yönetici / Bayi giriş ekranını açıyor.
+- Güncel panel üretim derlemesi kullanıcı oturumunda ve Render üzerinde tamamlandı; 53 sayfa derlendi.
+- Giriş yapılmış canlı sipariş detayı, yetki rolleri ve finans işlemlerinin kabulü bu yayının sağlık kontrolüne dahil değildir. Canlı kayıt değiştirilmedi; Aras gönderisi yeniden gönderilmedi.
+
+## Önceki Yayın Hazırlık Notları
 
 Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değişiklikleri henüz bu kontrol sırasında yayınlanmadı.
 
