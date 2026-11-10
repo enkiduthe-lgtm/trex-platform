@@ -71,3 +71,5 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - scripts/verify-order-audit-types.cjs canlı bağlantı olmadan bellek içi PGlite PostgreSQL motorunda çalıştırıldı.
 - OrdersService.detail içindeki gerçek ilk SQL sorgusu kaynak dosyadan okunarak çalıştırıldı. Eski karşılaştırmanın text = uuid hatası verdiği, düzeltmenin doğru sipariş / bayi / seviye verisi döndürdüğü doğrulandı. İlgisiz metin kimlikli işlem günlüğü ve işlem geçmişi olmayan sipariş senaryoları geçti.
 - Test bağımlılığı yalnız tmp/order-sql-check içinde; üretim package.json veya lock dosyaları değiştirilmedi. Çalıştırma: node scripts/verify-order-audit-types.cjs tmp/order-sql-check
+
+- İzole sipariş detayı kontrolü dokuz gerçek SQL sorgusunun tamamına genişletildi. Kaynak sorgular doğrudan çalıştırıldı; test teslimat adresi, beş adetlik ürün, paket barkodu ve tamamlanmış hazırlık kaydıyla sonuçlar doğrulandı. Bu kontrol canlı veritabanı şema farklarını veya tam HTTP / yetki akışını doğrulamaz.
