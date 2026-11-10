@@ -7,7 +7,7 @@ import { DealerLevelBadge } from "../../components/dealer-level-badge";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
 import { orderPermissions } from '../../lib/order-permissions';
-import { nextPreparationAction } from "../../lib/order-queue";
+import { nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
 const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,shipment_status:order.fulfillment?.shipment_status,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
@@ -101,15 +101,18 @@ const paymentMethod: Record<string, string> = {
   cash_on_delivery_cash: "Kapıda ödeme — nakit",
   cash_on_delivery: "Kapıda ödeme",
   cash: "Elden nakit",
+  dealer_commission: "Bayi prim bakiyesi",
   paytr: "PayTR",
 };
 const orderStatus: Record<string, string> = {
   PAID: "Onaylandı",
   PENDING_PAYMENT: "Ödeme bekliyor",
   PROCESSING: "Hazırlanıyor",
+  REGISTERED: "Kargo kaydı hazır",
   SHIPPED: "Kargoda",
   DELIVERED: "Teslim edildi",
   CANCELLED: "İptal edildi",
+  REFUNDED: "İade edildi",
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
@@ -174,6 +177,7 @@ export default function OrderDetail() {
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
+  const displayStatus = data ? orderQueueStatus({status:data.status, shipment_status:data.fulfillment?.shipment_status}) : '';
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const autoPrinted = useRef(false);
@@ -436,7 +440,7 @@ export default function OrderDetail() {
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
               <div className={styles.cardHeader}>
                 <h2>Sipariş özeti</h2>
-                <span className={`${styles.status} ${styles[`status_${data.status}`] ?? ""}`}>{orderStatus[data.status] ?? data.status}</span>
+                <span className={`${styles.status} ${styles[`status_${displayStatus}`] ?? ""}`}>{orderStatus[displayStatus] ?? displayStatus}</span>
               </div>
               <div className={styles.summaryValues}>
                 <div><small>Kapıda Ödeme Hizmet Bedeli</small><strong>{money(data.cod_service_fee??'0',data.currency)}</strong></div><div><small>Toplam tutar</small><strong>{money(data.total_amount, data.currency)}</strong></div>
