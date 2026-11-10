@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { DealerLevelBadge } from "../../components/dealer-level-badge";
 import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
+import { createActionLock } from "../../lib/async-controls";
 import { orderPermissions } from '../../lib/order-permissions';
 import { nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
@@ -220,14 +221,15 @@ export default function OrderDetail() {
   const [invoiceType, setInvoiceType] = useState<"INDIVIDUAL" | "CORPORATE">("INDIVIDUAL");
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [operationBusy, setOperationBusy] = useState(false);
+  const actionLock = useRef(createActionLock());
   const [operationMessage, setOperationMessage] = useState("");
   const [arasCheck,setArasCheck]=useState<{orderNumber:string;integrationCode:string;packageBarcode:string;found:boolean;checkedAt:string}|null>(null);
   async function verifyArasOnly() {
-    if(operationBusy)return;
+    if(!actionLock.current.acquire())return;
     setOperationBusy(true);setError('');setArasCheck(null);
     try {setArasCheck(await api(`/admin/orders/${id}/shipment/verify`,{method:'POST'}));}
     catch(e){setError(e instanceof Error?e.message:'Aras Kaydı Kontrol Edilemedi');}
-    finally{setOperationBusy(false);}
+    finally{actionLock.current.release();setOperationBusy(false);}
   }
   async function refreshOrder() {
     try {
@@ -240,7 +242,7 @@ export default function OrderDetail() {
     }
   }
   async function startPreparation() {
-    if (operationBusy) return;
+    if (!actionLock.current.acquire()) return;
     setOperationBusy(true);
     setError("");
     try {
@@ -252,14 +254,15 @@ export default function OrderDetail() {
         setOperationMessage('Sipariş Ürünleri Hazırlandı.');
       }
       await refreshOrder();
-      setOperationBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Hazırlama başlatılamadı");
+    } finally {
+      actionLock.current.release();
       setOperationBusy(false);
     }
   }
   async function createShipment() {
-    if (operationBusy) return;
+    if (!actionLock.current.acquire()) return;
     setOperationBusy(true);
     setError("");
     try {
@@ -277,6 +280,7 @@ export default function OrderDetail() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kargo gönderisi oluşturulamadı");
     } finally {
+      actionLock.current.release();
       setOperationBusy(false);
     }
   }
@@ -284,7 +288,7 @@ export default function OrderDetail() {
     shipmentStatus: "IN_TRANSIT" | "DELIVERED",
     orderStatus: "SHIPPED" | "DELIVERED",
   ) {
-    if (operationBusy) return;
+    if (!actionLock.current.acquire()) return;
     setOperationBusy(true);
     setError("");
     try {
@@ -301,6 +305,7 @@ export default function OrderDetail() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sevkiyat durumu güncellenemedi");
     } finally {
+      actionLock.current.release();
       setOperationBusy(false);
     }
   }
@@ -339,13 +344,15 @@ export default function OrderDetail() {
   }
   async function cancelOrder() {
     if (
-      cancelling ||
+      actionLock.current.isLocked() ||
       !window.confirm(
         `Sipariş ${data?.order_number} iptal edilip ayrılan stok serbest bırakılsın mı?`,
       )
     )
       return;
+    if (!actionLock.current.acquire()) return;
     setCancelling(true);
+    setOperationBusy(true);
     setError("");
     try {
       await api(`/admin/orders/${id}/cancel`, { method: "POST" });
@@ -353,6 +360,8 @@ export default function OrderDetail() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sipariş iptal edilemedi");
     } finally {
+      actionLock.current.release();
+      setOperationBusy(false);
       setCancelling(false);
     }
   }
@@ -475,7 +484,7 @@ export default function OrderDetail() {
               </div>
               <div className={styles.cardActions}>
                 {canEdit && editableAdminChannels.includes(data.sales_channel) && data.status !== "CANCELLED" && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
                 {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
               </div>
             </section>
