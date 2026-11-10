@@ -57,7 +57,7 @@ describe('DealerPortalController', () => {
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
     await expect(controller.shipments(request)).resolves.toEqual([]);
     expect(query).toHaveBeenCalledWith(expect.stringContaining('al.actor_user_id=$1'), ['dealer-user']);
-    expect(query.mock.calls[0][0]).toContain('al.entity_id=o.id');
+    expect(query.mock.calls[0][0]).toContain('al.entity_id=o.id::text');
   });
 
   it('allows an active dealer to accept the agreement without bank details', async () => {

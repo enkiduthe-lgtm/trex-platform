@@ -163,7 +163,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
       AND NOT EXISTS(SELECT 1 FROM picking_sessions ps WHERE ps.order_id=o.id AND ps.status<>'OPEN')
       AND NOT EXISTS(SELECT 1 FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id)) AS financial_editable
       FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id
-      LEFT JOIN LATERAL (SELECT metadata->>'dealerId' AS dealer_id FROM audit_logs WHERE entity_type='order' AND action='order.dealer.created' AND entity_id=o.id ORDER BY created_at,id LIMIT 1) origin ON true
+      LEFT JOIN LATERAL (SELECT metadata->>'dealerId' AS dealer_id FROM audit_logs WHERE entity_type='order' AND action='order.dealer.created' AND entity_id=o.id::text ORDER BY created_at,id LIMIT 1) origin ON true
       LEFT JOIN dealers dealer ON dealer.id::text=lower(origin.dealer_id)
       LEFT JOIN dealer_levels level ON level.id=dealer.dealer_level_id
       WHERE o.id=$1`,[id]);

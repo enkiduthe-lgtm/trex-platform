@@ -58,3 +58,10 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Ana sayfada onaylı sipariş sayısının ödeme bekleyenlere yönlenmesi düzeltildi.
 - Durum grafiğinin kargo kaydı hazır siparişlerini dışarıda bırakması düzeltildi; yeni iki test ve TypeScript kontrolü geçti. Bu son düzeltmeden sonra tam üretim derlemesi ve yeni ekran kontrolü henüz yapılmadı.
 - Yerel panel canlı eski API’ye bağlı: sipariş ürün adları ve ödeme yöntemi gibi eklenen API alanları henüz dönmüyor. Bu alanlar için API ve panel aynı paketle yayınlanıp birlikte doğrulanmalı; eksik veri uydurulmadı.
+
+## Sipariş Detayı 500 — 10 Kasım
+
+- Yerel panelden mevcut sipariş detayı okunurken canlı API 500 döndü. Render çalışma günlüğü OrdersService.detail içinde operator does not exist: text = uuid hatasını doğruladı.
+- audit_logs.entity_id çekirdek migrationda text; sipariş / iade kimlikleri uuid. UUID tarafını text olarak karşılaştıracak şekilde sipariş detayı, bayi portalı, bayi raporları / kartı, prim satış özeti ve iade listesi düzeltildi. İş kayıtları veya tablo türleri değiştirilmedi.
+- API derlemesi geçti. Bayi portalı ve sipariş listesi gruplarında 15 test geçti. Eski bayi servis testindeki eksik bildirim bağımlılığı test kurulumuna eklendi.
+- Canlı API henüz bu düzeltmeyi içermiyor. Sipariş detayı / müşteri bağlantısının başarılı ekran kontrolü API yayını sonrasında yapılmalı.
