@@ -4,3 +4,10 @@ export const realizedCash = `(t.payment_status IS NULL OR t.payment_status='PAID
 
 export const pendingCollection = `t.kind='COLLECTION' AND t.approved_at IS NULL
   AND t.payment_status IN ('PENDING','PARTIALLY_PAID','COLLECTION_PENDING','OVERDUE')`;
+
+export function visibleFinanceMovement(canSeeAllParameter: number, actorParameter: number) {
+  return `($${canSeeAllParameter}::boolean OR NOT EXISTS (
+    SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id
+      AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$${actorParameter}::uuid
+  ))`;
+}

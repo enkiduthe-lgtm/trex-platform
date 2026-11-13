@@ -9,8 +9,9 @@ import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
 import { financeDateTime, financeTotals, inFinancePeriod } from '../../lib/finance-report';
 
-type Collection = { id: string; account_name: string; currency: string; amount: string; counterparty_name: string | null; reference_number: string | null; description: string; occurred_at: string };
-type Transfer = Collection & { kind: string; payment_status: string | null; order_number: string | null; order_id: string | null; approved_at: string | null };
+type Collection = { id: string; account_name: string; currency: string; amount: string; payment_status: string | null; counterparty_name: string | null; reference_number: string | null; description: string; occurred_at: string };
+type Transfer = Collection & { kind: string; order_number: string | null; order_id: string | null; approved_at: string | null };
+type Approval = { outstandingAmount: number };
 const statusLabels: Record<string,string> = { PENDING: 'Bekliyor', COLLECTION_PENDING: 'Tahsilat Bekliyor', PARTIALLY_PAID: 'Kısmen Ödendi', PAID: 'Ödendi', REFUNDED: 'İade Edildi', OVERDUE: 'Gecikmiş' };
 type Account = { id: string; name: string; currency: string; is_active: boolean };
 type User = { user: { role: string } };
@@ -81,7 +82,7 @@ function CollectionsContent() {
     if (!reportItems.length) { setMessage('Dışa Aktarılacak Havale Bulunamadı.'); return; }
     downloadXlsx('trex-gelen-havaleler.xlsx', 'Gelen Havaleler', [
       ['Banka Hesabı', 'Gönderen', 'Tarih', 'Tutar', 'Para Birimi', 'Durum', 'İlgili Sipariş', 'Dekont / Referans', 'Açıklama'],
-      ...reportItems.map(item => { const recorded = tab === 'HISTORY' ? item as Transfer : null; return [item.account_name, item.counterparty_name ?? '', financeDateTime(item.occurred_at), Number(item.amount), item.currency, recorded ? statusLabels[recorded.payment_status ?? ''] ?? recorded.payment_status ?? 'Belirtilmemiş' : 'Bekliyor', recorded?.order_number ?? '', item.reference_number ?? '', item.description]; }),
+      ...reportItems.map(item => { const recorded = tab === 'HISTORY' ? item as Transfer : null; return [item.account_name, item.counterparty_name ?? '', financeDateTime(item.occurred_at), Number(item.amount), item.currency, statusLabels[item.payment_status ?? ''] ?? item.payment_status ?? 'Belirtilmemiş', recorded?.order_number ?? '', item.reference_number ?? '', item.description]; }),
       ...financeTotals(reportItems).map(total => ['Toplam', '', '', total.amount, total.currency, '', '', '', '']),
     ]);
   }
@@ -92,8 +93,11 @@ function CollectionsContent() {
     actionLock.current = true;
     setBusy(true);
     try {
-      await api(`/admin/finance/collections/${id}/approve`, { method: 'POST', body: JSON.stringify({ orderId }) });
-      await load('Havale Onaylandı Ve Siparişle Eşleştirildi.');
+      const result = await api<Approval>(`/admin/finance/collections/${id}/approve`, { method: 'POST', body: JSON.stringify({ orderId }) });
+      const currency = items.find(item => item.id === id)?.currency;
+      await load(result.outstandingAmount > 0 && currency
+        ? `Havale eşleştirildi. Siparişin kalan tutarı ${money(String(result.outstandingAmount), currency)}.`
+        : 'Havale onaylandı ve siparişle eşleştirildi.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Onaylanamadı.'); }
     finally { actionLock.current = false;setBusy(false); }
   }

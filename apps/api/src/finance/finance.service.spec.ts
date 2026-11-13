@@ -2,6 +2,15 @@ import { FinanceService } from './finance.service';
 import { BadRequestException } from '@nestjs/common';
 
 describe('Manual finance transaction safety', () => {
+  it('keeps settlement-linked transactions immutable', async () => {
+    const query=jest.fn().mockResolvedValue({rows:[{locked:true}]});
+    const service=new FinanceService({transaction:async(work:any)=>work({query})} as never);
+    const actor={id:'actor'} as never;
+    await expect(service.updateTransaction('settlement',{description:'Test'} as never,actor)).rejects.toThrow('Bağlı Para Hareketi');
+    await expect(service.deleteTransaction('settlement',actor)).rejects.toThrow('Bağlı Para Hareketi');
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.every(([sql])=>sql.includes('FOR UPDATE OF t'))).toBe(true);
+  });
   it('does not write to an inactive or missing account', async () => {
     const query=jest.fn().mockResolvedValue({rowCount:0,rows:[]});
     const service=new FinanceService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never);
@@ -27,6 +36,14 @@ describe('FinanceService marketplace settlements', () => {
   it('rejects cancelled order collection',async()=>{
     const query=jest.fn().mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00',currency:'TRY'}]}).mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'CANCELLED',currency:'TRY'}]});
     await expect(new FinanceService({transaction:async(work:any)=>work({query})} as never).approveCollection('collection',{orderId:'order'},{} as never)).rejects.toThrow('İptal edilmiş');
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+  it('rejects a completed full return before approving a collection',async()=>{
+    const query=jest.fn()
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00',currency:'TRY'}]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'DELIVERED',sales_status:'REFUNDED',currency:'TRY'}]});
+    await expect(new FinanceService({transaction:async(work:any)=>work({query})} as never)
+      .approveCollection('collection',{orderId:'order'},{} as never)).rejects.toThrow('Tamamen iade edilmiş');
     expect(query).toHaveBeenCalledTimes(2);
   });
   it('rejects a transfer between different currencies before writes',async()=>{

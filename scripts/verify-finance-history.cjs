@@ -5,7 +5,7 @@ const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function compile(file,requireImpl){const box={exports:{},require:requireImpl,Intl,Date,Map};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
- const {FinanceService}=compile('apps/api/src/finance/finance.service.ts',name=>{if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='./finance-cash-sql')return compile('apps/api/src/finance/finance-cash-sql.ts',()=>{});if(name.includes('staff-channel.service'))return {StaffChannelService:class{async access(actor){return {canSeeAll:actor.role==='SUPER_ADMIN'};}}};throw Error(name);});
+ const {FinanceService}=compile('apps/api/src/finance/finance.service.ts',name=>{if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='../orders/report-order-status')return compile('apps/api/src/orders/report-order-status.ts',()=>{});if(name==='./finance-cash-sql')return compile('apps/api/src/finance/finance-cash-sql.ts',()=>{});if(name.includes('staff-channel.service'))return {StaffChannelService:class{async access(actor){return {canSeeAll:actor.role==='SUPER_ADMIN'};}}};throw Error(name);});
  const report=compile('apps/admin/app/lib/finance-report.ts',()=>{throw Error('Unexpected dependency');}),service=new FinanceService(db);
  await pg.exec(`CREATE TABLE users(id uuid PRIMARY KEY,email text); CREATE TABLE orders(id uuid PRIMARY KEY,order_number text);
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency text,is_active boolean,account_type text,created_at timestamptz DEFAULT now());
@@ -46,6 +46,19 @@ async function main(){
  const directorAccounts=await service.listAccounts({id:id(3),role:'SUPER_ADMIN'});
  const managerAccounts=await service.listAccounts({id:id(4),role:'ADMIN'});
  assert.equal(Number(managerAccounts.find(row=>row.currency==='TRY').balance)-Number(directorAccounts.find(row=>row.currency==='TRY').balance),7);
+ await pg.exec("CREATE TABLE finance_budgets(period_start date,currency text,amount numeric); INSERT INTO finance_budgets VALUES(date_trunc('month',now() AT TIME ZONE 'Europe/Istanbul')::date,'TRY',50);");
+ const projection=await service.cashFlowProjection({id:id(4),role:'ADMIN'});
+ const tryFlow=projection.find(row=>row.currency==='TRY');
+ assert.equal(Number(tryFlow.current_balance),Number(managerAccounts.find(row=>row.currency==='TRY').balance));
+ assert.equal(tryFlow.pending_collections,'225.50');
+ assert.equal(Number(tryFlow.monthly_budget),50);
+ await pg.exec("CREATE TABLE dealers(id uuid,company_name text); CREATE TABLE customers(id uuid,first_name text,last_name text,email text); CREATE TABLE current_account_entries(dealer_id uuid,customer_id uuid,amount numeric,currency text,due_at date,direction text);");
+ await db.query("INSERT INTO finance_transactions(id,account_id,kind,amount,payment_status,occurred_at,description) VALUES($1,$2,'COLLECTION',2,'OVERDUE',now(),'Gecikmiş test havalesi')",[id(904),id(1)]);
+ const alerts=await service.alerts({id:id(4),role:'ADMIN'});
+ assert.equal(alerts[0].severity,'HIGH');
+ assert(alerts.some(row=>row.code==='OVERDUE_COLLECTION'&&row.detail.includes('Gecikmiş test havalesi')));
+ assert.equal(alerts.find(row=>row.code==='NEGATIVE_ACCOUNT').detail,'Arşiv Hesap: -204.50 TRY');
+ assert(!alerts.some(row=>row.code==='MISSING_REFERENCE'&&row.detail.includes('100.00')));
  await pg.close();console.log('Finance history checks passed: >100 pending and approved collections, recorded order links, archived accounts preserved, director privacy, exact currency totals and Istanbul date boundaries.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

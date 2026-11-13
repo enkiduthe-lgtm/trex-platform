@@ -124,6 +124,11 @@ async function main(){
  await returnService.refund(rid,{amount:500},user);assert.equal((await dealerWallet(db,dealer)).available,'550.00');
  await assert.rejects(()=>returnService.refund(rid,{amount:500},user));
  assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions WHERE order_id=$1',[sale2.id])).rows[0].count,0);
+ await assert.rejects(()=>orderService.cancel(sale2.id,actor),/Tamamen İade/);
+ const staffActor={...actor,role:'SUPER_ADMIN'};
+ await assert.rejects(()=>adminOrders.updatePrices(sale2.id,{reason:'Test',items:[]},staffActor),/Tamamen İade/);
+ await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[sale.id]);
+ await assert.rejects(()=>orderService.cancel(sale.id,actor),/bulunamadı/i);
  // A delivery recorded from the shipping screen must finalize the same order and margin atomically.
  await pg.exec(`ALTER TABLE users ADD COLUMN is_active boolean DEFAULT true,ADD COLUMN role text DEFAULT 'ADMIN';
  CREATE TABLE commission_rules(id uuid PRIMARY KEY,product_id uuid,recipient_user_id uuid,recipient_kind text,amount_per_unit numeric(12,2),is_active boolean,sales_channel_group text);

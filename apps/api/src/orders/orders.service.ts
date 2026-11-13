@@ -210,9 +210,12 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
   async cancel(id:string,actor:RequestUser) {
     if(!['ADMIN','SUPER_ADMIN','DEALER'].includes(actor.role)) throw new ForbiddenException('Sipariş iptali için yönetici yetkisi gerekli');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{checkout_id:string;status:string;sales_channel:string}>('SELECT checkout_id,status,sales_channel FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string}>(
+        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel
+        FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.status==='CANCELLED') return {id,status:'CANCELLED',replayed:true};
+      if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Sipariş İptal Edilemez');
       if(!['ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL'].includes(order.sales_channel)||!['PENDING_PAYMENT','PAID','PROCESSING'].includes(order.status)) throw new ConflictException('Bu sipariş güvenli iptal kapsamı dışında; iade akışını kullanın');
       if(actor.role==='DEALER' && !(await client.query("SELECT 1 FROM audit_logs WHERE entity_id=$1 AND entity_type='order' AND actor_user_id=$2 AND action='order.dealer.created'",[id,actor.id])).rowCount)throw new NotFoundException('Sipariş Bulunamadı');
       await client.query('SELECT id FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id]);

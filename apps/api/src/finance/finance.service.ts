@@ -9,7 +9,8 @@ import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlem
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 import { StaffChannelService } from '../commissions/staff-channel.service';
-import { pendingCollection, realizedCash } from './finance-cash-sql';
+import { pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
+import { reportOrderStatus } from '../orders/report-order-status';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -38,9 +39,7 @@ export class FinanceService {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
     return (await this.db.query(`SELECT a.*, COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) AS balance
       FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${realizedCash}
-        AND ($1::boolean OR NOT EXISTS(
-          SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid
-        ))
+        AND ${visibleFinanceMovement(1,2)}
       GROUP BY a.id ORDER BY a.created_at DESC`,[canSeeAll,actor?.id??null])).rows;
   }
   async createAccount(dto: CreateFinanceAccountDto, actor: RequestUser) {
@@ -88,9 +87,7 @@ export class FinanceService {
         COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,
         count(t.id) FILTER (WHERE ${period})::int movement_count
         FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${realizedCash}
-          AND ($3::boolean OR NOT EXISTS(
-            SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$4::uuid
-          ))
+          AND ${visibleFinanceMovement(3,4)}
         WHERE a.is_active=true GROUP BY a.id ORDER BY a.currency,a.name`,[dateFrom||null,dateTo||null,canSeeAll,actor?.id??null]),
       this.db.query(`SELECT t.id,t.account_id,a.name AS account_name,a.currency,t.amount,t.counterparty_name,t.reference_number,t.description,t.occurred_at
         FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
@@ -134,7 +131,7 @@ export class FinanceService {
     });
   }
   async pendingCollections() {
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC, t.id`)).rows;
+    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE ${pendingCollection} ORDER BY t.occurred_at ASC, t.id`)).rows;
   }
   async dashboard(actor?:RequestUser) {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
@@ -145,14 +142,30 @@ export class FinanceService {
         COALESCE(SUM(t.amount) FILTER (WHERE ${pendingCollection}),0) AS pending_collection
       FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
       CROSS JOIN LATERAL (SELECT (t.occurred_at AT TIME ZONE 'Europe/Istanbul')::date=(now() AT TIME ZONE 'Europe/Istanbul')::date AS today) day
-      WHERE a.currency='TRY' AND ($1::boolean OR NOT EXISTS(
-        SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid
-      ))
+      WHERE a.currency='TRY' AND ${visibleFinanceMovement(1,2)}
     ) SELECT income::text,expense::text,(income-expense)::text AS net,pending_collection::text FROM totals`,[canSeeAll,actor?.id??null]);
     return result.rows[0];
   }
-  async alerts() {
-    const result = await this.db.query<{ code: string; title: string; detail: string; severity: string }>(`WITH movements AS (SELECT t.*,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id), balances AS (SELECT a.id,a.name,a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id), overdue_current_accounts AS (SELECT e.amount,e.currency,e.due_at,e.description,COALESCE(d.company_name,NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),c.email,'Cari hesap') party_name FROM current_account_entries e LEFT JOIN dealers d ON d.id=e.dealer_id LEFT JOIN customers c ON c.id=e.customer_id WHERE e.direction='DEBIT' AND e.due_at<current_date) SELECT 'NEGATIVE_ACCOUNT' code,'Negatif hesap bakiyesi' title,name || ': ' || balance::text || ' ' || currency detail,'HIGH' severity FROM balances WHERE balance < 0 UNION ALL SELECT 'UNMATCHED_TRANSFER','Eşleşmemiş tahsilat','Referans veya gönderici bilgisi eksik: ' || amount::text || ' ' || currency,'MEDIUM' FROM movements WHERE kind='COLLECTION' AND (reference_number IS NULL OR counterparty_name IS NULL) UNION ALL SELECT 'OVERDUE_COLLECTION','Gecikmiş tahsilat',description || ': ' || amount::text || ' ' || currency,'HIGH' FROM movements WHERE payment_status='OVERDUE' UNION ALL SELECT 'OVERDUE_CURRENT_ACCOUNT','Vadesi geçmiş cari satış',party_name || ': ' || amount::text || ' ' || currency || ' · vade ' || due_at::text,'HIGH' FROM overdue_current_accounts UNION ALL SELECT 'MISSING_REFERENCE','Belgesiz masraf','Referans/dekont girilmemiş: ' || amount::text || ' ' || currency,'LOW' FROM movements WHERE kind IN ('EXPENSE','COMMISSION','PRIME_EXPENSE') AND reference_number IS NULL ORDER BY severity DESC LIMIT 50`);
+  async alerts(actor:RequestUser) {
+    const {canSeeAll}=await new StaffChannelService(this.db).access(actor);
+    const result = await this.db.query<{ code: string; title: string; detail: string; severity: string }>(`
+      WITH movements AS (
+        SELECT t.*,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
+        WHERE ${visibleFinanceMovement(1,2)}
+      ), balances AS (
+        SELECT a.id,a.name,a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) balance
+        FROM finance_accounts a LEFT JOIN movements t ON t.account_id=a.id AND ${realizedCash} GROUP BY a.id
+      ), overdue_current_accounts AS (
+        SELECT e.amount,e.currency,e.due_at,COALESCE(d.company_name,NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),c.email,'Cari hesap') party_name
+        FROM current_account_entries e LEFT JOIN dealers d ON d.id=e.dealer_id LEFT JOIN customers c ON c.id=e.customer_id
+        WHERE e.direction='DEBIT' AND e.due_at<(now() AT TIME ZONE 'Europe/Istanbul')::date
+      ), alerts AS (
+        SELECT 'NEGATIVE_ACCOUNT' code,'Negatif hesap bakiyesi' title,name || ': ' || balance::text || ' ' || currency detail,'HIGH' severity FROM balances WHERE balance<0
+        UNION ALL SELECT 'UNMATCHED_TRANSFER','Eşleşmemiş tahsilat','Referans veya gönderici bilgisi eksik: ' || amount::text || ' ' || currency,'MEDIUM' FROM movements t WHERE ${pendingCollection} AND (reference_number IS NULL OR counterparty_name IS NULL)
+        UNION ALL SELECT 'OVERDUE_COLLECTION','Gecikmiş tahsilat',description || ': ' || amount::text || ' ' || currency,'HIGH' FROM movements t WHERE ${pendingCollection} AND payment_status='OVERDUE'
+        UNION ALL SELECT 'OVERDUE_CURRENT_ACCOUNT','Vadesi geçmiş cari satış',party_name || ': ' || amount::text || ' ' || currency || ' · vade ' || due_at::text,'HIGH' FROM overdue_current_accounts
+        UNION ALL SELECT 'MISSING_REFERENCE','Belgesiz masraf','Belge/dekont girilmemiş: ' || amount::text || ' ' || currency,'LOW' FROM movements t WHERE ${realizedCash} AND kind IN ('EXPENSE','COMMISSION','PRIME_EXPENSE') AND reference_number IS NULL
+      ) SELECT * FROM alerts ORDER BY CASE severity WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,code,detail LIMIT 50`,[canSeeAll,actor.id]);
     return result.rows;
   }
   async budgets(period?: string) {
@@ -163,8 +176,16 @@ export class FinanceService {
     try { const result=await this.db.query<{id:string}>('INSERT INTO finance_budgets(period_start,expense_category,cost_center,amount,currency,description,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[dto.periodStart,dto.expenseCategory.trim(),dto.costCenter?.trim()||'',dto.amount,dto.currency??'TRY',dto.description?.trim()||null,actor.id]); await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.budget.created','finance_budget',result.rows[0].id]); return result.rows[0]; }
     catch(error:unknown) { if((error as {code?:string}).code==='23505') throw new BadRequestException('Bu dönem, kategori ve masraf merkezi için bütçe zaten var'); throw error; }
   }
-  async cashFlowProjection() {
-    return (await this.db.query(`SELECT a.currency,COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,COALESCE(SUM(CASE WHEN t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID','OVERDUE') THEN t.amount ELSE 0 END),0)::text pending_collections,COALESCE((SELECT SUM(amount) FROM finance_budgets b WHERE b.period_start=date_trunc('month',now())::date AND b.currency=a.currency),0)::text monthly_budget FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.currency ORDER BY a.currency`)).rows;
+  async cashFlowProjection(actor:RequestUser) {
+    const {canSeeAll}=await new StaffChannelService(this.db).access(actor);
+    return (await this.db.query(`SELECT a.currency,
+      COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END)
+        FILTER (WHERE ${realizedCash}),0)::text current_balance,
+      COALESCE(SUM(t.amount) FILTER (WHERE ${pendingCollection}),0)::text pending_collections,
+      COALESCE((SELECT SUM(amount) FROM finance_budgets b
+        WHERE b.period_start=date_trunc('month',now() AT TIME ZONE 'Europe/Istanbul')::date AND b.currency=a.currency),0)::text monthly_budget
+      FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${visibleFinanceMovement(1,2)}
+      GROUP BY a.currency ORDER BY a.currency`,[canSeeAll,actor.id])).rows;
   }
   async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
     const description=dto.description.trim();
@@ -177,12 +198,23 @@ export class FinanceService {
       return result.rows[0];
     });
   }
+  private async editableTransaction(client: import('pg').PoolClient,id:string) {
+    const result=await client.query<{locked:boolean}>(`SELECT
+      (t.order_id IS NOT NULL OR t.transfer_group_id IS NOT NULL OR t.approved_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM marketplace_settlements m WHERE m.finance_transaction_id=t.id)
+        OR EXISTS (SELECT 1 FROM carrier_settlements s WHERE s.finance_transaction_id=t.id)
+        OR EXISTS (SELECT 1 FROM return_refunds r WHERE r.finance_transaction_id=t.id)
+        OR EXISTS (SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id)
+        OR EXISTS (SELECT 1 FROM dealer_prim_requests p WHERE p.finance_transaction_id=t.id)) AS locked
+      FROM finance_transactions t WHERE t.id=$1 FOR UPDATE OF t`,[id]);
+    const transaction=result.rows[0];
+    if(!transaction) throw new BadRequestException('Para hareketi bulunamadı');
+    if(transaction.locked) throw new BadRequestException('Başka Bir İşleme Bağlı Para Hareketi Değiştirilemez Veya Silinemez.');
+  }
   async updateTransaction(id:string,dto:CreateFinanceTransactionDto,actor:RequestUser) {
     const description=dto.description.trim(); if(!description) throw new BadRequestException('İşlem açıklaması zorunludur');
     return this.db.transaction(async client=>{
-      const previous=await client.query('SELECT id,order_id,transfer_group_id,approved_at FROM finance_transactions WHERE id=$1 FOR UPDATE',[id]);
-      if(!previous.rowCount) throw new BadRequestException('Para hareketi bulunamadı');
-      if(previous.rows[0].order_id||previous.rows[0].transfer_group_id||previous.rows[0].approved_at) throw new BadRequestException('Sipariş, transfer veya onay kaydına bağlı hareket değiştirilemez');
+      await this.editableTransaction(client,id);
       const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND is_active=true FOR KEY SHARE',[dto.accountId]); if(!account.rowCount) throw new BadRequestException('Aktif finans hesabı bulunamadı');
       await client.query('UPDATE finance_transactions SET account_id=$1,kind=$2,amount=$3,payment_status=$4,counterparty_name=$5,reference_number=$6,expense_category=$7,cost_center=$8,document_url=$9,description=$10,occurred_at=COALESCE($11::timestamptz,occurred_at) WHERE id=$12',[dto.accountId,dto.kind,dto.amount,dto.paymentStatus??null,dto.counterpartyName?.trim()||null,dto.referenceNumber?.trim()||null,dto.expenseCategory?.trim()||null,dto.costCenter?.trim()||null,dto.documentUrl?.trim()||null,description,dto.occurredAt??null,id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.transaction.updated','finance_transaction',id]); return {id};
@@ -190,9 +222,7 @@ export class FinanceService {
   }
   async deleteTransaction(id:string,actor:RequestUser) {
     return this.db.transaction(async client=>{
-      const row=await client.query('SELECT id,order_id,transfer_group_id,approved_at FROM finance_transactions WHERE id=$1 FOR UPDATE',[id]);
-      if(!row.rowCount) throw new BadRequestException('Para hareketi bulunamadı');
-      if(row.rows[0].order_id||row.rows[0].transfer_group_id||row.rows[0].approved_at) throw new BadRequestException('Sipariş, transfer veya onay kaydına bağlı hareket silinemez');
+      await this.editableTransaction(client,id);
       await client.query('DELETE FROM finance_transactions WHERE id=$1',[id]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[actor.id,'finance.transaction.deleted','finance_transaction',id]); return {id,deleted:true};
     });
   }
@@ -225,19 +255,20 @@ export class FinanceService {
   }
   async approveCollection(id: string, dto: ApproveCollectionDto, actor: RequestUser) {
     return this.db.transaction(async client => {
-      const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL FOR UPDATE OF t`, [id]);
-      if (!collection.rowCount) throw new Error('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
-      const order = await client.query<{ id: string; status: string; total_amount: string; checkout_id: string; currency:string }>('SELECT id,status,total_amount,checkout_id,currency FROM orders WHERE id::text=$1 OR order_number=$1 FOR UPDATE', [dto.orderId.trim()]);
-      if (!order.rowCount) throw new Error('Sipariş bulunamadı');
+      const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND ${pendingCollection} FOR UPDATE OF t`, [id]);
+      if (!collection.rowCount) throw new BadRequestException('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
+      const order = await client.query<{ id: string; status: string; sales_status:string; total_amount: string; checkout_id: string; currency:string }>(`SELECT o.id,o.status,${reportOrderStatus} AS sales_status,o.total_amount,o.checkout_id,o.currency FROM orders o WHERE o.archived_at IS NULL AND (o.id::text=$1 OR o.order_number=$1) FOR UPDATE OF o`, [dto.orderId.trim()]);
+      if (!order.rowCount) throw new BadRequestException('Sipariş bulunamadı');
       const orderId = order.rows[0].id;
       if(order.rows[0].status==='CANCELLED') throw new BadRequestException('İptal edilmiş siparişe tahsilat bağlanamaz');
+      if(order.rows[0].sales_status==='REFUNDED') throw new BadRequestException('Tamamen iade edilmiş siparişe tahsilat bağlanamaz');
       if(collection.rows[0].currency?.trim()!==order.rows[0].currency?.trim() || !order.rows[0].currency) throw new BadRequestException('Tahsilat hesabı ve sipariş aynı para biriminde olmalı');
       const approved = await client.query<{ total: string }>(`SELECT COALESCE(SUM(amount),0)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='COLLECTION' AND approved_at IS NOT NULL`, [orderId]);
       const alreadyCollected = Number(approved.rows[0]?.total ?? 0);
       const collectionAmount = Number(collection.rows[0].amount);
       const orderTotal = Number(order.rows[0].total_amount);
       const newCollectedTotal = Number((alreadyCollected + collectionAmount).toFixed(2));
-      if (newCollectedTotal > orderTotal) throw new Error('Bu havale siparişin kalan bakiyesinden yüksek');
+      if (newCollectedTotal > orderTotal) throw new BadRequestException('Bu havale siparişin kalan bakiyesinden yüksek');
       await client.query(`UPDATE finance_transactions SET order_id=$1,payment_status='PAID',approved_by=$2,approved_at=now() WHERE id=$3`, [orderId, actor.id, id]);
       const outstandingAmount = Number((orderTotal - newCollectedTotal).toFixed(2));
       let orderStatus = order.rows[0].status;

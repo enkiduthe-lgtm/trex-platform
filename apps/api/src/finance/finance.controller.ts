@@ -43,9 +43,9 @@ export class FinanceController {
   @Post('carrier-settlements') carrierSettlement(@Body() dto: CreateCarrierSettlementDto, @Req() req: UserRequest) { return this.finance.createCarrierSettlement(dto, req.user); }
   @Post('carrier-settlements/:id/mark-paid') markCarrierSettlementPaid(@Param('id') id: string, @Req() req: UserRequest) { return this.finance.markCarrierSettlementPaid(id, req.user); }
   @Get('dashboard') dashboard(@Req() req:UserRequest) { return this.finance.dashboard(req.user); }
-  @Get('alerts') alerts() { return this.finance.alerts(); }
+  @Get('alerts') alerts(@Req() req:UserRequest) { return this.finance.alerts(req.user); }
   @Get('budgets') budgets(@Query('period') period?: string) { return this.finance.budgets(period); }
-  @Get('cash-flow') cashFlow() { return this.finance.cashFlowProjection(); }
+  @Get('cash-flow') cashFlow(@Req() req:UserRequest) { return this.finance.cashFlowProjection(req.user); }
   @Post('budgets') budget(@Body() dto: CreateFinanceBudgetDto, @Req() req: UserRequest) { return this.finance.createBudget(dto, req.user); }
   @Post('transactions') transaction(@Body() dto: CreateFinanceTransactionDto, @Req() req: UserRequest) { return this.finance.createTransaction(dto, req.user); }
   @Patch('transactions/:id') updateTransaction(@Param('id') id:string,@Body() dto: CreateFinanceTransactionDto,@Req() req:UserRequest) { return this.finance.updateTransaction(id,dto,req.user); }

@@ -8,6 +8,7 @@ import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
 import { allocatePack, cents, codFee, formatCents } from './order-pricing';
 import { dealerWallet,moneyCents } from '../commissions/dealer-wallet';
+import { reportOrderStatus } from './report-order-status';
 
 const manualSalesChannels = ['RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'] as const;
 type ManualSalesChannel = typeof manualSalesChannels[number];
@@ -179,8 +180,11 @@ export class AdminOrderService {
     if([dto.reason,dto.recipientName,dto.phone,dto.city,dto.district,dto.addressLine].some(value=>!value.trim())) throw new BadRequestException('Teslimat bilgileri ve değişiklik nedeni gerekli');
     if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{checkout_id:string;status:string;sales_channel:string;currency:string;total_amount:string;cod_service_fee?:string}>('SELECT checkout_id,status,sales_channel,currency,total_amount,cod_service_fee FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;currency:string;total_amount:string;cod_service_fee?:string}>(
+        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.currency,o.total_amount,o.cod_service_fee
+        FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
+      if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Sipariş Düzenlenemez');
       if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
       const contact=(await client.query<{contact_name:string|null;contact_email:string|null}>('SELECT contact_name,contact_email FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
       const payments=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
@@ -242,9 +246,11 @@ export class AdminOrderService {
     if(!dto.reason.trim()) throw new BadRequestException('Fiyat değişiklik nedeni gerekli');
     if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{checkout_id:string;status:string;sales_channel:string;total_amount:string;cod_service_fee?:string}>(
-        'SELECT checkout_id,status,sales_channel,total_amount,cod_service_fee FROM orders WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;total_amount:string;cod_service_fee?:string}>(
+        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.total_amount,o.cod_service_fee
+        FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
+      if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Siparişin Fiyatı Değiştirilemez');
       if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
       const payment=(await client.query<{id:string;status:string;provider:string}>(
         'SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
