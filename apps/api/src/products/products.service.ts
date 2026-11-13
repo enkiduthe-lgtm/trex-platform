@@ -53,7 +53,26 @@ export class ProductsService {
     return (await this.db.query<Product>(`SELECT p.*,COALESCE((SELECT SUM(i.physical_quantity-i.reserved_quantity) FROM inventory i WHERE i.product_id=p.id),0)::int AS available_quantity,COALESCE(CASE WHEN image.storage_key IS NOT NULL AND $1::text IS NOT NULL THEN $1::text || '/' || image.storage_key END,NULLIF(p.image_url,'')) AS image_url FROM products p LEFT JOIN LATERAL (SELECT a.storage_key FROM asset_usages usage JOIN assets a ON a.id=usage.asset_id WHERE usage.placement=('PRODUCT_MAIN:' || p.id::text) AND a.status='READY' ORDER BY usage.created_at DESC LIMIT 1) image ON true ORDER BY p.created_at DESC`, [publicBaseUrl])).rows;
   }
   async listCosts() { return (await this.db.query(`SELECT pc.*, pc.amount AS unit_cost, p.name AS product_name, s.name AS supplier_name FROM product_costs pc JOIN products p ON p.id=pc.product_id LEFT JOIN suppliers s ON s.id=pc.supplier_id ORDER BY p.name, pc.starts_at DESC, pc.created_at DESC`)).rows; }
-  async profitability() { return (await this.db.query(`WITH latest_cost AS (SELECT DISTINCT ON (product_id) product_id,amount AS unit_cost FROM product_costs ORDER BY product_id,starts_at DESC,created_at DESC), latest_price AS (SELECT DISTINCT ON (product_id) product_id,amount FROM product_prices WHERE scope='GLOBAL' ORDER BY product_id,starts_at DESC,created_at DESC) SELECT p.id,p.name,lp.amount AS sale_price,lc.unit_cost,CASE WHEN lp.amount IS NOT NULL AND lc.unit_cost IS NOT NULL THEN lp.amount-lc.unit_cost END AS gross_profit,CASE WHEN lp.amount IS NOT NULL AND lp.amount>0 AND lc.unit_cost IS NOT NULL THEN ROUND(((lp.amount-lc.unit_cost)/lp.amount)*100,2) END AS gross_margin_percent FROM products p LEFT JOIN latest_price lp ON lp.product_id=p.id LEFT JOIN latest_cost lc ON lc.product_id=p.id ORDER BY p.name`)).rows; }
+  async profitability() {
+    return (await this.db.query(`SELECT p.id,p.name,price.amount AS sale_price,price.currency AS sale_currency,
+      cost.amount AS unit_cost,cost.currency AS cost_currency,
+      CASE WHEN price.currency=cost.currency THEN price.amount-cost.amount END AS gross_profit,
+      CASE WHEN price.currency=cost.currency AND price.amount>0
+        THEN ROUND((price.amount-cost.amount)/price.amount*100,2) END AS gross_margin_percent
+      FROM products p
+      LEFT JOIN LATERAL (
+        SELECT amount,currency FROM product_prices WHERE product_id=p.id AND pack_size=1
+          AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel='PUBLIC_WEB'))
+          AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
+        ORDER BY CASE scope WHEN 'CHANNEL' THEN 0 ELSE 1 END,starts_at DESC,created_at DESC,id DESC LIMIT 1
+      ) price ON true
+      LEFT JOIN LATERAL (
+        SELECT amount,currency FROM product_costs WHERE product_id=p.id
+          AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
+        ORDER BY starts_at DESC,created_at DESC,id DESC LIMIT 1
+      ) cost ON true
+      ORDER BY p.name,p.id`)).rows;
+  }
   async createCost(dto: CreateProductCostDto, actor: RequestUser) {
     return this.db.transaction(async client => {
       let supplierId = dto.supplierId ?? null;
