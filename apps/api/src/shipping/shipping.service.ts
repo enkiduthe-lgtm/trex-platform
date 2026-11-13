@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { DatabaseService } from '../database/database.service';
 import { MockShippingProvider } from './mock-shipping.provider';
 import { ArasShippingProvider } from './aras-shipping.provider';
-import { ShippingProvider } from './shipping-provider.interface';
+import { ShippingProvider, ShippingProviderResult } from './shipping-provider.interface';
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -75,26 +75,36 @@ export class ShippingService {
     return {orderNumber:row.order_number,integrationCode:row.provider_reference,packageBarcode:row.package_barcode,found,checkedAt:new Date().toISOString()};
   }
   async create(orderId: string, userId?: string) {
-    const existing = await this.db.query<{ id: string; status: string; tracking_number: string | null;provider:string;provider_reference:string;package_barcode:string|null;order_number:string }>("SELECT s.id,s.status,s.tracking_number,s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1 AND o.archived_at IS NULL", [orderId]);
-    if (existing.rows[0]?.status === 'CREATED') {
-      const row=existing.rows[0];
-      if(row.provider!=='aras'||await this.aras.verifyRegisteredShipment(row.provider_reference,row.package_barcode))return {shipmentId:row.id,trackingNumber:row.tracking_number===row.order_number?null:row.tracking_number,replayed:true};
-    }
-    const order = await this.db.query<{ id: string; order_number:string; total_amount:string; currency:string; payment_provider:string }>("SELECT o.id,o.order_number,o.total_amount,o.currency,(SELECT p.provider FROM payments p WHERE p.checkout_id=o.checkout_id ORDER BY p.created_at DESC LIMIT 1) AS payment_provider FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL AND o.status='PROCESSING'", [orderId]); if (!order.rows[0]) throw new NotFoundException('Kargolanabilir sipariş bulunamadı. Sipariş önce paketleme adımını tamamlamalıdır.');
-    const address = await this.db.query<Address>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [orderId]); if (!address.rows[0]) throw new ConflictException('Sipariş teslimat adresi bulunamadı');
-    const packed = await this.db.query<{ package_barcode: string | null }>(`SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1`, [orderId]);
-    if (!packed.rows[0]?.package_barcode) throw new ConflictException('Kargo kaydı için paketleme tamamlanmalı ve paket barkodu oluşturulmuş olmalı');
-    const configured = this.provider();
-    try {
-      const created = await configured.client.createShipment({ paymentProvider:order.rows[0].payment_provider, totalAmount:order.rows[0].total_amount, currency:order.rows[0].currency, orderId, orderNumber:order.rows[0].order_number, recipientName: address.rows[0].recipient_name, phone: address.rows[0].phone, city: address.rows[0].city, district: address.rows[0].district, addressLine: address.rows[0].address_line, postalCode:address.rows[0].postal_code, packageBarcode: packed.rows[0].package_barcode });
-      const shipment = await this.db.query<{ id: string }>(`INSERT INTO shipments (order_id,provider,tracking_number,status,provider_reference,label_url,label_format,provider_payload) VALUES ($1,$2,$3,'CREATED',$4,$5,$6,$7) ON CONFLICT (order_id) DO UPDATE SET provider=EXCLUDED.provider,tracking_number=EXCLUDED.tracking_number,status='CREATED',provider_reference=EXCLUDED.provider_reference,label_url=EXCLUDED.label_url,label_format=EXCLUDED.label_format,provider_payload=EXCLUDED.provider_payload,failure_reason=NULL,updated_at=now() RETURNING id`, [orderId, configured.name, created.trackingNumber, created.reference,created.labelUrl??null,created.labelFormat??null,created.payload?JSON.stringify(created.payload):null]);
-      await this.db.query("INSERT INTO shipment_events (shipment_id,status,provider_event_id,description) VALUES ($1,'CREATED',$2,$3) ON CONFLICT DO NOTHING", [shipment.rows[0].id, created.reference,configured.name==='aras'?'Aras Kargo gönderi kaydı oluşturuldu':'Deneme kargo gönderi kaydı oluşturuldu']);
-      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId??null,'shipment.created','shipment',shipment.rows[0].id,JSON.stringify({provider:configured.name,orderId,trackingNumber:created.trackingNumber})]);
-      return { shipmentId: shipment.rows[0].id, trackingNumber: created.trackingNumber, labelUrl:created.labelUrl, replayed: false };
-    } catch (error) {
-      await this.db.query("INSERT INTO shipments (order_id,provider,status,failure_reason) VALUES ($1,$2,'FAILED',$3) ON CONFLICT (order_id) DO UPDATE SET provider=EXCLUDED.provider,status='FAILED',failure_reason=EXCLUDED.failure_reason,updated_at=now()", [orderId,configured.name,error instanceof Error ? error.message : 'Bilinmeyen kargo sağlayıcı hatası']);
-      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId??null,'shipment.creation_failed','order',orderId,JSON.stringify({provider:configured.name,error:error instanceof Error ? error.message : 'Bilinmeyen kargo sağlayıcı hatası'})]);
-      throw error;
-    }
+    const result = await this.db.transaction(async client => {
+      const locked = await client.query<{locked:boolean}>(`SELECT pg_try_advisory_xact_lock(hashtextextended('trex.shipment:' || $1::text,0)) AS locked`,[orderId]);
+      if (!locked.rows[0]?.locked) throw new ConflictException('Bu Siparişin Kargo Kaydı Şu Anda İşleniyor.');
+      const existing = await client.query<{ id: string; status: string; tracking_number: string | null;provider:string;provider_reference:string;package_barcode:string|null;order_number:string }>("SELECT s.id,s.status,s.tracking_number,s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1 AND o.archived_at IS NULL FOR UPDATE OF s,o", [orderId]);
+      if (existing.rows[0]?.status === 'CREATED') {
+        const row=existing.rows[0];
+        if(row.provider!=='aras'||await this.aras.verifyRegisteredShipment(row.provider_reference,row.package_barcode))return {value:{shipmentId:row.id,trackingNumber:row.tracking_number===row.order_number?null:row.tracking_number,replayed:true}};
+      }
+      if(existing.rows[0]&&!['CREATED','FAILED'].includes(existing.rows[0].status))throw new ConflictException('Bu Gönderi Durumunda Yeni Kargo Kaydı Oluşturulamaz');
+      const order = await client.query<{ id: string; order_number:string; total_amount:string; currency:string; payment_provider:string }>("SELECT o.id,o.order_number,o.total_amount,o.currency,(SELECT p.provider FROM payments p WHERE p.checkout_id=o.checkout_id ORDER BY p.created_at DESC,id DESC LIMIT 1) AS payment_provider FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL AND o.status='PROCESSING' FOR UPDATE OF o", [orderId]); if (!order.rows[0]) throw new NotFoundException('Kargolanabilir sipariş bulunamadı. Sipariş önce paketleme adımını tamamlamalıdır.');
+      const address = await client.query<Address>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [orderId]); if (!address.rows[0]) throw new ConflictException('Sipariş teslimat adresi bulunamadı');
+      const packed = await client.query<{ package_barcode: string | null }>(`SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1`, [orderId]);
+      if (!packed.rows[0]?.package_barcode) throw new ConflictException('Kargo kaydı için paketleme tamamlanmalı ve paket barkodu oluşturulmuş olmalı');
+      const configured = this.provider();
+      let created: ShippingProviderResult;
+      try {
+        created = await configured.client.createShipment({ paymentProvider:order.rows[0].payment_provider, totalAmount:order.rows[0].total_amount, currency:order.rows[0].currency, orderId, orderNumber:order.rows[0].order_number, recipientName: address.rows[0].recipient_name, phone: address.rows[0].phone, city: address.rows[0].city, district: address.rows[0].district, addressLine: address.rows[0].address_line, postalCode:address.rows[0].postal_code, packageBarcode: packed.rows[0].package_barcode });
+      } catch (error) {
+        const message=error instanceof Error ? error.message : 'Bilinmeyen kargo sağlayıcı hatası';
+        await client.query("INSERT INTO shipments (order_id,provider,status,failure_reason) VALUES ($1,$2,'FAILED',$3) ON CONFLICT (order_id) DO UPDATE SET failure_reason=EXCLUDED.failure_reason,updated_at=now() WHERE shipments.status IN ('CREATED','FAILED')", [orderId,configured.name,message]);
+        await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId??null,'shipment.creation_failed','order',orderId,JSON.stringify({provider:configured.name,error:message})]);
+        return {error};
+      }
+      const shipment = await client.query<{ id: string }>(`INSERT INTO shipments (order_id,provider,tracking_number,status,provider_reference,label_url,label_format,provider_payload) VALUES ($1,$2,$3,'CREATED',$4,$5,$6,$7) ON CONFLICT (order_id) DO UPDATE SET provider=EXCLUDED.provider,tracking_number=EXCLUDED.tracking_number,status='CREATED',provider_reference=EXCLUDED.provider_reference,label_url=EXCLUDED.label_url,label_format=EXCLUDED.label_format,provider_payload=EXCLUDED.provider_payload,failure_reason=NULL,updated_at=now() WHERE shipments.status IN ('CREATED','FAILED') RETURNING id`, [orderId, configured.name, created.trackingNumber, created.reference,created.labelUrl??null,created.labelFormat??null,created.payload?JSON.stringify(created.payload):null]);
+      if (!shipment.rows[0]) throw new ConflictException('Gönderi Durumu Değişti. Ekranı Yenileyin.');
+      await client.query("INSERT INTO shipment_events (shipment_id,status,provider_event_id,description) VALUES ($1,'CREATED',$2,$3) ON CONFLICT DO NOTHING", [shipment.rows[0].id, created.reference,configured.name==='aras'?'Aras Kargo gönderi kaydı oluşturuldu':'Deneme kargo gönderi kaydı oluşturuldu']);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId??null,'shipment.created','shipment',shipment.rows[0].id,JSON.stringify({provider:configured.name,orderId,trackingNumber:created.trackingNumber})]);
+      return {value:{shipmentId: shipment.rows[0].id, trackingNumber: created.trackingNumber, labelUrl:created.labelUrl, replayed:false}};
+    });
+    if ('error' in result) throw result.error;
+    return result.value;
   }
 }

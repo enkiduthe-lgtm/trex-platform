@@ -17,10 +17,18 @@ export class ArasShippingProvider implements ShippingProvider {
     // Aras validates this identifier strictly and rejects lowercase characters.
     // Keeping it deterministic also makes a retry for the same order idempotent.
     const integrationCode = this.limit(input.orderId.replaceAll('-', '').toUpperCase(), 32);
+    const requestBody = this.envelope({ username, password, orderReference, integrationCode, input });
+    if (await this.verifyRegisteredShipment(integrationCode, input.packageBarcode)) {
+      return {
+        reference: integrationCode,
+        trackingNumber: null,
+        payload: { customerCode, integrationCode, registrationVerified: true, packageBarcode: input.packageBarcode },
+      };
+    }
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'text/xml; charset=utf-8', SOAPAction: '"http://tempuri.org/SetOrder"' },
-      body: this.envelope({ username, password, orderReference, integrationCode, input }),
+      body: requestBody,
       signal: AbortSignal.timeout(15_000), redirect:'error',
     }).catch(() => { throw new ServiceUnavailableException('Aras Kargo Servisine Ulaşılamadı'); });
     const payload = await response.text();

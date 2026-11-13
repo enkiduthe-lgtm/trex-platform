@@ -18,7 +18,8 @@ describe('ShippingService', () => {
     expect(aras.verifyRegisteredShipment).not.toHaveBeenCalled();
   });
   it('returns an existing created shipment without calling the provider again', async () => {
-    const db = { query: jest.fn().mockResolvedValue({ rows: [{ id: 'shipment', status: 'CREATED', tracking_number: 'TRX1' }] }) };
+    const query = jest.fn().mockResolvedValueOnce({rows:[{locked:true}]}).mockResolvedValue({ rows: [{ id: 'shipment', status: 'CREATED', tracking_number: 'TRX1' }] });
+    const db = { transaction: async (work:any)=>work({query}) };
     const provider = { createShipment: jest.fn() };
     const service = new ShippingService(db as never, provider as never, provider as never);
     await expect(service.create('order')).resolves.toEqual({ shipmentId: 'shipment', trackingNumber: 'TRX1', replayed: true });
@@ -26,10 +27,29 @@ describe('ShippingService', () => {
   });
 
   it('verifies an existing Aras record before replay and never returns placeholder tracking',async()=>{
-    const db={query:jest.fn().mockResolvedValue({rows:[{id:'shipment',status:'CREATED',provider:'aras',provider_reference:'REF',package_barcode:'PKG',order_number:'ORDER',tracking_number:'ORDER'}]})};
+    const query=jest.fn().mockResolvedValueOnce({rows:[{locked:true}]}).mockResolvedValue({rows:[{id:'shipment',status:'CREATED',provider:'aras',provider_reference:'REF',package_barcode:'PKG',order_number:'ORDER',tracking_number:'ORDER'}]});
+    const db={transaction:async(work:any)=>work({query})};
     const aras={verifyRegisteredShipment:jest.fn().mockResolvedValue(true),createShipment:jest.fn()};
     await expect(new ShippingService(db as never,{} as never,aras as never).create('order')).resolves.toMatchObject({replayed:true,trackingNumber:null});
     expect(aras.verifyRegisteredShipment).toHaveBeenCalledWith('REF','PKG');expect(aras.createShipment).not.toHaveBeenCalled();
+  });
+
+  it('does not call the carrier when a second request is already registering the order',async()=>{
+    const query=jest.fn().mockResolvedValue({rows:[{locked:false}]});
+    const provider={createShipment:jest.fn(),verifyRegisteredShipment:jest.fn()};
+    const service=new ShippingService({transaction:async(work:any)=>work({query})} as never,provider as never,provider as never);
+    await expect(service.create('order')).rejects.toThrow('Şu Anda İşleniyor');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(provider.createShipment).not.toHaveBeenCalled();
+  });
+
+  it('never sends an in-transit shipment back to the carrier registration step',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{locked:true}]}).mockResolvedValueOnce({rows:[{status:'IN_TRANSIT'}]});
+    const provider={createShipment:jest.fn()};
+    const service=new ShippingService({transaction:async(work:any)=>work({query})} as never,provider as never,provider as never);
+    await expect(service.create('order')).rejects.toThrow('Yeni Kargo Kaydı Oluşturulamaz');
+    expect(provider.createShipment).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledTimes(2);
   });
 
   it('lists only packed orders without an existing shipment in the shipment queue', async () => {
