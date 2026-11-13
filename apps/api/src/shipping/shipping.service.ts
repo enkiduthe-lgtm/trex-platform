@@ -76,7 +76,7 @@ export class ShippingService {
   }
   async create(orderId: string, userId?: string) {
     const result = await this.db.transaction(async client => {
-      const locked = await client.query<{locked:boolean}>(`SELECT pg_try_advisory_xact_lock(hashtextextended('trex.shipment:' || $1::text,0)) AS locked`,[orderId]);
+      const locked = await client.query<{locked:boolean}>(`SELECT pg_try_advisory_xact_lock(hashtextextended('trex.shipment:' || $1::uuid::text,0)) AS locked`,[orderId]);
       if (!locked.rows[0]?.locked) throw new ConflictException('Bu Siparişin Kargo Kaydı Şu Anda İşleniyor.');
       const existing = await client.query<{ id: string; status: string; tracking_number: string | null;provider:string;provider_reference:string;package_barcode:string|null;order_number:string }>("SELECT s.id,s.status,s.tracking_number,s.provider,s.provider_reference,o.order_number,(SELECT pk.package_barcode FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL ORDER BY pk.packed_at DESC LIMIT 1) AS package_barcode FROM shipments s JOIN orders o ON o.id=s.order_id WHERE s.order_id=$1 AND o.archived_at IS NULL FOR UPDATE OF s,o", [orderId]);
       if (existing.rows[0]?.status === 'CREATED') {

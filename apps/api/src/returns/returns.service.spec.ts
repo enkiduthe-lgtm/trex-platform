@@ -22,7 +22,7 @@ describe('ReturnsService', () => {
     const db = { transaction: jest.fn((work) => work(client)) };
     await expect(new ReturnsService(db as never).inspect('return', { warehouseId: 'warehouse', disposition: 'SELLABLE', notes: 'Uygun' }, 'user')).resolves.toEqual({ returnId: 'return', status: 'INSPECTED', dispositions: [{ returnItemId: 'return-item', disposition: 'SELLABLE' }] });
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity'), ['product', 'warehouse', 1]);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"), ['product', 'warehouse', 'RECEIPT', 1, 'return', 'user']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_movements'), ['product', 'warehouse', 'RECEIPT', 1, 'return', 'user']);
   });
 
   it('uses each item disposition when recording a mixed return', async () => {
@@ -43,7 +43,7 @@ describe('ReturnsService', () => {
         { returnItemId: 'damaged', disposition: 'DAMAGED' },
       ],
     }, 'user');
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"), ['tea-1', 'warehouse', 'RECEIPT', 1, 'return', 'user']);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RETURN_DAMAGED'"), ['tea-2', 'warehouse', 'RETURN_DAMAGED', 0, 'return', 'user']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_movements'), ['tea-1', 'warehouse', 'RECEIPT', 1, 'return', 'user']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_movements'), ['tea-2', 'warehouse', 'RETURN_DAMAGED', 0, 'return', 'user']);
   });
 });

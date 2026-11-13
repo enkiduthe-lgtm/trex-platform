@@ -6,12 +6,11 @@ import { DatabaseService } from '../database/database.service';
 import { RequestUser } from '../auth/auth.types';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { editVersion } from './edit-version';
-import { CommissionsService } from '../commissions/commissions.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { ShippingService } from '../shipping/shipping.service';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { ParasutInvoiceProvider } from './parasut-invoice.provider';
 @Injectable()
-export class OrdersService { constructor(private readonly db: DatabaseService,private readonly commissions?: CommissionsService,private readonly notifications?: NotificationsService, private readonly parasut?: ParasutInvoiceProvider) {} async list(channel?:string,before?:string) { if(before&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(before))throw new BadRequestException("Geçersiz Sipariş Sayfası"); const normalized=channel?.trim().toUpperCase(); const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE']; if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı'); return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,(SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) AS payment_method,(SELECT ps.status FROM picking_sessions ps WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS preparation_status,(SELECT pk.packed_at FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS packed_at,o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
+export class OrdersService { constructor(private readonly db: DatabaseService,private readonly shipping?: ShippingService, private readonly parasut?: ParasutInvoiceProvider) {} async list(channel?:string,before?:string) { if(before&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(before))throw new BadRequestException("Geçersiz Sipariş Sayfası"); const normalized=channel?.trim().toUpperCase(); const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE']; if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı'); return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,(SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) AS payment_method,(SELECT ps.status FROM picking_sessions ps WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS preparation_status,(SELECT pk.packed_at FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS packed_at,o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('product_name',lines.product_name,'sku',lines.sku,'quantity',lines.quantity) ORDER BY lines.product_name,lines.sku)
         FROM (SELECT product_id,product_name,sku,SUM(quantity)::int AS quantity FROM order_items
           WHERE order_id=o.id GROUP BY product_id,product_name,sku) lines),'[]'::jsonb) AS products
@@ -256,26 +255,14 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
   async updateStatus(id:string,dto:UpdateOrderStatusDto,actor:RequestUser) {
     if(dto.status==='CANCELLED') return this.cancel(id,actor);
     if(!['SUPER_ADMIN','ADMIN','WAREHOUSE'].includes(actor.role)) throw new ForbiddenException('Sipariş operasyonu yetkisi gerekli');
-    const result = await this.db.transaction(async client=>{
-      const order=(await client.query<{status:string;order_number:string;contact_email:string|null}>('SELECT o.status,o.order_number,cs.contact_email FROM orders o LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1 FOR UPDATE',[id])).rows[0];
-      if(!order) throw new NotFoundException('Sipariş bulunamadı');
-      if(order.status===dto.status) return {id,status:dto.status,replayed:true,orderNumber:order.order_number,recipient:order.contact_email};
-      const next:Record<string,string>={PROCESSING:'SHIPPED',SHIPPED:'DELIVERED'};
-      if(next[order.status]!==dto.status) throw new ConflictException('Bu sipariş durum geçişine izin verilmiyor');
-      await client.query('UPDATE orders SET status=$1 WHERE id=$2',[dto.status,id]);
-      await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,dto.status,actor.id]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)',[actor.id,`order.status.${dto.status.toLowerCase()}`,'order',id]);
-      if(dto.status==='DELIVERED') await this.commissions?.awardForDeliveredOrder(id,actor.id,client);
-      return {id,status:dto.status,replayed:false,orderNumber:order.order_number,recipient:order.contact_email};
-    });
-    if (result.status === 'DELIVERED') {
-      const dealer = await this.db.query<{ dealer_id: string }>("SELECT dua.dealer_id FROM audit_logs al JOIN dealer_user_accounts dua ON dua.user_id=al.actor_user_id WHERE al.entity_type='order' AND al.entity_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') ORDER BY al.created_at ASC LIMIT 1", [id]);
-      if (dealer.rowCount) {
-        const items = await this.db.query<{ id: string; product_id: string; quantity: number }>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id', [id]);
-        for (const item of items.rows) await this.commissions?.confirmForOrderItem({ dealerId: dealer.rows[0].dealer_id, orderId: id, orderItemId: item.id, productId: item.product_id, quantity: item.quantity });
-      }
+    if (dto.status === 'PROCESSING') {
+      const order = (await this.db.query<{status:string}>('SELECT status FROM orders WHERE id=$1 AND archived_at IS NULL',[id])).rows[0];
+      if (!order) throw new NotFoundException('Sipariş bulunamadı');
+      if (order.status !== 'PROCESSING') throw new ConflictException('Siparişi Hazırla ve Paketle adımlarından ilerletin');
+      return {id,status:dto.status};
     }
-    if (!result.replayed && (result.status === 'SHIPPED' || result.status === 'DELIVERED')) await this.notifications?.recordOrderStatus(result.recipient, result.orderNumber, result.status);
-    return {id,status:result.status};
+    if (!this.shipping) throw new ServiceUnavailableException('Kargo işlemleri şu anda kullanılamıyor');
+    await this.shipping.updateStatus(id,{status:dto.status==='SHIPPED'?'IN_TRANSIT':'DELIVERED'},actor.id);
+    return {id,status:dto.status};
   }
 }

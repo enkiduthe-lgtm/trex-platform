@@ -6,50 +6,46 @@ describe('Order status transitions',()=>{
   function setup(status?:string) {
     const query=jest.fn().mockResolvedValue({rows:[]});
     query.mockResolvedValueOnce({rows:status?[{status}]:[]});
-    const transaction=jest.fn(async(work:any)=>work({query}));
-    return {query,transaction,service:new OrdersService({transaction,query} as never)};
+    const shipment = { updateStatus: jest.fn().mockResolvedValue({id:'shipment'}) };
+    return {query,shipment,service:new OrdersService({query} as never,shipment as never)};
   }
   it.each(['CANCELLED','DELIVERED','PENDING_PAYMENT','SHIPPED'])('does not reopen %s as processing',async status=>{
     const {service,query}=setup(status);
     await expect(service.updateStatus('order',{status:OrderStatusUpdate.PROCESSING},actor)).rejects.toBeInstanceOf(ConflictException);
     expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0]).toContain('FOR UPDATE');
+    expect(query.mock.calls[0][0]).toContain('archived_at IS NULL');
   });
-  it.each([['PAID',OrderStatusUpdate.PROCESSING],['PROCESSING',OrderStatusUpdate.SHIPPED],['SHIPPED',OrderStatusUpdate.DELIVERED]])('allows %s to %s atomically',async(previous,status)=>{
-    const {service,query}=setup(previous);
+  it.each([[OrderStatusUpdate.SHIPPED,'IN_TRANSIT'],[OrderStatusUpdate.DELIVERED,'DELIVERED']])('routes %s through the shipment workflow',async(status,shipmentStatus)=>{
+    const {service,query,shipment}=setup();
     await expect(service.updateStatus('order',{status},actor)).resolves.toEqual({id:'order',status});
-    expect(query).toHaveBeenCalledTimes(status===OrderStatusUpdate.DELIVERED?5:4);
-    expect(query.mock.calls[2][1]).toEqual(['order',status,actor.id]);
+    expect(shipment.updateStatus).toHaveBeenCalledWith('order',{status:shipmentStatus},actor.id);
+    expect(query).not.toHaveBeenCalled();
   });
   it('replays an unchanged status without duplicate history',async()=>{
     const {service,query}=setup('PROCESSING');
-    await expect(service.updateStatus('order',{status:OrderStatusUpdate.PROCESSING},actor)).resolves.toMatchObject({replayed:true});
+    await expect(service.updateStatus('order',{status:OrderStatusUpdate.PROCESSING},actor)).resolves.toEqual({id:'order',status:'PROCESSING'});
     expect(query).toHaveBeenCalledTimes(1);
   });
   it('returns 404 for a missing order',async()=>{
     await expect(setup().service.updateStatus('missing',{status:OrderStatusUpdate.PROCESSING},actor)).rejects.toBeInstanceOf(NotFoundException);
   });
   it.each(['FINANCE','DEALER','CUSTOMER'])('denies %s before opening a transaction',async role=>{
-    const {service,transaction}=setup('PAID');
+    const {service,query,shipment}=setup('PAID');
     await expect(service.updateStatus('order',{status:OrderStatusUpdate.PROCESSING},{...actor,role} as never)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(transaction).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(shipment.updateStatus).not.toHaveBeenCalled();
   });
   it('still delegates cancellation to the stock/payment-safe cancellation flow',async()=>{
-    const {service,transaction}=setup();
+    const {service,shipment}=setup();
     const cancel=jest.spyOn(service,'cancel').mockResolvedValue({id:'order',status:'CANCELLED',replayed:true});
     await service.updateStatus('order',{status:OrderStatusUpdate.CANCELLED},actor);
     expect(cancel).toHaveBeenCalledWith('order',actor);
-    expect(transaction).not.toHaveBeenCalled();
+    expect(shipment.updateStatus).not.toHaveBeenCalled();
   });
-  it('creates dealer commission entries once when a dealer order is delivered',async()=>{
-    const query=jest.fn().mockResolvedValue({rows:[]});
-    query.mockResolvedValueOnce({rows:[{status:'SHIPPED',order_number:'TRX-1',contact_email:null}]});
-    query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]});
-    query.mockResolvedValueOnce({rowCount:1,rows:[{dealer_id:'dealer'}]}).mockResolvedValueOnce({rows:[{id:'item',product_id:'product',quantity:2}]});
-    const transaction=jest.fn(async(work:any)=>work({query}));
-    const commissions={awardForDeliveredOrder:jest.fn(),confirmForOrderItem:jest.fn().mockResolvedValue({id:'commission'})};
-    const service=new OrdersService({transaction,query} as never,commissions as never);
-    await expect(service.updateStatus('order',{status:OrderStatusUpdate.DELIVERED},actor)).resolves.toEqual({id:'order',status:OrderStatusUpdate.DELIVERED});
-    expect(commissions.confirmForOrderItem).toHaveBeenCalledWith({dealerId:'dealer',orderId:'order',orderItemId:'item',productId:'product',quantity:2});
+  it('keeps a missing or unready shipment from changing the order',async()=>{
+    const {service,query,shipment}=setup('SHIPPED');
+    shipment.updateStatus.mockRejectedValue(new NotFoundException());
+    await expect(service.updateStatus('order',{status:OrderStatusUpdate.DELIVERED},actor)).rejects.toBeInstanceOf(NotFoundException);
+    expect(query).not.toHaveBeenCalled();
   });
 });

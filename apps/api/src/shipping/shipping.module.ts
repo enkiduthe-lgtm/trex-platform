@@ -7,4 +7,4 @@ import { ShippingController } from './shipping.controller';
 import { ShippingService } from './shipping.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CommissionsModule } from '../commissions/commissions.module';
-@Module({ imports: [NotificationsModule,CommissionsModule], controllers: [ShippingController], providers: [ArasQueryProvider, ArasTrackingService, ShippingService, MockShippingProvider, ArasShippingProvider] }) export class ShippingModule {}
+@Module({ imports: [NotificationsModule,CommissionsModule], controllers: [ShippingController], providers: [ArasQueryProvider, ArasTrackingService, ShippingService, MockShippingProvider, ArasShippingProvider], exports: [ShippingService] }) export class ShippingModule {}
