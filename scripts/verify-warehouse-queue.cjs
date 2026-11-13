@@ -15,7 +15,7 @@ async function main() {
       CREATE TABLE order_items(order_id int,quantity int);
       CREATE TABLE picking_sessions(id int,order_id int,status text);
       CREATE TABLE packing_sessions(picking_session_id int,packed_at timestamptz);
-      CREATE TABLE returns(status text);
+      CREATE TABLE returns(status text,order_id int);
       CREATE TABLE inventory(product_id int,warehouse_id int,physical_quantity int,reserved_quantity int);
       CREATE TABLE inventory_reorder_levels(product_id int,warehouse_id int,minimum_quantity int);
       INSERT INTO orders(id,order_number,checkout_id,status,archived_at) VALUES
@@ -24,6 +24,7 @@ async function main() {
       INSERT INTO stock_reservations VALUES ('checkout',1,'ACTIVE',1),('checkout',1,'ACTIVE',1),('checkout',2,'ACTIVE',1);
       INSERT INTO order_items VALUES (1,3),(1,2),(2,99);
       INSERT INTO picking_sessions VALUES (1,3,'OPEN'),(2,4,'IN_PROGRESS');
+      INSERT INTO returns VALUES ('REQUESTED',1),('REQUESTED',2);
     `);
     const source = fs.readFileSync(path.join(__dirname,'../apps/api/src/warehouse/warehouse.service.ts'),'utf8');
     function sql(method) {
@@ -33,7 +34,12 @@ async function main() {
     assert.deepEqual(queue,[{id:1,order_number:'ACTIVE',warehouse_name:'Ana Depo',item_count:5}]);
     const dashboard = (await db.query(sql('dashboard'))).rows[0];
     assert.equal(dashboard.waiting,'2');
-    assert.equal(dashboard.picking,'1');
+    assert.equal(dashboard.picking,'0');
+    assert.equal(dashboard.returns_pending,'1');
+    await db.exec("UPDATE picking_sessions SET status='IN_PROGRESS' WHERE id=1");
+    const duringPicking = (await db.query(sql('dashboard'))).rows[0];
+    assert.equal(duringPicking.waiting,'1');
+    assert.equal(duringPicking.picking,'1');
     await db.exec('UPDATE orders SET archived_at=NULL WHERE id=2');
     assert.equal((await db.query(sql('listPickQueue'))).rows.length,2);
     console.log('Warehouse queue passed: no duplicated quantities, archived orders excluded, restored orders visible.');

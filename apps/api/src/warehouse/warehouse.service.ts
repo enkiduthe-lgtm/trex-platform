@@ -61,7 +61,22 @@ export class WarehouseService {
     }
   }
   async dashboard() {
-    const result = await this.db.query<{ waiting: string; picking: string; packing: string; critical_stock: string; returns_pending: string }>(`SELECT (SELECT count(*)::text FROM orders WHERE archived_at IS NULL AND status='PAID') waiting, (SELECT count(*)::text FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id WHERE o.archived_at IS NULL AND ps.status IN ('OPEN','IN_PROGRESS')) picking, (SELECT count(*)::text FROM picking_sessions ps JOIN packing_sessions pk ON pk.picking_session_id=ps.id JOIN orders o ON o.id=ps.order_id WHERE o.archived_at IS NULL AND ps.status='COMPLETED' AND pk.packed_at IS NULL) packing, (SELECT count(*)::text FROM inventory i LEFT JOIN inventory_reorder_levels rl ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id WHERE i.physical_quantity-i.reserved_quantity <= COALESCE(rl.minimum_quantity,5)) critical_stock, (SELECT count(*)::text FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED')) returns_pending`);
+    const result = await this.db.query<{ waiting: string; picking: string; packing: string; critical_stock: string; returns_pending: string }>(`
+      WITH stages AS (
+        SELECT count(*) FILTER (WHERE (ps.id IS NULL AND o.status='PAID') OR ps.status='OPEN')::text AS waiting,
+          count(*) FILTER (WHERE ps.status='IN_PROGRESS')::text AS picking,
+          count(*) FILTER (WHERE ps.status='COMPLETED' AND pk.packed_at IS NULL)::text AS packing
+        FROM orders o LEFT JOIN picking_sessions ps ON ps.order_id=o.id
+        LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
+        WHERE o.archived_at IS NULL AND o.status IN ('PAID','PROCESSING')
+      )
+      SELECT stages.*,
+        (SELECT count(*)::text FROM inventory i LEFT JOIN inventory_reorder_levels rl
+         ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id
+         WHERE i.physical_quantity-i.reserved_quantity <= COALESCE(rl.minimum_quantity,5)) AS critical_stock,
+        (SELECT count(*)::text FROM returns r JOIN orders o ON o.id=r.order_id
+         WHERE o.archived_at IS NULL AND r.status NOT IN ('REFUNDED','REJECTED','CANCELLED')) AS returns_pending
+      FROM stages`);
     return result.rows[0];
   }
   async listLocations() { return (await this.db.query<{id:string;code:string;name:string;is_active:boolean}>('SELECT id,code,name,is_active FROM warehouses ORDER BY is_active DESC,name')).rows; }
@@ -223,7 +238,11 @@ export class WarehouseService {
     const items = await this.db.query<{id:string;product_name:string;sku:string;barcode:string|null;expected_quantity:number;picked_quantity:number;lot_code:string|null;expiry_date:string|null;location_code:string|null}>(`SELECT pi.id,oi.product_name,oi.sku,p.barcode,pi.expected_quantity,pi.picked_quantity,l.lot_code,l.expiry_date,l.location_code FROM picking_items pi JOIN order_items oi ON oi.id=pi.order_item_id LEFT JOIN products p ON p.id=oi.product_id LEFT JOIN LATERAL (SELECT lot_code,expiry_date,location_code FROM inventory_lots WHERE product_id=oi.product_id AND warehouse_id=(SELECT warehouse_id FROM picking_sessions WHERE id=pi.picking_session_id) AND available_quantity>0 ORDER BY expiry_date ASC NULLS LAST LIMIT 1) l ON true WHERE pi.picking_session_id=$1 ORDER BY oi.product_name`,[id]);
     return { ...pick.rows[0], items: items.rows };
   }
-  async criticalStock() { return (await this.db.query(`SELECT p.id, p.name, w.name AS warehouse_name, i.physical_quantity, i.reserved_quantity, i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id WHERE i.physical_quantity-i.reserved_quantity <= 5 ORDER BY available_quantity ASC, p.name LIMIT 100`)).rows; }
+  async criticalStock() { return (await this.db.query(`SELECT p.id, p.name, w.name AS warehouse_name, i.physical_quantity, i.reserved_quantity, i.physical_quantity-i.reserved_quantity AS available_quantity
+    FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id
+    LEFT JOIN inventory_reorder_levels rl ON rl.product_id=i.product_id AND rl.warehouse_id=i.warehouse_id
+    WHERE i.physical_quantity-i.reserved_quantity <= COALESCE(rl.minimum_quantity,5)
+    ORDER BY available_quantity ASC,p.name,w.id LIMIT 100`)).rows; }
   async createPick(orderId:string,warehouseId:string,userId:string) { return this.db.transaction(async client=>{ const order=await client.query<{id:string;checkout_id:string}>("SELECT id,checkout_id FROM orders WHERE id=$1 AND archived_at IS NULL AND status='PAID' FOR UPDATE",[orderId]); if(!order.rowCount) throw new NotFoundException('Paid order not found'); const existing=await client.query<{id:string}>('SELECT id FROM picking_sessions WHERE order_id=$1 LIMIT 1',[orderId]); if(existing.rows[0]) return {...existing.rows[0],replayed:true}; const reservation=await client.query('SELECT 1 FROM stock_reservations WHERE reference_type=\'checkout\' AND reference_id=$1 AND warehouse_id=$2 AND status=\'ACTIVE\' LIMIT 1',[order.rows[0].checkout_id,warehouseId]); if(!reservation.rowCount) throw new ConflictException('Siparişin aktif stok rezervasyonu seçilen depoda bulunmuyor'); const pick=await client.query<{id:string}>('INSERT INTO picking_sessions (order_id,warehouse_id,assigned_to,status) VALUES ($1,$2,$3,$4) RETURNING id',[orderId,warehouseId,userId,'IN_PROGRESS']); const items=await client.query<{id:string;quantity:number}>('SELECT id,quantity FROM order_items WHERE order_id=$1',[orderId]); for(const item of items.rows) await client.query('INSERT INTO picking_items (picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)',[pick.rows[0].id,item.id,item.quantity]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'warehouse.pick.started','picking_session',pick.rows[0].id,JSON.stringify({orderId,warehouseId,source:'manual'})]); return {...pick.rows[0],replayed:false}; }); }
   async prepareOrder(orderId: string, userId: string) {
     return this.db.transaction(async client => {
