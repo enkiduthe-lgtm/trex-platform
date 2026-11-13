@@ -109,3 +109,6 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Ortak XLSX yazdırıcısı sayısal adet ve tutarları Excel sayı hücreleri olarak üretiyor. scripts/verify-xlsx-export.cjs kontrolü geçti: negatif tutar, sıfır, başında sıfır olan kimlik, formül benzeri metin ve boş hücreler dahil.
 - Bu iki panel değişikliği henüz canlıya alınmadı. Kısıtlı yönetici/bayi erişimi ve stok/prim/iade kabul senaryoları açık.
 
+
+- 13 Kasım erişim kontrolü: izole PostgreSQL ile yönetici izin iptali, onaysız finans/silme/rol değiştirme engelleri ve müdür erişimi geçti. Prim Excel kontrolündeki eksik unpaid test verisi güncellendi; yönetici çıktısında diğer kişi/görev sütunlarının bulunmadığı kontrolü geçti. Gerçek kısıtlı hesaplarla tarayıcı kabulü ayrıca açık.
+
