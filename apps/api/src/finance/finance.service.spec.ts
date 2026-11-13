@@ -27,6 +27,17 @@ describe('Manual finance transaction safety', () => {
 });
 
 describe('FinanceService marketplace settlements', () => {
+  it.each([['paytr','SUCCEEDED','yöntemi'],['dealer_commission','SUCCEEDED','yöntemi'],['bank_transfer','SUCCEEDED','bekleyen ödemesi']])(
+    'rejects manual collection for %s with %s payment', async (provider,status,message) => {
+      const query=jest.fn()
+        .mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00',currency:'TRY'}]})
+        .mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'DELIVERED',currency:'TRY',checkout_id:'checkout'}]})
+        .mockResolvedValueOnce({rows:[{provider,status,currency:'TRY'}]});
+      await expect(new FinanceService({transaction:async(work:any)=>work({query})} as never)
+        .approveCollection('collection',{orderId:'order'},{} as never)).rejects.toThrow(message);
+      expect(query).toHaveBeenCalledTimes(3);
+    },
+  );
   it.each(['EUR','USD'])('rejects %s collection against TRY order without writes',async currency=>{
     const query=jest.fn().mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00',currency}]}).mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'PENDING_PAYMENT',total_amount:'100.00',currency:'TRY'}]});
     const service=new FinanceService({transaction:async(work:any)=>work({query})} as never);
@@ -64,6 +75,7 @@ describe('FinanceService marketplace settlements', () => {
     const query=jest.fn().mockResolvedValue({rowCount:1,rows:[]})
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'20.25',currency}]})
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'PENDING_PAYMENT',total_amount:'40.50',currency,checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rows:[{id:'payment',provider:'bank_transfer',status:'PENDING',currency}]})
       .mockResolvedValueOnce({rows:[{total:'0.00'}]});
     await expect(new FinanceService({transaction:async(work:any)=>work({query})} as never).approveCollection('collection',{orderId:'order'},{} as never)).resolves.toMatchObject({collectedTotal:20.25,outstandingAmount:20.25,orderStatus:'PENDING_PAYMENT'});
   });
@@ -71,10 +83,11 @@ describe('FinanceService marketplace settlements', () => {
     const query=jest.fn().mockResolvedValue({rowCount:1,rows:[]})
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'collection',amount:'100.00',currency:'TRY'}]})
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'order',status:'DELIVERED',total_amount:'100.00',checkout_id:'checkout',currency:'TRY'}]})
+      .mockResolvedValueOnce({rows:[{id:'payment',provider:'cash_on_delivery_card',status:'PENDING',currency:'TRY'}]})
       .mockResolvedValueOnce({rows:[{total:'0.00'}]});
     const service=new FinanceService({transaction:async(work:any)=>work({query})} as never);
     await expect(service.approveCollection('collection',{orderId:'order'},{id:'user'} as never)).resolves.toMatchObject({orderStatus:'DELIVERED',outstandingAmount:0});
-    expect(query.mock.calls.some(([sql])=>sql.includes("provider IN ('cash_on_delivery_card','cash_on_delivery_cash')"))).toBe(true);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("UPDATE payments SET status='SUCCEEDED'"),['payment']);
     expect(query.mock.calls.some(([sql])=>sql.includes('UPDATE orders')||sql.includes('INSERT INTO picking_sessions'))).toBe(false);
   });
   it('rejects deductions that exceed the marketplace gross sale before any write', async () => {
@@ -89,6 +102,7 @@ describe('FinanceService marketplace settlements', () => {
     const query = jest.fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'collection-1', amount: '40.00', currency:'TRY' }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'order-1', status: 'PENDING_PAYMENT', total_amount: '100.00', checkout_id: 'checkout-1', currency:'TRY' }] })
+      .mockResolvedValueOnce({ rows: [{ id:'payment',provider:'bank_transfer',status:'PENDING',currency:'TRY' }] })
       .mockResolvedValueOnce({ rows: [{ total: '0.00' }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] });
@@ -102,8 +116,8 @@ describe('FinanceService marketplace settlements', () => {
     const query = jest.fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'collection-1', amount: '100.00', currency:'TRY' }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'order-1', status: 'PENDING_PAYMENT', total_amount: '100.00', checkout_id: 'checkout-1', currency:'TRY' }] })
+      .mockResolvedValueOnce({ rows: [{ id:'payment',provider:'bank_transfer',status:'PENDING',currency:'TRY' }] })
       .mockResolvedValueOnce({ rows: [{ total: '0.00' }] })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })

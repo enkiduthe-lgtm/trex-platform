@@ -11,6 +11,7 @@ import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto'
 import { StaffChannelService } from '../commissions/staff-channel.service';
 import { pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
 import { reportOrderStatus } from '../orders/report-order-status';
+import { cents } from '../orders/order-pricing';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -255,7 +256,7 @@ export class FinanceService {
   }
   async approveCollection(id: string, dto: ApproveCollectionDto, actor: RequestUser) {
     return this.db.transaction(async client => {
-      const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND ${pendingCollection} FOR UPDATE OF t`, [id]);
+      const collection = await client.query<{ id: string; amount: string; currency:string }>(`SELECT t.id,t.amount,a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.id=$1 AND a.is_active AND ${pendingCollection} FOR UPDATE OF t`, [id]);
       if (!collection.rowCount) throw new BadRequestException('Bekleyen havale kaydı bulunamadı veya daha önce onaylandı');
       const order = await client.query<{ id: string; status: string; sales_status:string; total_amount: string; checkout_id: string; currency:string }>(`SELECT o.id,o.status,${reportOrderStatus} AS sales_status,o.total_amount,o.checkout_id,o.currency FROM orders o WHERE o.archived_at IS NULL AND (o.id::text=$1 OR o.order_number=$1) FOR UPDATE OF o`, [dto.orderId.trim()]);
       if (!order.rowCount) throw new BadRequestException('Sipariş bulunamadı');
@@ -263,23 +264,36 @@ export class FinanceService {
       if(order.rows[0].status==='CANCELLED') throw new BadRequestException('İptal edilmiş siparişe tahsilat bağlanamaz');
       if(order.rows[0].sales_status==='REFUNDED') throw new BadRequestException('Tamamen iade edilmiş siparişe tahsilat bağlanamaz');
       if(collection.rows[0].currency?.trim()!==order.rows[0].currency?.trim() || !order.rows[0].currency) throw new BadRequestException('Tahsilat hesabı ve sipariş aynı para biriminde olmalı');
-      const approved = await client.query<{ total: string }>(`SELECT COALESCE(SUM(amount),0)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='COLLECTION' AND approved_at IS NOT NULL`, [orderId]);
-      const alreadyCollected = Number(approved.rows[0]?.total ?? 0);
-      const collectionAmount = Number(collection.rows[0].amount);
-      const orderTotal = Number(order.rows[0].total_amount);
-      const newCollectedTotal = Number((alreadyCollected + collectionAmount).toFixed(2));
+      const payment = (await client.query<{id:string;provider:string;status:string;currency:string}>(
+        'SELECT id,provider,status,currency FROM payments WHERE checkout_id=$1 FOR UPDATE', [order.rows[0].checkout_id],
+      )).rows[0];
+      if (!payment || !['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) {
+        throw new BadRequestException('Siparişin ödeme yöntemi manuel tahsilata uygun değil');
+      }
+      if (payment.status !== 'PENDING') throw new BadRequestException('Bu siparişin bekleyen ödemesi yok');
+      if (payment.currency !== collection.rows[0].currency) throw new BadRequestException('Tahsilat hesabı ve ödeme aynı para biriminde olmalı');
+      const approved = await client.query<{ total: string }>(`SELECT COALESCE(SUM(t.amount),0)::text AS total
+        FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
+        WHERE t.order_id=$1 AND t.kind='COLLECTION' AND t.payment_status='PAID' AND t.approved_at IS NOT NULL AND a.currency=$2`, [orderId, payment.currency]);
+      const alreadyCollected = cents(approved.rows[0]?.total ?? 0);
+      const collectionAmount = cents(collection.rows[0].amount);
+      const orderTotal = cents(order.rows[0].total_amount);
+      const newCollectedTotal = alreadyCollected + collectionAmount;
       if (newCollectedTotal > orderTotal) throw new BadRequestException('Bu havale siparişin kalan bakiyesinden yüksek');
       await client.query(`UPDATE finance_transactions SET order_id=$1,payment_status='PAID',approved_by=$2,approved_at=now() WHERE id=$3`, [orderId, actor.id, id]);
-      const outstandingAmount = Number((orderTotal - newCollectedTotal).toFixed(2));
+      const collectedTotal = Number(newCollectedTotal) / 100;
+      const outstandingAmount = Number(orderTotal - newCollectedTotal) / 100;
       let orderStatus = order.rows[0].status;
+      if (outstandingAmount === 0) {
+        await client.query(`UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE id=$1 AND status='PENDING'`, [payment.id]);
+        await client.query(`UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id=$1 AND status='PENDING'`, [payment.id]);
+      }
       if (outstandingAmount === 0 && orderStatus === 'PENDING_PAYMENT') {
         await client.query(`UPDATE orders SET status='PAID' WHERE id=$1`, [orderId]);
-        await client.query(`UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE checkout_id=$1 AND status='PENDING'`, [order.rows[0].checkout_id]);
-        await client.query(`UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id IN (SELECT id FROM payments WHERE checkout_id=$1)`, [order.rows[0].checkout_id]);
         await client.query(`INSERT INTO order_status_history(order_id,status) VALUES ($1,'PAID')`, [orderId]);
-        const warehouse = await client.query<{ warehouse_id: string }>(`SELECT warehouse_id FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 ORDER BY created_at ASC LIMIT 1`, [order.rows[0].checkout_id]);
-        if (warehouse.rows[0]) {
-          const pick = await client.query<{ id: string }>(`INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') ON CONFLICT (order_id) DO NOTHING RETURNING id`, [orderId, warehouse.rows[0].warehouse_id]);
+        const warehouses = await client.query<{ warehouse_id: string }>(`SELECT DISTINCT warehouse_id FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' LIMIT 2`, [order.rows[0].checkout_id]);
+        if (warehouses.rows.length === 1) {
+          const pick = await client.query<{ id: string }>(`INSERT INTO picking_sessions(order_id,warehouse_id,status) VALUES ($1,$2,'OPEN') ON CONFLICT (order_id) DO NOTHING RETURNING id`, [orderId, warehouses.rows[0].warehouse_id]);
           if (pick.rows[0]) {
             const orderItems = await client.query<{ id: string; quantity: number }>(`SELECT id,quantity FROM order_items WHERE order_id=$1`, [orderId]);
             for (const item of orderItems.rows) await client.query(`INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity) VALUES ($1,$2,$3)`, [pick.rows[0].id, item.id, item.quantity]);
@@ -287,12 +301,8 @@ export class FinanceService {
         }
         orderStatus = 'PAID';
       }
-      if (outstandingAmount === 0 && ['PROCESSING','SHIPPED','DELIVERED'].includes(orderStatus)) {
-        await client.query(`UPDATE payments SET status='SUCCEEDED',verified_at=now() WHERE checkout_id=$1 AND status='PENDING' AND provider IN ('cash_on_delivery_card','cash_on_delivery_cash')`, [order.rows[0].checkout_id]);
-        await client.query(`UPDATE payment_attempts SET status='SUCCEEDED' WHERE payment_id IN (SELECT id FROM payments WHERE checkout_id=$1 AND status='SUCCEEDED' AND provider IN ('cash_on_delivery_card','cash_on_delivery_cash'))`, [order.rows[0].checkout_id]);
-      }
-      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.collection.approved', 'finance_transaction', id, JSON.stringify({ orderId, orderNumber: dto.orderId, amount: collection.rows[0].amount, collectedTotal: newCollectedTotal, outstandingAmount, orderStatus })]);
-      return { collectionId: id, orderId, paymentStatus: 'PAID', orderStatus, collectedTotal: newCollectedTotal, outstandingAmount };
+      await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [actor.id, 'finance.collection.approved', 'finance_transaction', id, JSON.stringify({ orderId, orderNumber: dto.orderId, amount: collection.rows[0].amount, collectedTotal, outstandingAmount, orderStatus })]);
+      return { collectionId: id, orderId, paymentStatus: 'PAID', orderStatus, collectedTotal, outstandingAmount };
     });
   }
 }
