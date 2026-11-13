@@ -158,6 +158,23 @@ async function main(){
  await assert.rejects(()=>returnService.refund(uuid(61),{amount:500},user),/Hesabı/);
  await returnService.refund(uuid(61),{amount:500,accountId:account},user);
  assert.equal((await dealerWallet(db,dealer)).available,'50.00');assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions WHERE order_id=$1',[cash.id])).rows[0].count,1);
+ const partial=await adminOrders.create({...validBody,paymentMethod:'TRANSFER',items:[{productId:product,quantity:2,unitAmount:500}]},uuid(63),actor,dealer);
+ await pg.exec(`ALTER TABLE returns ADD COLUMN reason text,ADD COLUMN requested_at timestamptz DEFAULT now(),
+   ADD COLUMN received_at timestamptz,ADD COLUMN approved_at timestamptz,ADD COLUMN rejected_at timestamptz;
+   ALTER TABLE users ADD COLUMN email text;`);
+ const partialLine=(await db.query('SELECT id FROM order_items WHERE order_id=$1',[partial.id])).rows[0];
+ for(const [returnId,itemId] of [[uuid(64),uuid(65)],[uuid(66),uuid(67)]]){
+   await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'INSPECTED')",[returnId,partial.id]);
+   await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[itemId,returnId,partialLine.id]);
+ }
+ await assert.rejects(()=>returnService.refund(uuid(64),{amount:300,accountId:account},user),/doğrulanmış tahsilat/);
+ assert.equal((await returnService.listAdmin()).find(row=>row.id===uuid(64)).available_refund_amount,'0');
+ await db.query("INSERT INTO finance_transactions(order_id,account_id,kind,amount,payment_status,approved_at) VALUES($1,$2,'COLLECTION',600,'PAID',now())",[partial.id,account]);
+ await returnService.refund(uuid(64),{amount:300,accountId:account},user);
+ assert.equal(Number((await returnService.listAdmin()).find(row=>row.id===uuid(66)).available_refund_amount),300);
+ await assert.rejects(()=>returnService.refund(uuid(66),{amount:300.01,accountId:account},user),/kalan tahsilat/);
+ await returnService.refund(uuid(66),{amount:300,accountId:account},user);
+ assert.equal((await db.query("SELECT SUM(amount)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='REFUND'",[partial.id])).rows[0].total,'600.00');
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

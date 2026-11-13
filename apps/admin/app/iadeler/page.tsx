@@ -12,6 +12,7 @@ type ReturnRow = {
   requested_at: string;
   order_number: string;
   refundable_amount: string;
+  available_refund_amount: string | null;
   currency: string;
   item_count: string;
   items: Item[];
@@ -202,7 +203,9 @@ export default function Returns() {
               );
               const accountId =
                 accountIds[row.id] ?? financeAccounts[0]?.id ?? "";
-              const refund = refunds[row.id] ?? row.refundable_amount;
+              const availableRefund = row.available_refund_amount ?? row.refundable_amount;
+              const refund = refunds[row.id] ?? availableRefund;
+              const walletRefund = row.payment_provider === "dealer_commission";
               return (
                 <article key={row.id}>
                   <p>
@@ -328,11 +331,14 @@ export default function Returns() {
                       </button>
                     </form>
                   )}
-                  {row.status === "INSPECTED" && (
+                  {row.status === "INSPECTED" && Number(availableRefund) <= 0 && (
+                    <p role="status">İade edilebilir ödeme bakiyesi bulunamadı.</p>
+                  )}
+                  {row.status === "INSPECTED" && Number(availableRefund) > 0 && (
                     <form
                       onSubmit={(event) =>
                         submit(event, row.id, "refund", {
-                          accountId: row.payment_provider === "dealer_commission" ? undefined : accountId,
+                          accountId: walletRefund ? undefined : accountId,
                           amount: Number(refund),
                           referenceNumber: note(row.id) || undefined,
                         })
@@ -340,33 +346,36 @@ export default function Returns() {
                     >
                       <p>
                         İade üst sınırı:{" "}
-                        {money(row.refundable_amount, row.currency)}
+                        {money(availableRefund, row.currency)}
                       </p>
-                      <label>
-                        {row.payment_provider === "dealer_commission" ? "Prim Bakiyesine İade (Nakit Çıkışı Yok)" : "Çıkış Hesabı"}
-                        <select
-                          required
-                          value={accountId}
-                          onChange={(event) =>
-                            setAccountIds((current) => ({
-                              ...current,
-                              [row.id]: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Hesap seçin</option>
-                          {financeAccounts.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {walletRefund ? <p>İade bayinin prim bakiyesine eklenir.</p> : (
+                        <label>
+                          Çıkış hesabı
+                          <select
+                            required
+                            value={accountId}
+                            onChange={(event) =>
+                              setAccountIds((current) => ({
+                                ...current,
+                                [row.id]: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">Hesap seçin</option>
+                            {financeAccounts.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       <label>
                         İade tutarı
                         <input
                           required
                           min="0.01"
+                          max={availableRefund}
                           step="0.01"
                           type="number"
                           value={refund}
@@ -388,7 +397,7 @@ export default function Returns() {
                         />
                       </label>
                       <button disabled={busy !== null}>
-                        {row.payment_provider === "dealer_commission" ? "Prim Bakiyesine Geri Ver" : "Finans İadesini Kaydet"}
+                        {walletRefund ? "Prim Bakiyesine Geri Ver" : "Finans İadesini Kaydet"}
                       </button>
                     </form>
                   )}
