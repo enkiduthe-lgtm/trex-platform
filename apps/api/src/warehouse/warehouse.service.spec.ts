@@ -7,7 +7,7 @@ describe('WarehouseService', () => {
     const db={transaction:jest.fn((work) => work(client))};
     const result=await new WarehouseService(db as never).createPick('order','warehouse','user');
     expect(result).toEqual({id:'pick',replayed:false});
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.pick.started'),['user','warehouse.pick.started','picking_session','pick',JSON.stringify({orderId:'order',warehouseId:'warehouse',source:'manual'})]);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_logs'),['user','warehouse.pick.started','picking_session','pick',JSON.stringify({orderId:'order',warehouseId:'warehouse',source:'manual'})]);
   });
 
   it('rejects manual picking from a warehouse without the order reservation', async () => {
@@ -41,38 +41,48 @@ describe('WarehouseService', () => {
     expect(client.query).toHaveBeenCalledWith('UPDATE picking_items SET picked_quantity=$1 WHERE id=$2',[1,'item']);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO picking_scans'),['pick','item','869000000001','user']);
   });
+  it('scans the next unfinished line when a package price splits the same product across lines', async () => {
+    const query=jest.fn().mockResolvedValueOnce({rows:[
+      {id:'first',expected_quantity:2,picked_quantity:2,status:'IN_PROGRESS',product_name:'TrexTea'},
+      {id:'second',expected_quantity:3,picked_quantity:1,status:'IN_PROGRESS',product_name:'TrexTea'},
+    ]}).mockResolvedValue({rows:[]});
+    const service=new WarehouseService({transaction:async(work:any)=>work({query})} as never);
+    await expect(service.scanPickBarcode('pick','869000000001','user')).resolves.toMatchObject({id:'second',pickedQuantity:2});
+    expect(query).toHaveBeenCalledWith('UPDATE picking_items SET picked_quantity=$1 WHERE id=$2',[2,'second']);
+  });
 
   it('consumes the stock reservation once a package is completed', async () => {
     const client={query:jest.fn()
       .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
       .mockResolvedValueOnce({rows:[{id:'reservation',product_id:'product',warehouse_id:'warehouse',quantity:2}]})
       .mockResolvedValueOnce({rowCount:1,rows:[{physical_quantity:8}]})
+      .mockResolvedValueOnce({rows:[{id:'lot',available_quantity:2}]})
       .mockResolvedValue({rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
-    await expect(new WarehouseService(db as never).completePacking('pick','user')).resolves.toEqual({pickId:'pick',status:'READY_FOR_SHIPMENT'});
+    await expect(new WarehouseService(db as never).completePacking('pick','user')).resolves.toMatchObject({pickId:'pick',status:'READY_FOR_SHIPMENT',packageBarcode:expect.stringMatching(/^TRX-PKG-/)});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE stock_reservations SET status='CONSUMED'"),['reservation']);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'FULFILLMENT'"),['product','warehouse',-2,'order','user']);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.package.completed'),expect.arrayContaining(['user','packing']));
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_logs'),expect.arrayContaining(['user','warehouse.package.completed','packing']));
   });
 
   it('records who completed a fully picked list', async () => {
     const client={query:jest.fn().mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rowCount:0}).mockResolvedValue({rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
     await expect(new WarehouseService(db as never).completePick('pick','user')).resolves.toEqual({id:'pick',status:'COMPLETED'});
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('warehouse.pick.completed'),['user','warehouse.pick.completed','picking_session','pick']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_logs'),['user','warehouse.pick.completed','picking_session','pick']);
   });
 
   it('receives stock by creating inventory, a lot, movement and audit entry', async () => {
     const client={query:jest.fn()
       .mockResolvedValueOnce({rowCount:1})
-      .mockResolvedValueOnce({rowCount:1})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'warehouse',is_active:true}]})
       .mockResolvedValueOnce({rows:[{physical_quantity:12}]})
       .mockResolvedValue({rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
     const result=await new WarehouseService(db as never).receiveStock({productId:'product',warehouseId:'warehouse',quantity:12,lotCode:'LOT-1'},'user');
-    expect(result).toEqual({physical_quantity:12});
+    expect(result).toEqual({physical_quantity:12,warehouseId:'warehouse'});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_lots'),['product','warehouse','LOT-1',null,12,null]);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"),['product','warehouse',12,'stock_receipt','user']);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"),['product','warehouse',12,'stock_receipt','user',null,null]);
   });
 
   it('saves a reorder level when target is not lower than minimum', async () => {
@@ -108,10 +118,19 @@ describe('WarehouseService', () => {
     expect(query).not.toHaveBeenCalledWith(expect.stringContaining("status='CONSUMED'"),expect.anything());
   });
 
+  it('does not create a package barcode when there is no active reservation', async () => {
+    const query=jest.fn()
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rows:[]});
+    const service=new WarehouseService({transaction:async(work:any)=>work({query})} as never);
+    await expect(service.completePacking('pick','user')).rejects.toThrow('aktif stok rezervasyonu');
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
   it('lists recent inventory movements newest first', async () => {
     const db={query:jest.fn().mockResolvedValue({rows:[{id:'movement',movement_type:'RECEIPT'}]})};
     await expect(new WarehouseService(db as never).listInventoryMovements()).resolves.toEqual([{id:'movement',movement_type:'RECEIPT'}]);
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY m.created_at DESC LIMIT 100'));
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY m.created_at DESC,m.id DESC'));
   });
 
   it('lists available lots for traceability with product, warehouse and expiry context', async () => {
