@@ -112,3 +112,8 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 
 - 13 Kasım erişim kontrolü: izole PostgreSQL ile yönetici izin iptali, onaysız finans/silme/rol değiştirme engelleri ve müdür erişimi geçti. Prim Excel kontrolündeki eksik unpaid test verisi güncellendi; yönetici çıktısında diğer kişi/görev sütunlarının bulunmadığı kontrolü geçti. Gerçek kısıtlı hesaplarla tarayıcı kabulü ayrıca açık.
 
+
+- 13 Kasım paket kabulü: verify-pack-orders izole PostgreSQL kontrolü geçti. 2/3/5 paket tutarları, beş adet ve ikinci ürünün tek siparişte kalması, gerçek stok adedi, bayi marjı, varsayılan/manuel hizmet bedeli, tekrar deneme ve geçersiz işlemin geri alınması doğrulandı. Beş adet için yönetici ve müdür havuzlarının her biri örnek 6 TL/adet ile 30 TL oldu.
+- verify-staff-pools geçti: üçe bölünen yönetici, bölünmeyen müdür, geçmiş oranların korunması, kısmi iade ve net ödeme. Bunlar izole kontrollerdir; canlı sipariş oluşturulmadı.
+- Bayi sepeti kontrolünün eksik ready başlangıç verisi güncellendi; 2/3/5 adet ve taban fiyat kontrolleri geçti.
+
