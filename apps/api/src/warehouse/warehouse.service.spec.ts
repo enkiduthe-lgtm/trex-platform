@@ -53,11 +53,13 @@ describe('WarehouseService', () => {
 
   it('consumes the stock reservation once a package is completed', async () => {
     const client={query:jest.fn()
-      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout',warehouse_id:'warehouse'}]})
       .mockResolvedValueOnce({rows:[{id:'reservation',product_id:'product',warehouse_id:'warehouse',quantity:2}]})
+      .mockResolvedValueOnce({rows:[{product_id:'product',quantity:1},{product_id:'product',quantity:1}]})
       .mockResolvedValueOnce({rowCount:1,rows:[{physical_quantity:8}]})
       .mockResolvedValueOnce({rows:[{id:'lot',available_quantity:2}]})
-      .mockResolvedValue({rows:[]})};
+      .mockImplementation(async (sql:string) => sql.includes('RETURNING package_barcode')
+        ? {rows:[{package_barcode:'TRX-PKG-2000000000000'}]} : {rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
     await expect(new WarehouseService(db as never).completePacking('pick','user')).resolves.toMatchObject({pickId:'pick',status:'READY_FOR_SHIPMENT',packageBarcode:expect.stringMatching(/^TRX-PKG-/)});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE stock_reservations SET status='CONSUMED'"),['reservation']);
@@ -108,8 +110,9 @@ describe('WarehouseService', () => {
   });
   it('does not complete packing when lot records cannot cover the reservation', async () => {
     const query=jest.fn()
-      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout'}]})
+      .mockResolvedValueOnce({rowCount:1,rows:[{id:'packing',order_id:'order',checkout_id:'checkout',warehouse_id:'warehouse'}]})
       .mockResolvedValueOnce({rows:[{id:'reservation',product_id:'product',warehouse_id:'warehouse',quantity:2}]})
+      .mockResolvedValueOnce({rows:[{product_id:'product',quantity:2}]})
       .mockResolvedValueOnce({rowCount:1,rows:[{physical_quantity:8}]})
       .mockResolvedValueOnce({rows:[{id:'lot',available_quantity:1}]})
       .mockResolvedValueOnce({rows:[]});
@@ -125,6 +128,23 @@ describe('WarehouseService', () => {
     const service=new WarehouseService({transaction:async(work:any)=>work({query})} as never);
     await expect(service.completePacking('pick','user')).rejects.toThrow('aktif stok rezervasyonu');
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([['warehouse',1],['other-warehouse',2]])('rejects a reservation that cannot cover packing from %s', async (warehouse, quantity) => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({rows:[{id:'packing',order_id:'order',checkout_id:'checkout',warehouse_id:'warehouse'}]})
+      .mockResolvedValueOnce({rows:[{id:'reservation',product_id:'product',warehouse_id:warehouse,quantity}]})
+      .mockResolvedValueOnce({rows:[{product_id:'product',quantity:2}]});
+    const service = new WarehouseService({transaction:async(work:any)=>work({query})} as never);
+    await expect(service.completePacking('pick','user')).rejects.toThrow('sipariş ürünleriyle eşleşmiyor');
+    expect(query).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns the original barcode when a completed package is requested again', async () => {
+    const query = jest.fn().mockResolvedValue({rows:[{packed_at:'2026-11-13T00:00:00Z',package_barcode:'TRX-PKG-1793882683821'}]});
+    const service = new WarehouseService({transaction:async(work:any)=>work({query})} as never);
+    await expect(service.completePacking('pick','user')).resolves.toEqual({pickId:'pick',status:'READY_FOR_SHIPMENT',packageBarcode:'TRX-PKG-1793882683821'});
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it('lists recent inventory movements newest first', async () => {

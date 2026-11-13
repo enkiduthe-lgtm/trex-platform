@@ -6,6 +6,20 @@ import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { UpdateReorderLevelDto } from './dto/update-reorder-level.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreateInventoryTransferDto } from './dto/create-inventory-transfer.dto';
+
+type ProductQuantity = { product_id: string; quantity: number };
+
+function quantitiesMatch(items: ProductQuantity[], reservations: ProductQuantity[]) {
+  const remaining = new Map<string, number>();
+  for (const item of items) remaining.set(item.product_id, (remaining.get(item.product_id) ?? 0) + item.quantity);
+  for (const reservation of reservations) {
+    const quantity = remaining.get(reservation.product_id) ?? 0;
+    if (reservation.quantity > quantity) return false;
+    if (reservation.quantity === quantity) remaining.delete(reservation.product_id);
+    else remaining.set(reservation.product_id, quantity - reservation.quantity);
+  }
+  return items.length > 0 && remaining.size === 0;
+}
 @Injectable()
 export class WarehouseService {
   constructor(private readonly db: DatabaseService) {}
@@ -216,17 +230,15 @@ export class WarehouseService {
       const order = (await client.query<{ checkout_id: string; status: string; preparation_allowed?:boolean }>("SELECT checkout_id,status,EXISTS(SELECT 1 FROM payments p WHERE p.checkout_id=orders.checkout_id AND (p.status='SUCCEEDED' OR (p.status='PENDING' AND p.provider IN ('cash_on_delivery_cash','cash_on_delivery_card')))) AS preparation_allowed FROM orders WHERE id=$1 AND archived_at IS NULL FOR UPDATE", [orderId])).rows[0];
       if (!order) throw new NotFoundException('Sipariş Bulunamadı');
       if (!['PAID', 'PROCESSING'].includes(order.status)) throw new ConflictException('Yalnızca Ödemesi Onaylanan Sipariş Hazırlanabilir');
-      const existing = (await client.query<{ id: string; status: string }>('SELECT id,status FROM picking_sessions WHERE order_id=$1 FOR UPDATE', [orderId])).rows[0];
+      const existing = (await client.query<{ id: string; status: string; warehouse_id: string }>('SELECT id,status,warehouse_id FROM picking_sessions WHERE order_id=$1 FOR UPDATE', [orderId])).rows[0];
       if (existing?.status === 'COMPLETED') return { id: existing.id, status: 'COMPLETED', replayed: true };
       if ((order.status !== 'PAID' && !order.preparation_allowed) || (existing && !['OPEN', 'IN_PROGRESS'].includes(existing.status))) throw new ConflictException('Sipariş Hazırlama Aşamasında Değil');
       const reservations = await client.query<{ warehouse_id: string; product_id: string; quantity: number }>("SELECT warehouse_id,product_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' FOR UPDATE", [order.checkout_id]);
       const warehouses = [...new Set(reservations.rows.map(row => row.warehouse_id))];
       const items = await client.query<{ id: string; product_id: string; quantity: number }>('SELECT id,product_id,quantity FROM order_items WHERE order_id=$1 ORDER BY id', [orderId]);
-      const expected = new Map<string, number>();
-      const reserved = new Map<string, number>();
-      for (const item of items.rows) expected.set(item.product_id, (expected.get(item.product_id) ?? 0) + Number(item.quantity));
-      for (const item of reservations.rows) reserved.set(item.product_id, (reserved.get(item.product_id) ?? 0) + Number(item.quantity));
-      if (warehouses.length !== 1 || !items.rows.length || expected.size !== reserved.size || [...expected].some(([id, quantity]) => reserved.get(id) !== quantity)) throw new ConflictException('Sipariş Ürünleri İçin Geçerli Stok Rezervasyonu Bulunamadı');
+      if (warehouses.length !== 1 || (existing && existing.warehouse_id !== warehouses[0]) || !quantitiesMatch(items.rows, reservations.rows)) {
+        throw new ConflictException('Sipariş Ürünleri İçin Geçerli Stok Rezervasyonu Bulunamadı');
+      }
       const pickId = existing?.id ?? (await client.query<{ id: string }>("INSERT INTO picking_sessions(order_id,warehouse_id,assigned_to,status) VALUES($1,$2,$3,'IN_PROGRESS') RETURNING id", [orderId, warehouses[0], userId])).rows[0].id;
       if (!existing) {
         for (const item of items.rows) await client.query('INSERT INTO picking_items(picking_session_id,order_item_id,expected_quantity,picked_quantity) VALUES($1,$2,$3,$3)', [pickId, item.id, item.quantity]);
@@ -283,5 +295,71 @@ export class WarehouseService {
     return {id:row.id,pickId,productName:row.product_name,pickedQuantity,expectedQuantity:row.expected_quantity};
   }); }
   async completePick(id:string,userId:string) { return this.db.transaction(async client=>{ const pick=await client.query<{id:string}>('SELECT ps.id FROM picking_sessions ps JOIN orders o ON o.id=ps.order_id WHERE ps.id=$1 AND o.archived_at IS NULL AND o.status IN (\'PAID\',\'PROCESSING\') AND ps.status IN (\'OPEN\',\'IN_PROGRESS\') FOR UPDATE',[id]); if(!pick.rowCount) throw new NotFoundException('Aktif toplama listesi bulunamadı'); const missing=await client.query('SELECT 1 FROM picking_items WHERE picking_session_id=$1 AND picked_quantity<expected_quantity LIMIT 1',[id]); if(missing.rowCount) throw new Error('Tüm ürünler toplanmadan liste tamamlanamaz'); await client.query('UPDATE picking_sessions SET status=\'COMPLETED\',completed_at=now() WHERE id=$1',[id]); await client.query('INSERT INTO packing_sessions(picking_session_id,packed_by) VALUES ($1,$2)',[id,userId]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[userId,'warehouse.pick.completed','picking_session',id]); return {id,status:'COMPLETED'}; }); }
-  async completePacking(pickId:string,userId:string) { return this.db.transaction(async client=>{ const packing=await client.query<{id:string;order_id:string;checkout_id:string}>(`SELECT pk.id,ps.order_id,o.checkout_id FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id JOIN orders o ON o.id=ps.order_id WHERE pk.picking_session_id=$1 AND pk.packed_at IS NULL AND o.archived_at IS NULL AND ps.status='COMPLETED' AND o.status IN ('PAID','PROCESSING') FOR UPDATE OF o,ps,pk`,[pickId]); if(!packing.rowCount) throw new NotFoundException('Açık paketleme kaydı bulunamadı'); const reservations=await client.query<{id:string;product_id:string;warehouse_id:string;quantity:number}>(`SELECT id,product_id,warehouse_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' FOR UPDATE`,[packing.rows[0].checkout_id]); if(!reservations.rows.length)throw new ConflictException('Paketleme için aktif stok rezervasyonu bulunamadı'); for(const reservation of reservations.rows){const stock=await client.query<{physical_quantity:number}>(`UPDATE inventory SET physical_quantity=physical_quantity-$1,reserved_quantity=reserved_quantity-$1,updated_at=now() WHERE product_id=$2 AND warehouse_id=$3 AND physical_quantity >= $1 AND reserved_quantity >= $1 RETURNING physical_quantity`,[reservation.quantity,reservation.product_id,reservation.warehouse_id]);if(!stock.rowCount)throw new ConflictException('Paketleme için rezerve stok bulunamadı');let remaining=reservation.quantity;const lots=await client.query<{id:string;available_quantity:number}>(`SELECT id,available_quantity FROM inventory_lots WHERE product_id=$1 AND warehouse_id=$2 AND available_quantity>0 ORDER BY expiry_date ASC NULLS LAST,created_at ASC FOR UPDATE`,[reservation.product_id,reservation.warehouse_id]);for(const lot of lots.rows){if(remaining<=0)break;const consumed=Math.min(remaining,lot.available_quantity);await client.query('UPDATE inventory_lots SET available_quantity=available_quantity-$1 WHERE id=$2',[consumed,lot.id]);remaining-=consumed;}if(remaining>0)throw new ConflictException('Paketleme için lot kayıtlarında yeterli kullanılabilir stok yok');await client.query(`UPDATE stock_reservations SET status='CONSUMED' WHERE id=$1`,[reservation.id]);await client.query(`INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by) VALUES ($1,$2,'FULFILLMENT',$3,'order',$4,$5)`,[reservation.product_id,reservation.warehouse_id,-reservation.quantity,packing.rows[0].order_id,userId]);} const packageBarcode=`TRX-PKG-${Date.now()}`; await client.query('UPDATE packing_sessions SET packed_by=$1,packed_at=now(),verification_code=$2,package_barcode=$2 WHERE id=$3',[userId,packageBarcode,packing.rows[0].id]); await client.query(`UPDATE orders SET status='PROCESSING' WHERE id=$1 AND status='PAID'`,[packing.rows[0].order_id]); await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'warehouse.package.completed','packing_session',packing.rows[0].id,JSON.stringify({pickId,orderId:packing.rows[0].order_id,packageBarcode})]); return {pickId,status:'READY_FOR_SHIPMENT',packageBarcode}; }); }
+  async completePacking(pickId: string, userId: string) {
+    return this.db.transaction(async client => {
+      const packing = (await client.query<{ id: string; order_id: string; checkout_id: string; warehouse_id: string; package_barcode: string | null; packed_at: string | null }>(
+        `SELECT pk.id,ps.order_id,o.checkout_id,ps.warehouse_id,pk.package_barcode,pk.packed_at
+         FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id JOIN orders o ON o.id=ps.order_id
+         WHERE pk.picking_session_id=$1 AND o.archived_at IS NULL AND ps.status='COMPLETED'
+           AND (o.status IN ('PAID','PROCESSING') OR (o.status IN ('SHIPPED','DELIVERED') AND pk.packed_at IS NOT NULL))
+         FOR UPDATE OF o,ps,pk`, [pickId],
+      )).rows[0];
+      if (!packing) throw new NotFoundException('Açık paketleme kaydı bulunamadı');
+      if (packing.packed_at && packing.package_barcode) {
+        return { pickId, status: 'READY_FOR_SHIPMENT', packageBarcode: packing.package_barcode };
+      }
+      if (packing.packed_at) throw new ConflictException('Tamamlanan paketin barkodu bulunamadı');
+
+      const reservations = (await client.query<ProductQuantity & { id: string; warehouse_id: string }>(
+        `SELECT id,product_id,warehouse_id,quantity FROM stock_reservations
+         WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE'
+         ORDER BY product_id,warehouse_id,id FOR UPDATE`, [packing.checkout_id],
+      )).rows;
+      if (!reservations.length) throw new ConflictException('Paketleme için aktif stok rezervasyonu bulunamadı');
+      const items = (await client.query<ProductQuantity>('SELECT product_id,quantity FROM order_items WHERE order_id=$1', [packing.order_id])).rows;
+      if (reservations.some(reservation => reservation.warehouse_id !== packing.warehouse_id) || !quantitiesMatch(items, reservations)) {
+        throw new ConflictException('Paketleme için stok rezervasyonu sipariş ürünleriyle eşleşmiyor');
+      }
+
+      for (const reservation of reservations) {
+        const stock = await client.query(
+          `UPDATE inventory SET physical_quantity=physical_quantity-$1,reserved_quantity=reserved_quantity-$1,updated_at=now()
+           WHERE product_id=$2 AND warehouse_id=$3 AND physical_quantity >= $1 AND reserved_quantity >= $1 RETURNING product_id`,
+          [reservation.quantity, reservation.product_id, reservation.warehouse_id],
+        );
+        if (!stock.rowCount) throw new ConflictException('Paketleme için rezerve stok bulunamadı');
+
+        let remaining = reservation.quantity;
+        const lots = await client.query<{ id: string; available_quantity: number }>(
+          `SELECT id,available_quantity FROM inventory_lots
+           WHERE product_id=$1 AND warehouse_id=$2 AND available_quantity>0
+           ORDER BY expiry_date ASC NULLS LAST,created_at ASC,id FOR UPDATE`, [reservation.product_id, reservation.warehouse_id],
+        );
+        for (const lot of lots.rows) {
+          if (remaining === 0) break;
+          const consumed = Math.min(remaining, lot.available_quantity);
+          await client.query('UPDATE inventory_lots SET available_quantity=available_quantity-$1 WHERE id=$2', [consumed, lot.id]);
+          remaining -= consumed;
+        }
+        if (remaining > 0) throw new ConflictException('Paketleme için lot kayıtlarında yeterli kullanılabilir stok yok');
+
+        await client.query("UPDATE stock_reservations SET status='CONSUMED' WHERE id=$1", [reservation.id]);
+        await client.query(
+          `INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id,created_by)
+           VALUES ($1,$2,'FULFILLMENT',$3,'order',$4,$5)`,
+          [reservation.product_id, reservation.warehouse_id, -reservation.quantity, packing.order_id, userId],
+        );
+      }
+
+      const { package_barcode: packageBarcode } = (await client.query<{ package_barcode: string }>(
+        `WITH barcode AS (SELECT 'TRX-PKG-' || nextval('packing_barcode_number')::text AS value)
+         UPDATE packing_sessions SET packed_by=$1,packed_at=now(),package_barcode=barcode.value,verification_code=barcode.value
+         FROM barcode WHERE id=$2 RETURNING package_barcode`, [userId, packing.id],
+      )).rows[0];
+      await client.query("UPDATE orders SET status='PROCESSING' WHERE id=$1 AND status='PAID'", [packing.order_id]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',
+        [userId, 'warehouse.package.completed', 'packing_session', packing.id, JSON.stringify({ pickId, orderId: packing.order_id, packageBarcode })]);
+      return { pickId, status: 'READY_FOR_SHIPMENT', packageBarcode };
+    });
+  }
 }
