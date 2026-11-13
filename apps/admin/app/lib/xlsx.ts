@@ -83,6 +83,9 @@ export function downloadXlsx(filename: string, sheetName: string, rows: CellValu
   const width = Math.max(1, ...rows.map((row) => row.length));
   const sheetRows = rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, columnIndex) => {
     const reference = `${columnName(columnIndex)}${rowIndex + 1}`;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return `<c r="${reference}"><v>${value}</v></c>`;
+    }
     return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
   }).join("")}</row>`).join("");
   const range = `A1:${columnName(width - 1)}${Math.max(1, rows.length)}`;

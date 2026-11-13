@@ -101,3 +101,11 @@ Son doğrulanmış canlı sürüm: 0b550b4. Bu sürümden sonraki kaynak değiş
 - Not kaydı sürerken daha yeni taslak değişiklikleri eski kayıt yanıtıyla ezilmiyor. Filtre değişince rapor seçimi temizleniyor; güncel olmayan listeden aktarım engelleniyor.
 - Yeni sipariş ekranında mevcut eşzamanlı kilit ve aynı içerikte yeniden denemede korunan işlem anahtarı kodda kontrol edildi. Canlı sipariş oluşturulmadı.
 - Yeni panel üretim derlemesi, ekran kabulü ve API / panelin birlikte yayını halen bekliyor. Aras fiziksel şube kabulü bu kontrollerle doğrulanmış sayılmaz.
+
+## 13 Kasım güncellemesi
+
+- Kullanıcı Aras kargo barkodunun çalıştığını doğruladı. Barkod okutma sorunu tamamlandı; tüm teslimat/tahsilat takip senaryoları bu onayla tamamlanmış sayılmaz.
+- Ana sayfa açıklaması dönem filtresinin satış özetine uygulandığını ve grafiklerin kendi tarih aralıklarını kullandığını belirtiyor.
+- Ortak XLSX yazdırıcısı sayısal adet ve tutarları Excel sayı hücreleri olarak üretiyor. scripts/verify-xlsx-export.cjs kontrolü geçti: negatif tutar, sıfır, başında sıfır olan kimlik, formül benzeri metin ve boş hücreler dahil.
+- Bu iki panel değişikliği henüz canlıya alınmadı. Kısıtlı yönetici/bayi erişimi ve stok/prim/iade kabul senaryoları açık.
+
