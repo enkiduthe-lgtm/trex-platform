@@ -5,13 +5,13 @@ const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function compile(file,requireImpl){const box={exports:{},require:requireImpl,Intl,Date,Map};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
- const {FinanceService}=compile('apps/api/src/finance/finance.service.ts',name=>{if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name.includes('staff-channel.service'))return {StaffChannelService:class{async access(actor){return {canSeeAll:actor.role==='SUPER_ADMIN'};}}};throw Error(name);});
+ const {FinanceService}=compile('apps/api/src/finance/finance.service.ts',name=>{if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='./finance-cash-sql')return compile('apps/api/src/finance/finance-cash-sql.ts',()=>{});if(name.includes('staff-channel.service'))return {StaffChannelService:class{async access(actor){return {canSeeAll:actor.role==='SUPER_ADMIN'};}}};throw Error(name);});
  const report=compile('apps/admin/app/lib/finance-report.ts',()=>{throw Error('Unexpected dependency');}),service=new FinanceService(db);
  await pg.exec(`CREATE TABLE users(id uuid PRIMARY KEY,email text); CREATE TABLE orders(id uuid PRIMARY KEY,order_number text);
- CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency text,is_active boolean);
+ CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency text,is_active boolean,account_type text,created_at timestamptz DEFAULT now());
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY,account_id uuid,kind text,amount numeric(12,2),payment_status text,occurred_at timestamptz,created_at timestamptz,order_id uuid,approved_by uuid,approved_at timestamptz);
  CREATE TABLE commission_entries(finance_transaction_id uuid,staff_role text,recipient_user_id uuid);`);
- await db.query("INSERT INTO finance_accounts VALUES($1,'Arşiv Hesap','TRY',false),($2,'Euro Hesap','EUR',true)",[id(1),id(2)]);
+ await db.query("INSERT INTO finance_accounts(id,name,currency,is_active) VALUES($1,'Arşiv Hesap','TRY',false),($2,'Euro Hesap','EUR',true)",[id(1),id(2)]);
  await db.query("INSERT INTO users VALUES($1,'Müdür'),($2,'Yönetici')",[id(3),id(4)]);await db.query("INSERT INTO orders VALUES($1,'TRX-TEST')",[id(5)]);
  for(let n=0;n<205;n++)await db.query("INSERT INTO finance_transactions VALUES($1,$2,'COLLECTION',1.10,'PENDING','2026-10-15T12:00:00Z','2026-10-15T12:00:00Z',NULL,NULL,NULL)",[id(100+n),id(1)]);
  for(let n=0;n<205;n++)await db.query("INSERT INTO finance_transactions VALUES($1,$2,'EXPENSE',1.10,'PAID','2026-10-15T12:00:00Z','2026-10-15T12:00:00Z',NULL,NULL,NULL)",[id(500+n),id(1)]);
@@ -25,6 +25,27 @@ async function main(){
  const collections=owner.filter(x=>x.kind==='COLLECTION');assert.equal(collections.length,206);
  const totals=report.financeTotals(collections);assert.equal(totals.find(x=>x.currency==='TRY').amount,225.5);assert.equal(totals.find(x=>x.currency==='EUR').amount,3.2);
  assert.equal(report.financeDate('2026-10-31T21:00:00Z'),'2026-11-01');assert(report.inFinancePeriod('2026-09-30T21:00:00Z','2026-10-01','2026-10-31'));assert(!report.inFinancePeriod('2026-10-31T21:00:00Z','2026-10-01','2026-10-31'));assert(!report.inFinancePeriod('2026-10-15T12:00:00Z','2026-11-01','2026-10-01'));
+ await db.query("INSERT INTO finance_transactions VALUES($1,$4,'COLLECTION',25,'PAID',now(),now(),NULL,NULL,NULL),($2,$4,'REFUND',4,'REFUNDED',now(),now(),NULL,NULL,NULL),($3,$4,'EXPENSE',100,'PENDING',now(),now(),NULL,NULL,NULL)",[id(900),id(901),id(902),id(1)]);
+ const ownerDashboard=await service.dashboard({id:id(3),role:'SUPER_ADMIN'});
+ const managerDashboard=await service.dashboard({id:id(4),role:'ADMIN'});
+ assert.equal(ownerDashboard.income,'25.00');
+ assert.equal(ownerDashboard.expense,'11.00');
+ assert.equal(ownerDashboard.net,'14.00');
+ assert.equal(managerDashboard.expense,'4.00');
+ assert.equal(managerDashboard.net,'21.00');
+ assert.equal(managerDashboard.pending_collection,'225.50');
+ await db.query("UPDATE finance_accounts SET is_active=true WHERE id=$1",[id(1)]);
+ await db.query("INSERT INTO finance_transactions VALUES($1,$2,'COLLECTION',99,'PAID','2026-10-31T21:00:00Z',now(),NULL,NULL,NULL)",[id(903),id(2)]);
+ await pg.exec("ALTER TABLE finance_transactions ADD counterparty_name text, ADD reference_number text, ADD description text;");
+ const reconciliation=await service.reconciliation('2026-10-01','2026-10-31',{id:id(4),role:'ADMIN'});
+ const eur=reconciliation.accounts.find(row=>row.currency==='EUR');
+ assert.equal(eur.income,'3.20');
+ assert.equal(eur.current_balance,'102.20');
+ assert.equal(eur.movement_count,1);
+ assert.equal(reconciliation.unmatchedCollections.length,205);
+ const directorAccounts=await service.listAccounts({id:id(3),role:'SUPER_ADMIN'});
+ const managerAccounts=await service.listAccounts({id:id(4),role:'ADMIN'});
+ assert.equal(Number(managerAccounts.find(row=>row.currency==='TRY').balance)-Number(directorAccounts.find(row=>row.currency==='TRY').balance),7);
  await pg.close();console.log('Finance history checks passed: >100 pending and approved collections, recorded order links, archived accounts preserved, director privacy, exact currency totals and Istanbul date boundaries.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

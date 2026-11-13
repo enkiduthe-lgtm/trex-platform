@@ -25,12 +25,12 @@ export class FinanceController {
   @Post('paytr/settings') paytrSettings(@Body() dto: UpdatePaytrSettingsDto, @Req() req: UserRequest) { return this.finance.updatePaytrRate(dto.commissionRate, req.user); }
   @Get('records') list() { return this.finance.list(); }
   @Post('records') create(@Body() dto: CreateFinanceRecordDto, @Req() req: UserRequest) { return this.finance.create(dto, req.user); }
-  @Get('accounts') accounts() { return this.finance.listAccounts(); }
+  @Get('accounts') accounts(@Req() req:UserRequest) { return this.finance.listAccounts(req.user); }
   @Post('accounts') account(@Body() dto: CreateFinanceAccountDto, @Req() req: UserRequest) { return this.finance.createAccount(dto, req.user); }
   @Patch('accounts/:id') updateAccount(@Param('id') id:string,@Body() dto: CreateFinanceAccountDto,@Req() req:UserRequest) { return this.finance.updateAccount(id,dto,req.user); }
   @Delete('accounts/:id') archiveAccount(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.archiveAccount(id,req.user); }
   @Get('transactions') transactions(@Req() req:UserRequest) { return this.finance.listTransactions(req.user); }
-  @Get('reconciliation') reconciliation(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.finance.reconciliation(dateFrom,dateTo); }
+  @Get('reconciliation') reconciliation(@Req() req:UserRequest,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.finance.reconciliation(dateFrom,dateTo,req.user); }
 
   // Yönetici yalnızca bekleyen havaleyi görüp siparişle eşleştirebilir.
   @Get('pending-collections') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
@@ -42,7 +42,7 @@ export class FinanceController {
   @Get('carrier-settlements') carrierSettlements() { return this.finance.listCarrierSettlements(); }
   @Post('carrier-settlements') carrierSettlement(@Body() dto: CreateCarrierSettlementDto, @Req() req: UserRequest) { return this.finance.createCarrierSettlement(dto, req.user); }
   @Post('carrier-settlements/:id/mark-paid') markCarrierSettlementPaid(@Param('id') id: string, @Req() req: UserRequest) { return this.finance.markCarrierSettlementPaid(id, req.user); }
-  @Get('dashboard') dashboard() { return this.finance.dashboard(); }
+  @Get('dashboard') dashboard(@Req() req:UserRequest) { return this.finance.dashboard(req.user); }
   @Get('alerts') alerts() { return this.finance.alerts(); }
   @Get('budgets') budgets(@Query('period') period?: string) { return this.finance.budgets(period); }
   @Get('cash-flow') cashFlow() { return this.finance.cashFlowProjection(); }

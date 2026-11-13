@@ -9,6 +9,7 @@ import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlem
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 import { StaffChannelService } from '../commissions/staff-channel.service';
+import { pendingCollection, realizedCash } from './finance-cash-sql';
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -33,8 +34,14 @@ export class FinanceService {
     await this.db.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, `finance.${dto.kind.toLowerCase()}.created`, 'admin_finance_record', result.rows[0].id]);
     return result.rows[0];
   }
-  async listAccounts() {
-    return (await this.db.query(`SELECT a.*, COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) AS balance FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`)).rows;
+  async listAccounts(actor?:RequestUser) {
+    const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
+    return (await this.db.query(`SELECT a.*, COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0) AS balance
+      FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${realizedCash}
+        AND ($1::boolean OR NOT EXISTS(
+          SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid
+        ))
+      GROUP BY a.id ORDER BY a.created_at DESC`,[canSeeAll,actor?.id??null])).rows;
   }
   async createAccount(dto: CreateFinanceAccountDto, actor: RequestUser) {
     return this.db.transaction(async client => {
@@ -70,18 +77,24 @@ export class FinanceService {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC, t.id`,[canSeeAll,actor?.id??null])).rows;
   }
-  async reconciliation(dateFrom?:string,dateTo?:string) {
+  async reconciliation(dateFrom?:string,dateTo?:string,actor?:RequestUser) {
+    const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
+    const period = `t.occurred_at>=COALESCE($1::date::timestamp AT TIME ZONE 'Europe/Istanbul','-infinity'::timestamptz)
+      AND t.occurred_at<COALESCE(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul','infinity'::timestamptz)`;
     const [accounts,unmatched]=await Promise.all([
       this.db.query(`SELECT a.id,a.name,a.account_type,a.currency,
-        COALESCE(SUM(CASE WHEN t.kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') THEN t.amount ELSE 0 END),0)::text income,
-        COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') THEN t.amount ELSE 0 END),0)::text expense,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND ${period}),0)::text income,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND ${period}),0)::text expense,
         COALESCE(SUM(CASE WHEN t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') THEN -t.amount ELSE t.amount END),0)::text current_balance,
-        count(t.id) FILTER (WHERE t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity'))::int movement_count
-        FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id WHERE a.is_active=true GROUP BY a.id ORDER BY a.currency,a.name`,[dateFrom||null,dateTo||null]),
+        count(t.id) FILTER (WHERE ${period})::int movement_count
+        FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${realizedCash}
+          AND ($3::boolean OR NOT EXISTS(
+            SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$4::uuid
+          ))
+        WHERE a.is_active=true GROUP BY a.id ORDER BY a.currency,a.name`,[dateFrom||null,dateTo||null,canSeeAll,actor?.id??null]),
       this.db.query(`SELECT t.id,t.account_id,a.name AS account_name,a.currency,t.amount,t.counterparty_name,t.reference_number,t.description,t.occurred_at
         FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
-        WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL
-          AND t.occurred_at>=COALESCE($1::date,'-infinity') AND t.occurred_at<COALESCE($2::date+1,'infinity') ORDER BY t.occurred_at DESC`,[dateFrom||null,dateTo||null]),
+        WHERE ${pendingCollection} AND ${period} ORDER BY t.occurred_at DESC`,[dateFrom||null,dateTo||null]),
     ]);
     return {dateFrom:dateFrom||null,dateTo:dateTo||null,accounts:accounts.rows,unmatchedCollections:unmatched.rows};
   }
@@ -123,8 +136,19 @@ export class FinanceService {
   async pendingCollections() {
     return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id WHERE t.kind='COLLECTION' AND t.payment_status IN ('PENDING','COLLECTION_PENDING','PARTIALLY_PAID') AND t.approved_at IS NULL ORDER BY t.occurred_at ASC, t.id`)).rows;
   }
-  async dashboard() {
-    const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`SELECT COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text income, COALESCE(SUM(CASE WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN amount ELSE 0 END),0)::text expense, COALESCE(SUM(CASE WHEN kind IN ('INCOME','COLLECTION','TRANSFER_IN') AND occurred_at >= date_trunc('day',now()) THEN amount WHEN kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT') AND occurred_at >= date_trunc('day',now()) THEN -amount ELSE 0 END),0)::text net, COALESCE(SUM(CASE WHEN payment_status IN ('PENDING','PARTIALLY_PAID','COLLECTION_PENDING','OVERDUE') THEN amount ELSE 0 END),0)::text pending_collection FROM finance_transactions WHERE account_id IN (SELECT id FROM finance_accounts WHERE currency='TRY')`);
+  async dashboard(actor?:RequestUser) {
+    const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
+    const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`WITH totals AS (
+      SELECT
+        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND t.kind IN ('INCOME','COLLECTION','TRANSFER_IN')),0) AS income,
+        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT')),0) AS expense,
+        COALESCE(SUM(t.amount) FILTER (WHERE ${pendingCollection}),0) AS pending_collection
+      FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
+      CROSS JOIN LATERAL (SELECT (t.occurred_at AT TIME ZONE 'Europe/Istanbul')::date=(now() AT TIME ZONE 'Europe/Istanbul')::date AS today) day
+      WHERE a.currency='TRY' AND ($1::boolean OR NOT EXISTS(
+        SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid
+      ))
+    ) SELECT income::text,expense::text,(income-expense)::text AS net,pending_collection::text FROM totals`,[canSeeAll,actor?.id??null]);
     return result.rows[0];
   }
   async alerts() {

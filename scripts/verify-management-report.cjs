@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error,ServiceUnavailableException:Error};if(name==='./report-period'||name==='./report-order-status')return load(path.join(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
+function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error,ServiceUnavailableException:Error};if(name==='./report-period'||name==='./report-order-status'||name==='../finance/finance-cash-sql')return load(path.join(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
  const {OrdersService}=load(path.join(root,'apps/api/src/orders/orders.service.ts')),service=new OrdersService(db);
@@ -69,6 +69,12 @@ async function main(){
  }
  assert.equal(adjusted.summary.incoming_transfers,'12.10');
  assert.equal(adjusted.summary.commission_total,'17.00');
+ await db.query("INSERT INTO finance_transactions VALUES($1,$2,'REFUND',4.20,'2026-10-15T12:00:00Z','REFUNDED',NULL,NULL),($3,$2,'REFUND',99,'2026-10-15T12:00:00Z','PENDING',NULL,NULL)",[id(25),id(10),id(26)]);
+ const cashAfterRefund=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY');
+ assert.equal(cashAfterRefund.financial.expense,'11.30');
+ assert.equal(cashAfterRefund.financial.net,'0.80');
+ const specialCashAfterRefund=await service.specialReport('2026-10-01','2026-10-31','TRY');
+ assert.equal(specialCashAfterRefund.summary.expenses,'11.30');
  for(const [from,to,currency] of [['2026-02-30','2026-03-01','TRY'],['2026-11-01','2026-10-01','TRY'],['2000-01-01','2026-10-01','TRY'],['2026-10-01','2026-10-31','BAD'],['2026-10-01','bad','TRY']])await assert.rejects(()=>service.reportSummary(30,from,to,currency));
  await pg.close();console.log('Management and special report checks passed: Istanbul dates, cancelled orders, payment status separation, currency isolation, pending-cash exclusion, exact cash totals, pooled and legacy commission reversals, director privacy, current stock and invalid filters.');
 }
