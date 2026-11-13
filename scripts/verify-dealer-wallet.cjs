@@ -22,12 +22,12 @@ async function main(){
  const {AdminOrderService}=load(path.join(root,'apps/api/src/orders/admin-order.service.ts'));
  await pg.exec(`
  CREATE TABLE users(id uuid PRIMARY KEY);
- CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,code text,status text);
+ CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,code text,status text,contact_name text);
  CREATE TABLE dealer_user_accounts(user_id uuid REFERENCES users(id),dealer_id uuid REFERENCES dealers(id));
  CREATE TABLE dealer_bank_accounts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),dealer_id uuid REFERENCES dealers(id),account_holder text,iban text,is_primary boolean);
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,total_amount numeric(12,2),currency char(3),status text,created_at timestamptz DEFAULT now(),archived_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),product_id uuid,product_name text,sku text,quantity integer,unit_amount numeric(12,2),currency char(3));
- CREATE TABLE returns(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),status text);
+ CREATE TABLE returns(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),status text,requested_at timestamptz DEFAULT now());
  CREATE TABLE return_items(id uuid PRIMARY KEY,return_id uuid REFERENCES returns(id),order_item_id uuid REFERENCES order_items(id),quantity integer);
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency char(3),is_active boolean);
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),account_id uuid REFERENCES finance_accounts(id),order_id uuid REFERENCES orders(id),kind text,amount numeric(12,2),payment_status text,counterparty_name text,reference_number text,description text,created_by uuid REFERENCES users(id));
@@ -51,14 +51,17 @@ async function main(){
  const award=()=>commissions.confirmForOrderItem({dealerId:dealer,orderId:order,orderItemId:item,productId:product,quantity:2});
  assert.equal((await award()).amount,'300.00');assert.equal(await award(),null);
  assert.equal((await dealerWallet(db,dealer)).available,'1300.00');assert.equal((await dealerWallet(db,dealer)).eligible,'1000.00');
- for(const [rid,n]of [[returnA,20],[returnB,21]]){await db.query("INSERT INTO returns VALUES($1,$2,'REFUNDED')",[rid,order]);await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[uuid(n),rid,item]);}
+ for(const [rid,n]of [[returnA,20],[returnB,21]]){await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED')",[rid,order]);await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[uuid(n),rid,item]);}
  await commissions.reverseForOrder(order,user,'Partial Return',undefined,returnA);assert.equal((await dealerWallet(db,dealer)).available,'1150.00');assert.equal((await dealerWallet(db,dealer)).eligible,'1000.00');
  await commissions.reverseForOrder(order,user,'Duplicate Return',undefined,returnA);assert.equal((await dealerWallet(db,dealer)).available,'1150.00');
  await commissions.reverseForOrder(order,user,'Second Partial Return',undefined,returnB);assert.equal((await dealerWallet(db,dealer)).available,'1000.00');
  const request=await payouts.request(user,uuid(30),200);assert.equal((await payouts.request(user,uuid(30),200)).id,request.id);assert.equal((await dealerWallet(db,dealer)).available,'800.00');
  const due=(await db.query('SELECT extract(day FROM due_date)::int AS day FROM dealer_prim_requests WHERE id=$1',[request.id])).rows[0];assert.equal(due.day,5);
  await db.query('INSERT INTO dealer_commission_spends(dealer_id,order_id,amount,created_by) VALUES($1,$2,300,$3)',[dealer,olderOrder,user]);
+ assert.equal((await payouts.returnFeeCandidates()).length,2);
  await payouts.returnFee(returnA,50,'Actual Shipping Invoice',user);assert.equal((await dealerWallet(db,dealer)).available,'450.00');await assert.rejects(()=>payouts.returnFee(returnA,50,'Duplicate Invoice',user));
+ assert.deepEqual((await payouts.returnFeeCandidates()).map(row=>row.id),[returnB]);
+ assert.equal((await db.query("SELECT metadata->>'orderId' AS order_id FROM audit_logs WHERE action='return.shipping_fee.deducted'")).rows[0].order_id,order);
  await assert.rejects(()=>payouts.request(user,uuid(31),451));
  await payouts.decide(request.id,'APPROVED',user);await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date+1 WHERE id=$1",[request.id]);await assert.rejects(()=>payouts.pay(request.id,account,'REF-1',user));
  await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date-1 WHERE id=$1",[request.id]);await payouts.pay(request.id,account,'REF-1',user);assert.equal((await dealerWallet(db,dealer)).available,'450.00');
@@ -159,7 +162,7 @@ async function main(){
  await returnService.refund(uuid(61),{amount:500,accountId:account},user);
  assert.equal((await dealerWallet(db,dealer)).available,'50.00');assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions WHERE order_id=$1',[cash.id])).rows[0].count,1);
  const partial=await adminOrders.create({...validBody,paymentMethod:'TRANSFER',items:[{productId:product,quantity:2,unitAmount:500}]},uuid(63),actor,dealer);
- await pg.exec(`ALTER TABLE returns ADD COLUMN reason text,ADD COLUMN requested_at timestamptz DEFAULT now(),
+ await pg.exec(`ALTER TABLE returns ADD COLUMN reason text,
    ADD COLUMN received_at timestamptz,ADD COLUMN approved_at timestamptz,ADD COLUMN rejected_at timestamptz;
    ALTER TABLE users ADD COLUMN email text;`);
  const partialLine=(await db.query('SELECT id FROM order_items WHERE order_id=$1',[partial.id])).rows[0];

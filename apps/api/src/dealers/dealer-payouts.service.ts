@@ -35,14 +35,29 @@ export class DealerPayoutsService {
   });
  }
  async list() {return (await this.db.query('SELECT r.*,d.company_name,d.code AS dealer_code FROM dealer_prim_requests r JOIN dealers d ON d.id=r.dealer_id ORDER BY r.due_date,r.created_at')).rows;}
+ async returnFeeCandidates() {
+  return (await this.db.query(`SELECT r.id,o.order_number,o.currency,r.requested_at,
+    COALESCE(NULLIF(d.company_name,''),d.contact_name) AS dealer_name
+    FROM returns r JOIN orders o ON o.id=r.order_id
+    JOIN LATERAL (
+      SELECT metadata->>'dealerId' AS dealer_id FROM audit_logs
+      WHERE entity_type='order' AND entity_id=o.id::text AND action='order.dealer.created'
+      ORDER BY created_at,id LIMIT 1
+    ) origin ON true
+    JOIN dealers d ON d.id::text=origin.dealer_id
+    WHERE r.status IN ('RECEIVED','INSPECTED','REFUNDED') AND o.archived_at IS NULL AND o.status<>'CANCELLED'
+      AND NOT EXISTS (SELECT 1 FROM dealer_prim_deductions f WHERE f.return_id=r.id)
+    ORDER BY r.requested_at DESC,r.id LIMIT 100`)).rows;
+ }
  async returnFee(returnId:string,amount:number,note:string,actorId:string) {
   if(!note.trim())throw new ConflictException('Gerçek Kargo Bedelinin Açıklaması Gerekli');
   return this.db.transaction(async client=>{
-   const returned=(await client.query<{order_id:string;currency:string;dealer_id:string}>(`SELECT r.order_id,o.currency,(SELECT (a.metadata->>'dealerId')::uuid FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order' AND a.action='order.dealer.created' ORDER BY a.created_at LIMIT 1) AS dealer_id FROM returns r JOIN orders o ON o.id=r.order_id WHERE r.id=$1 AND r.status IN ('RECEIVED','INSPECTED','REFUNDED')`,[returnId])).rows[0];
+   const returned=(await client.query<{order_id:string;currency:string;dealer_id:string}>(`SELECT r.order_id,o.currency,(SELECT (a.metadata->>'dealerId')::uuid FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order' AND a.action='order.dealer.created' ORDER BY a.created_at,a.id LIMIT 1) AS dealer_id FROM returns r JOIN orders o ON o.id=r.order_id WHERE r.id=$1 AND r.status IN ('RECEIVED','INSPECTED','REFUNDED') AND o.archived_at IS NULL AND o.status<>'CANCELLED' FOR UPDATE OF o,r`,[returnId])).rows[0];
    if(!returned?.dealer_id)throw new ConflictException('Teslim Alınmış Bayi İadesi Bulunamadı');
    await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[returned.dealer_id]);
    const fee=await client.query('INSERT INTO dealer_prim_deductions(dealer_id,return_id,amount,currency,note,created_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(return_id) DO NOTHING RETURNING id',[returned.dealer_id,returnId,amount,returned.currency,note.trim(),actorId]);
    if(!fee.rowCount)throw new ConflictException('Bu İadenin Kargo Kesintisi Zaten Kaydedilmiş');
+   await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actorId,'return.shipping_fee.deducted','return',returnId,JSON.stringify({amount,currency:returned.currency,orderId:returned.order_id})]);
    return fee.rows[0];
   });
  }
