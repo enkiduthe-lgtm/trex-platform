@@ -15,7 +15,7 @@ export class ShippingController { constructor(private readonly shipping: Shippin
   @Post(':id/shipment/sync') @RequireRoles(Roles.SUPER_ADMIN) syncOrder(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) {return this.tracking.sync(id,req.user);}
   @Get('shipping') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) list() { return this.shipping.list(); }
   @Get('shipping/queue') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) queue() { return this.shipping.readyToShip(); }
-  @Get('shipping/status') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) status() { return this.shipping.status(); }
+  @Get('shipping/status') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) status() { return this.shipping.status(); }
   @Get(':id/shipment') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) detail(@Param('id',new ParseUUIDPipe()) id: string) { return this.shipping.detail(id); }
   @Post(':id/shipment/verify') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) verify(@Param('id',new ParseUUIDPipe()) id:string) { return this.shipping.verifyArasRegistration(id); }
   @Post(':id/shipment') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) create(@Param('id',new ParseUUIDPipe()) id: string,@Req() req:UserRequest) { return this.shipping.create(id,req.user.id); }
