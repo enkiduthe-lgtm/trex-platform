@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { reportOrderStatus } from '../orders/report-order-status';
 
 type LoyaltyAdjustment = { points: number; reason: string };
 type CustomerRequestInput = { subject: string; body: string; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' };
@@ -13,8 +14,9 @@ export class CustomersService {
   async list() {
     return (await this.db.query(`
       WITH currency_totals AS (
-        SELECT customer_id,currency,COUNT(*)::int AS order_count,SUM(total_amount) AS amount
-        FROM orders WHERE status <> 'CANCELLED' GROUP BY customer_id,currency
+        SELECT o.customer_id,o.currency,COUNT(*)::int AS order_count,SUM(o.total_amount) AS amount
+        FROM orders o WHERE o.customer_id IS NOT NULL AND o.archived_at IS NULL
+          AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED') GROUP BY o.customer_id,o.currency
       ), order_totals AS (
         SELECT customer_id,SUM(order_count)::int AS order_count,
           COALESCE(SUM(amount) FILTER (WHERE currency='TRY'),0)::text AS total_spend,
@@ -97,20 +99,20 @@ export class CustomersService {
   }
 
   async orders(customerId: string) {
-    return (await this.db.query(`SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at,COALESCE(SUM(oi.quantity),0)::int AS item_count
+    return (await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,o.currency,o.created_at,COALESCE(SUM(oi.quantity),0)::int AS item_count
       FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id
-      WHERE o.customer_id=$1 GROUP BY o.id ORDER BY o.created_at DESC,o.id DESC`, [customerId])).rows;
+      WHERE o.customer_id=$1 AND o.archived_at IS NULL GROUP BY o.id ORDER BY o.created_at DESC,o.id DESC`, [customerId])).rows;
   }
 
   async orderReport(customerId: string, dateFrom?: string, dateTo?: string) {
     for (const value of [dateFrom,dateTo]) if(value && (!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)) throw new BadRequestException('Geçerli Bir Tarih Seçin.');
     if(dateFrom && dateTo && dateFrom>dateTo) throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.');
-    return (await this.db.query(`SELECT o.order_number,o.created_at,o.status,o.currency,o.sales_channel,
+    return (await this.db.query(`SELECT o.order_number,o.created_at,${reportOrderStatus} AS status,o.currency,o.sales_channel,
       oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
       COALESCE(p.provider,'') AS payment_method
       FROM orders o JOIN order_items oi ON oi.order_id=o.id
       LEFT JOIN LATERAL (SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) p ON true
-      WHERE o.customer_id=$1
+      WHERE o.customer_id=$1 AND o.archived_at IS NULL
         AND ($2::date IS NULL OR o.created_at >= ($2::date::timestamp AT TIME ZONE 'Europe/Istanbul'))
         AND ($3::date IS NULL OR o.created_at < (($3::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul'))
       ORDER BY o.created_at DESC,o.id DESC,oi.id`, [customerId, dateFrom || null, dateTo || null])).rows;

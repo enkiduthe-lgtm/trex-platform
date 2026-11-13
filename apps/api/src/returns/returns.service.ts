@@ -9,8 +9,11 @@ export class ReturnsService {
   constructor(private readonly db: DatabaseService, private readonly commissions?: CommissionsService) {}
 
   async request(dto: RequestReturnDto) {
+    if (!dto.items.length || new Set(dto.items.map(item=>item.orderItemId.toLowerCase())).size!==dto.items.length || !dto.reason.trim()) {
+      throw new ConflictException('İade nedeni ve en az bir farklı ürün satırı gerekli');
+    }
     return this.db.transaction(async client => {
-      const order = await client.query(`SELECT o.id FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1 AND lower(cs.contact_email)=lower($2) AND o.status IN ('PAID','PROCESSING','SHIPPED','DELIVERED') FOR UPDATE`, [dto.orderId,dto.contactEmail.trim()]);
+      const order = await client.query(`SELECT o.id FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1 AND o.archived_at IS NULL AND lower(cs.contact_email)=lower($2) AND o.status IN ('PAID','PROCESSING','SHIPPED','DELIVERED') FOR UPDATE OF o`, [dto.orderId,dto.contactEmail.trim()]);
       if (!order.rowCount) throw new NotFoundException('İade edilebilir sipariş bulunamadı');
       for (const item of dto.items) {
         const orderItem = await client.query<{ quantity: number }>('SELECT quantity FROM order_items WHERE id=$1 AND order_id=$2', [item.orderItemId, dto.orderId]);

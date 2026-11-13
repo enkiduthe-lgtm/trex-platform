@@ -120,6 +120,12 @@ async function main(){
  await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'INSPECTED')",[rid,sale2.id]);await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[uuid(48),rid,line.id]);
  const {ReturnsService}=load(path.join(root,'apps/api/src/returns/returns.service.ts'));
  const returnService=new ReturnsService(db,commissions);
+ const returnInput={orderId:sale2.id,contactEmail:'test@example.test',reason:'Test',items:[{orderItemId:line.id,quantity:1}]};
+ await assert.rejects(()=>returnService.request({...returnInput,items:[]}),/ürün satırı/);
+ await assert.rejects(()=>returnService.request({...returnInput,items:[returnInput.items[0],{...returnInput.items[0],orderItemId:line.id.toUpperCase()}]}),/ürün satırı/);
+ await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[sale2.id]);
+ await assert.rejects(()=>returnService.request(returnInput),/edilebilir sipariş bulunamadı/);
+ await db.query("UPDATE orders SET archived_at=NULL WHERE id=$1",[sale2.id]);
  await assert.rejects(()=>returnService.refund(rid,{amount:501},user));
  await returnService.refund(rid,{amount:500},user);assert.equal((await dealerWallet(db,dealer)).available,'550.00');
  await assert.rejects(()=>returnService.refund(rid,{amount:500},user));
