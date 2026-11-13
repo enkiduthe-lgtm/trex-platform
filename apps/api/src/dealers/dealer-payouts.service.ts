@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { reportOrderStatus } from '../orders/report-order-status';
 import { DatabaseService } from '../database/database.service';
 import { dealerWallet, moneyCents, WalletClient } from '../commissions/dealer-wallet';
 @Injectable()
@@ -15,7 +16,7 @@ export class DealerPayoutsService {
    this.db.query('SELECT id,amount,currency,status,due_date,created_at,paid_at,reference_number,note FROM dealer_prim_requests WHERE dealer_id=$1 ORDER BY created_at DESC',[id]),
    this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC',[id]),
    this.db.query('SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.note,o.order_number,oi.product_name,oi.sku,oi.quantity,oi.unit_amount FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id WHERE e.dealer_id=$1 ORDER BY e.created_at DESC,e.id',[id]),
-   this.db.query(`SELECT to_char(o.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS month,o.currency,count(*)::int AS order_count,SUM(GREATEST(o.total_amount-COALESCE((SELECT SUM(rr.amount) FROM return_refunds rr JOIN returns r ON r.id=rr.return_id WHERE r.order_id=o.id),0),0))::text AS amount FROM orders o WHERE o.status<>'CANCELLED' AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order' AND a.action='order.dealer.created' AND a.metadata->>'dealerId'=$1::text) GROUP BY month,o.currency ORDER BY month DESC`,[id]),
+   this.db.query(`SELECT to_char(o.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS month,o.currency,count(*)::int AS order_count,SUM(GREATEST(o.total_amount-COALESCE((SELECT SUM(rr.amount) FROM return_refunds rr JOIN returns r ON r.id=rr.return_id WHERE r.order_id=o.id),0),0))::text AS amount FROM orders o WHERE o.archived_at IS NULL AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED') AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order' AND a.action='order.dealer.created' AND a.metadata->>'dealerId'=$1::text) GROUP BY month,o.currency ORDER BY month DESC`,[id]),
    this.db.query(`SELECT s.id,s.amount,'TRY' AS currency,s.created_at,o.order_number,'SPEND' AS kind FROM dealer_commission_spends s JOIN orders o ON o.id=s.order_id WHERE s.dealer_id=$1 UNION ALL SELECT f.id,f.amount,'TRY',f.created_at,o.order_number,'REFUND' FROM dealer_prim_refunds f JOIN orders o ON o.id=f.order_id WHERE f.dealer_id=$1 ORDER BY created_at DESC`,[id]),
   ]);
   return {balance,requests:requests.rows,deductions:deductions.rows,earnings:earnings.rows,sales:sales.rows,spends:spends.rows};

@@ -27,6 +27,7 @@ type Order = {
   order_number: string;
   admin_note?: string | null;
   status: string;
+  sales_status?: string;
   total_amount: string;
   currency: string;
   created_at: string;
@@ -47,11 +48,12 @@ type ExportLine = { id: string; order_number: string; product_name: string; sku:
 type OrderNote = { id: string; admin_note: string | null };
 // Carrier registration does not imply physical dispatch.
 const queueStatus = orderQueueStatus;
-const displayStatus = (order: {status:string;shipment_status?:string|null}) => order.status === 'PROCESSING' && order.shipment_status === 'CREATED' ? 'Kargo Kaydı Hazır' : statusText[queueStatus(order)] ?? order.status;
+const displayStatus = (order: Parameters<typeof orderQueueStatus>[0]) => statusText[queueStatus(order)] ?? order.status;
 const statusText: Record<string, string> = {
   PENDING_PAYMENT: "Ödeme bekliyor",
   PAID: "Onaylandı",
   PROCESSING: "Hazırlanıyor",
+  REGISTERED: "Kargo Kaydı Hazır",
   SHIPPED: "Kargoda",
   DELIVERED: "Teslim edildi",
   CANCELLED: "İptal edildi",
@@ -515,7 +517,7 @@ function OrdersContent() {
                   </td>
                   <td>
                     <span
-                      className={`${styles.status} ${styles[`status_${order.status}`] ?? ""}`}
+                      className={`${styles.status} ${styles[`status_${queueStatus(order)}`] ?? ""}`}
                     >
                       {displayStatus(order)}
                     </span>
@@ -547,7 +549,7 @@ function OrdersContent() {
                       </Link>
                       {canEdit &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
-                        order.status !== "CANCELLED" && (
+                        !["CANCELLED", "REFUNDED"].includes(queueStatus(order)) && (
                           <Link
                             className={styles.financeLink}
                             href={`/siparisler/${order.id}/duzenle`}
@@ -558,7 +560,7 @@ function OrdersContent() {
                       {canEdit &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
                         ["PENDING_PAYMENT", "PROCESSING"].includes(
-                          order.status,
+                          queueStatus(order),
                         ) && (
                           <button
                             type="button"
@@ -593,7 +595,7 @@ function OrdersContent() {
                       )}
                       {canVerify && order.shipping_provider === 'aras' && order.shipment_status && <button type="button" className={styles.approveLink} disabled={pendingAction !== null} onClick={() => void prepareOrder(order, 'verify')}>{pendingAction === order.id ? 'Aras Sorgulanıyor…' : 'Yalnız Aras Kaydını Sorgula'}</button>}
                       {queueStatus(order) === "DELIVERED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="check" /><span>Teslim Edildi</span></Link>}
-                      {order.status === "REFUNDED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İade Detayı</span></Link>}
+                      {queueStatus(order) === "REFUNDED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İade Detayı</span></Link>}
                       {order.status === "CANCELLED" && <Link style={stageActionStyle} className={styles.approveLink} href={`/siparisler/${order.id}`}><OrderIcon name="eye" /><span>İptal Detayı</span></Link>}
                     </div>
                   </td>

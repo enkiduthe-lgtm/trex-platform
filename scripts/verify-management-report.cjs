@@ -2,17 +2,17 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error,ServiceUnavailableException:Error};if(name==='./report-period')return load(path.join(path.dirname(file),'report-period.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
+function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error,ServiceUnavailableException:Error};if(name==='./report-period'||name==='./report-order-status')return load(path.join(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
  const {OrdersService}=load(path.join(root,'apps/api/src/orders/orders.service.ts')),service=new OrdersService(db);
- await pg.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,status text,total_amount numeric(12,2),currency text,created_at timestamptz,sales_channel text);
+ await pg.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,status text,total_amount numeric(12,2),currency text,created_at timestamptz,sales_channel text,archived_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid,product_name text,sku text,quantity int,unit_amount numeric(12,2));
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,currency text);
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY,account_id uuid,kind text,amount numeric(12,2),occurred_at timestamptz,payment_status text);
  CREATE TABLE commission_entries(finance_transaction_id uuid,staff_role text,recipient_user_id uuid);
- CREATE TABLE returns(status text,requested_at timestamptz,completed_at timestamptz);CREATE TABLE shipments(status text,created_at timestamptz,updated_at timestamptz);CREATE TABLE support_tickets(status text,due_at timestamptz);`);
- async function order(n,currency,amount,time,status='PAID'){await db.query('INSERT INTO orders VALUES($1,$2,$3,$4,$5,\'RETAIL\')',[id(n),status,amount,currency,time]);await db.query("INSERT INTO order_items VALUES($1,$2,'Aynı Ürün','SKU-A',1,$3)",[id(n+100),id(n),amount]);}
+ CREATE TABLE returns(id uuid,order_id uuid,status text,requested_at timestamptz,completed_at timestamptz);CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(status text,created_at timestamptz,updated_at timestamptz);CREATE TABLE support_tickets(status text,due_at timestamptz);`);
+ async function order(n,currency,amount,time,status='PAID'){await db.query('INSERT INTO orders(id,status,total_amount,currency,created_at,sales_channel) VALUES($1,$2,$3,$4,$5,\'RETAIL\')',[id(n),status,amount,currency,time]);await db.query("INSERT INTO order_items VALUES($1,$2,'Aynı Ürün','SKU-A',1,$3)",[id(n+100),id(n),amount]);}
  await order(1,'TRY',10,'2026-09-30T21:00:00Z');await order(2,'TRY',20,'2026-10-31T20:59:59Z');await order(3,'TRY',999,'2026-10-31T21:00:00Z');await order(4,'USD',500,'2026-10-15T12:00:00Z');await order(5,'TRY',100,'2026-10-15T12:00:00Z','CANCELLED');
  await pg.exec(`INSERT INTO finance_accounts VALUES('${id(10)}','TRY'),('${id(11)}','USD');
  INSERT INTO finance_transactions VALUES('${id(20)}','${id(10)}','COLLECTION',12.10,'2026-10-15T12:00:00Z','PAID'),('${id(21)}','${id(10)}','COLLECTION',999,'2026-10-15T12:00:00Z','PENDING'),('${id(22)}','${id(11)}','COLLECTION',500,'2026-10-15T12:00:00Z','PAID'),('${id(23)}','${id(10)}','EXPENSE',2.10,'2026-10-15T12:00:00Z','PAID'),('${id(24)}','${id(10)}','PRIME_EXPENSE',5,'2026-10-15T12:00:00Z','PAID');
@@ -44,6 +44,31 @@ async function main(){
  assert.equal(special.products.find(x=>x.status==='CANCELLED').amount,'100.00');assert.equal(special.payments.length,3);assert(special.payments.some(x=>x.status==='FAILED'));assert(special.collections.some(x=>x.status==='PENDING'));assert(special.expenses.some(x=>x.kind==='PRIME_EXPENSE'));
  const director=special.commissions.find(x=>x.person==='director@example.test'&&x.sales_channel==='RETAIL');assert.equal(director.earned,'13.00');assert.equal(director.reversed,'-2.00');assert.equal(director.amount,'11.00');
  const specialUsd=await service.specialReport('2026-10-01','2026-10-31','USD');assert.equal(specialUsd.summary.sales,'500.00');assert.equal(specialUsd.summary.commission_total,'0');assert.equal(specialUsd.commissions.length,0);
+ await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[id(2)]);
+ await db.query("UPDATE orders SET status='DELIVERED' WHERE id=$1",[id(5)]);
+ await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED')",[id(55),id(5)]);
+ await db.query("INSERT INTO return_items VALUES($1,$2,1)",[id(55),id(105)]);
+ await db.query("UPDATE order_items SET quantity=2,unit_amount=5 WHERE id=$1",[id(101)]);
+ await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED'),($3,$2,'INSPECTED')",[id(56),id(1),id(57)]);
+ await db.query("INSERT INTO return_items VALUES($1,$2,1),($3,$2,1)",[id(56),id(101),id(57)]);
+ const adjustedSummary=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY');
+ assert.equal(adjustedSummary.totals.order_count,2);
+ assert.equal(adjustedSummary.totals.revenue,'10.00');
+ assert.equal(Number(adjustedSummary.totals.average_order),10);
+ assert.equal(adjustedSummary.channels[0].amount,'10.00');
+ assert.equal(Number(adjustedSummary.daily[30].amount),0);
+ assert.equal(adjustedSummary.daily[30].count,0);
+ assert.equal(adjustedSummary.topProducts[0].count,2);
+ assert.equal(adjustedSummary.statuses.find(row=>row.status==='REFUNDED').amount,'100.00');
+ const adjusted=await service.specialReport('2026-10-01','2026-10-31','TRY');
+ assert.equal(adjusted.summary.sales,'10.00');
+ assert.equal(adjusted.summary.units_sold,2);
+ for(const rows of [adjusted.products,adjusted.channelProducts]){
+   assert.equal(rows.find(row=>row.status==='PAID').amount,'10.00');
+   assert.equal(rows.find(row=>row.status==='REFUNDED').amount,'100.00');
+ }
+ assert.equal(adjusted.summary.incoming_transfers,'12.10');
+ assert.equal(adjusted.summary.commission_total,'17.00');
  for(const [from,to,currency] of [['2026-02-30','2026-03-01','TRY'],['2026-11-01','2026-10-01','TRY'],['2000-01-01','2026-10-01','TRY'],['2026-10-01','2026-10-31','BAD'],['2026-10-01','bad','TRY']])await assert.rejects(()=>service.reportSummary(30,from,to,currency));
  await pg.close();console.log('Management and special report checks passed: Istanbul dates, cancelled orders, payment status separation, currency isolation, pending-cash exclusion, exact cash totals, pooled and legacy commission reversals, director privacy, current stock and invalid filters.');
 }

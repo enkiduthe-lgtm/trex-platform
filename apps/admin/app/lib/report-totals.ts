@@ -1,4 +1,9 @@
-/** Sum decimal money exactly, keeping each currency separate. */
+/** Keep cancelled and fully refunded orders out of sales totals. */
+export function countsTowardSales(order: {status: string}) {
+  return order.status !== 'CANCELLED' && order.status !== 'REFUNDED';
+}
+
+/** Multiply decimal money exactly. */
 export function multiplyMoney(amount: string, quantity: number) {
   if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || !Number.isSafeInteger(quantity) || quantity < 1) throw new Error('Geçersiz Tutar Veya Adet');
   const [whole, fraction = ''] = amount.split('.');

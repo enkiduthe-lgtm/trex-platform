@@ -16,7 +16,7 @@ CREATE TABLE order_items(id uuid,order_id uuid,product_name text,sku text,quanti
 CREATE TABLE support_tickets(id uuid,order_id uuid,ticket_number text,subject text,status text,priority text,created_at timestamptz);
 CREATE TABLE shipments(id uuid,order_id uuid,status text,tracking_number text,provider text,created_at timestamptz);
 CREATE TABLE shipment_events(shipment_id uuid,description text,occurred_at timestamptz);
-CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);`);
+CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity integer); CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);`);
 const orderId='11111111-1111-4111-8111-111111111111',dealerId='22222222-2222-4222-8222-222222222222',levelId='33333333-3333-4333-8333-333333333333';
 await db.query("INSERT INTO orders(id,order_number,status,sales_channel,total_amount,cod_service_fee,currency,created_at) VALUES($1,'SQL-TEST','PROCESSING','DEALER_PORTAL',100,0,'TRY',now())",[orderId]);
 await db.query("INSERT INTO dealers VALUES($1,'Test Bayi','Test Yetkili',$2)",[dealerId,levelId]);
@@ -24,7 +24,8 @@ await db.query("INSERT INTO dealer_levels VALUES($1,'Test Seviyesi')",[levelId])
 await db.query("INSERT INTO audit_logs(id,entity_type,action,entity_id,metadata,created_at) VALUES($1,'order','order.dealer.created',$2,$3,now()),($4,'other','test','not-a-uuid','{}',now())",[orderId,orderId,JSON.stringify({dealerId}),dealerId]);
 const source=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/orders.service.ts'),'utf8');
 const detail=source.slice(source.indexOf('async detail(id:string)'),source.indexOf('  async track('));
-const sql=detail.match(/this\.db\.query[^`]*`([^`]+)`/)[1];
+const reportStatus=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/report-order-status.ts'),'utf8').split(String.fromCharCode(96))[1];
+const sql=detail.match(/this\.db\.query[^`]*`([^`]+)`/)[1].replace('${reportOrderStatus}',reportStatus);
 assert.ok(sql.includes('entity_id=o.id::text'));
 await assert.rejects(db.query(sql.replace('entity_id=o.id::text','entity_id=o.id'),[orderId]),/operator does not exist: text = uuid/);
 const result=await db.query(sql,[orderId]);
@@ -34,7 +35,7 @@ await db.query("INSERT INTO order_addresses VALUES($1,'Test Alıcı','000','Test
 await db.query("INSERT INTO picking_sessions VALUES($1,$2,'COMPLETED',now(),now())",[levelId,orderId]);
 await db.query("INSERT INTO packing_sessions VALUES($1,now(),'TEST-PKG')",[levelId]);
 await db.query("INSERT INTO shipments VALUES($1,$2,'CREATED',NULL,'aras',now())",[dealerId,orderId]);
-const queries=[...detail.matchAll(/this\.db\.query(?:<[^>]*>)?\((['`])([\s\S]*?)\1,\[id\]\)/g)].map(match=>match[2]);
+const queries=[...detail.matchAll(/this\.db\.query(?:<[^>]*>)?\((['`])([\s\S]*?)\1,\[id\]\)/g)].map(match=>match[2].replace('${reportOrderStatus}',reportStatus));
 assert.equal(queries.length,9,'Every order detail SQL query must be tested');
 const results=[];for(const query of queries)results.push(await db.query(query,[orderId]));
 assert.equal(results[1].rows[0].recipient_name,'Test Alıcı');

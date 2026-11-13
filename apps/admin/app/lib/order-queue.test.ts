@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {orderQueueStatus,nextPreparationAction,needsTransferMatching} from './order-queue';
 
+test('a completed full return takes precedence over an older carrier state', () => {
+  const returned = {status:'PROCESSING', sales_status:'REFUNDED', shipment_status:'CREATED', packed_at:'2026-11-06'};
+  assert.equal(orderQueueStatus(returned),'REFUNDED');
+  assert.equal(nextPreparationAction(returned),null);
+  assert.equal(needsTransferMatching({...returned,status:'PENDING_PAYMENT',payment_method:'bank_transfer'}),false);
+});
+
 test('registration is separate from dispatch and real tracking',()=>{
   assert.equal(orderQueueStatus({status:'PROCESSING',shipment_status:'CREATED'}),'REGISTERED');
   assert.equal(orderQueueStatus({status:'PROCESSING',shipment_status:'IN_TRANSIT'}),'SHIPPED');

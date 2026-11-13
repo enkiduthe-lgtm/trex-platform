@@ -7,7 +7,8 @@ describe('Selected order export lines', () => {
     const query = jest.fn().mockResolvedValue({ rows });
     expect(await new OrdersService({ query } as never).exportLines([id, id])).toEqual(rows);
     expect(query.mock.calls[0][1]).toEqual([null, null, null, null, null, null, [id]]);
-    expect(query.mock.calls[0][0]).toContain('o.id=ANY($7::uuid[]) AND o.archived_at IS NULL');
+    expect(query.mock.calls[0][0]).toContain('WHERE o.archived_at IS NULL');
+    expect(query.mock.calls[0][0]).toContain('o.id=ANY($7::uuid[])');
     expect(query.mock.calls[0][0]).toContain('oi.quantity*oi.unit_amount');
   });
   it.each([{ ids: [] }, { ids: ['invalid'] }, { ids: Array(101).fill(id) }])('rejects invalid or oversized selections before reading orders', async ({ ids }) => {

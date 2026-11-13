@@ -12,7 +12,7 @@ import { orderPermissions } from '../../lib/order-permissions';
 import { nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
-const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,shipment_status:order.fulfillment?.shipment_status,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
+const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,sales_status:order.sales_status,shipment_status:order.fulfillment?.shipment_status,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
 const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
 
 type Detail = {
@@ -21,6 +21,7 @@ type Detail = {
   order_number: string;
   sales_channel: string;
   status: string;
+  sales_status?: string;
   total_amount: string; cod_service_fee?:string;
   currency: string;
   customer_email: string | null;
@@ -199,7 +200,7 @@ export default function OrderDetail() {
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
-  const displayStatus = data ? orderQueueStatus({status:data.status, shipment_status:data.fulfillment?.shipment_status}) : '';
+  const displayStatus = data ? orderQueueStatus({status:data.status,sales_status:data.sales_status, shipment_status:data.fulfillment?.shipment_status}) : '';
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const autoPrinted = useRef(false);
@@ -481,9 +482,9 @@ export default function OrderDetail() {
                 <div><small>Ödeme yöntemi</small><strong>{data.payments.map((payment) => paymentMethod[payment.provider] ?? payment.provider).join(", ") || "Belirtilmedi"}</strong></div>
               </div>
               <div className={styles.cardActions}>
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && data.status !== "CANCELLED" && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(data.status) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
               </div>
             </section>
             <section className={styles.detailCard}>

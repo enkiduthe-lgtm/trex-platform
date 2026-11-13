@@ -1,4 +1,7 @@
-export function orderQueueStatus(order: {status:string;shipment_status?:string|null}) {
+type QueueOrder = {status:string;sales_status?:string;shipment_status?:string|null};
+
+export function orderQueueStatus(order: QueueOrder) {
+  if (order.sales_status === 'REFUNDED') return 'REFUNDED';
   if (order.status !== 'PROCESSING') return order.status;
   if (order.shipment_status === 'CREATED') return 'REGISTERED';
   if (order.shipment_status === 'IN_TRANSIT') return 'SHIPPED';
@@ -6,13 +9,14 @@ export function orderQueueStatus(order: {status:string;shipment_status?:string|n
   return order.status;
 }
 
-export function nextPreparationAction(order: {status:string;shipment_status?:string|null;preparation_status?:string|null;packed_at?:string|null}): 'prepare'|'pack'|'ship'|null {
+export function nextPreparationAction(order: QueueOrder & {preparation_status?:string|null;packed_at?:string|null}): 'prepare'|'pack'|'ship'|null {
+  if(order.sales_status==='REFUNDED')return null;
   if(!['PAID','PROCESSING'].includes(order.status))return null;
   if(order.shipment_status && order.shipment_status!=='FAILED')return null;
   if(order.packed_at)return order.status==='PROCESSING'?'ship':null;
   return order.preparation_status==='COMPLETED'?'pack':'prepare';
 }
 
-export function needsTransferMatching(order: {status:string;payment_method?:string|null}) {
-  return order.status === "PENDING_PAYMENT" && order.payment_method === "bank_transfer";
+export function needsTransferMatching(order: QueueOrder & {payment_method?:string|null}) {
+  return orderQueueStatus(order) === "PENDING_PAYMENT" && order.payment_method === "bank_transfer";
 }

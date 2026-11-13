@@ -42,7 +42,7 @@ describe('DealerPortalController', () => {
     const query = jest.fn().mockResolvedValue({ rows: [] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
     await controller.listOrders(request);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM orders o WHERE EXISTS'), ['dealer-user']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM orders o WHERE o.archived_at IS NULL AND EXISTS'), ['dealer-user']);
   });
 
   it('restricts ledger movements to the authenticated dealer account', async () => {

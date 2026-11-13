@@ -25,14 +25,14 @@ async function main(){
  CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,code text,status text);
  CREATE TABLE dealer_user_accounts(user_id uuid REFERENCES users(id),dealer_id uuid REFERENCES dealers(id));
  CREATE TABLE dealer_bank_accounts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),dealer_id uuid REFERENCES dealers(id),account_holder text,iban text,is_primary boolean);
- CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,total_amount numeric(12,2),currency char(3),status text,created_at timestamptz DEFAULT now());
+ CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,total_amount numeric(12,2),currency char(3),status text,created_at timestamptz DEFAULT now(),archived_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),product_id uuid,product_name text,sku text,quantity integer,unit_amount numeric(12,2),currency char(3));
  CREATE TABLE returns(id uuid PRIMARY KEY,order_id uuid REFERENCES orders(id),status text);
  CREATE TABLE return_items(id uuid PRIMARY KEY,return_id uuid REFERENCES returns(id),order_item_id uuid REFERENCES order_items(id),quantity integer);
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency char(3),is_active boolean);
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),account_id uuid REFERENCES finance_accounts(id),order_id uuid REFERENCES orders(id),kind text,amount numeric(12,2),payment_status text,counterparty_name text,reference_number text,description text,created_by uuid REFERENCES users(id));
  CREATE TABLE return_refunds(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),return_id uuid REFERENCES returns(id),amount numeric(12,2),finance_transaction_id uuid NOT NULL UNIQUE REFERENCES finance_transactions(id));
- CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),actor_user_id uuid,action text,entity_type text,entity_id uuid,metadata jsonb,created_at timestamptz DEFAULT now());
+ CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),actor_user_id uuid,action text,entity_type text,entity_id text,metadata jsonb,created_at timestamptz DEFAULT now());
  CREATE TABLE commission_entries(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),dealer_id uuid REFERENCES dealers(id),recipient_user_id uuid,recipient_kind text DEFAULT 'DEALER',order_id uuid REFERENCES orders(id),order_item_id uuid REFERENCES order_items(id),rule_id uuid,amount numeric(12,2),currency char(3) DEFAULT 'TRY',status text DEFAULT 'PENDING',entry_kind text DEFAULT 'EARN',available_at timestamptz,created_at timestamptz DEFAULT now(),source_entry_id uuid REFERENCES commission_entries(id),reversed_at timestamptz,note text);
  CREATE UNIQUE INDEX commission_entries_reversal_source_unique ON commission_entries(source_entry_id) WHERE entry_kind='REVERSAL';
  `);
@@ -65,7 +65,7 @@ async function main(){
  await payouts.pay(request.id,account,'REF-1',user);assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions')).rows[0].count,1);
  const unpaid=await payouts.request(user,uuid(32),10);await payouts.decide(unpaid.id,'APPROVED',user);testNow='2026-11-06T12:00:00+03:00';await assert.rejects(()=>payouts.pay(unpaid.id,account,'LATE',user));testNow='2026-11-05T12:00:00+03:00';await payouts.decide(unpaid.id,'REJECTED',user);
  await db.query('INSERT INTO dealer_prim_refunds(dealer_id,order_id,return_id,amount,created_by) VALUES($1,$2,$3,100,$4)',[dealer,olderOrder,returnA,user]);assert.equal((await dealerWallet(db,dealer)).available,'550.00');
- const report=await payouts.portal(user);assert.equal(report.balance.available,'550.00');assert.equal(report.requests.find(row=>row.id===request.id).status,'PAID');assert.equal(report.deductions.length,1);assert.equal(report.earnings.length,4);
+ const report=await payouts.portal(user);assert.equal(report.balance.available,'550.00');assert.equal(report.requests.find(row=>row.id===request.id).status,'PAID');assert.equal(report.deductions.length,1);assert.equal(report.earnings.length,4);assert.equal(report.sales.length,0);
  // Exercise the actual order service and cancellation service, including rollback of reservations.
  await pg.exec(`
  CREATE DOMAIN sales_channel_code AS text;
@@ -97,7 +97,7 @@ async function main(){
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/074_cod_fee_and_dealer_packs.sql'),'utf8'));
  const level=uuid(40),warehouse=uuid(41);await db.query('UPDATE dealers SET dealer_level_id=$1 WHERE id=$2',[level,dealer]);
  await db.query("INSERT INTO products VALUES($1,'Test Product','SKU','ACTIVE')",[product]);
- await db.query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency) VALUES($1,'DEALER_LEVEL',$2,500,'TRY')",[product,level]);
+ await db.query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency,starts_at) VALUES($1,'DEALER_LEVEL',$2,500,'TRY',now())",[product,level]);
  await db.query("INSERT INTO warehouses VALUES($1,'GENEL_STOK','General',true)",[warehouse]);await db.query('INSERT INTO inventory VALUES($1,$2,10,0,now())',[product,warehouse]);
  const adminOrders=new AdminOrderService(db),actor={id:user,role:'DEALER',email:'test@example.test',sessionId:uuid(42)};
  const body={warehouseId:warehouse,recipientName:'Test Buyer',contactEmail:'test@example.test',phone:'000',city:'Test',district:'Test',addressLine:'Test',paymentMethod:'COMMISSION',currency:'TRY',priceChangeReason:'Test Sale',items:[{productId:product,quantity:1,unitAmount:650}]};
