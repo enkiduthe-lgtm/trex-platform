@@ -16,7 +16,18 @@ export class RolesGuard implements CanActivate {
     if(user?.role==='SUPER_ADMIN'&&(/^\/(v1\/)?admin(\/|$)/.test(path)||/^\/(v1\/)?(returns|inventory|health)(\/|$)/.test(path)))return true;
     if(user?.role==='ADMIN'&&this.db&&!/^\/(v1\/)?admin\/(access\/me|settings\/manager-menu)$/.test(path)){
       const profile=await this.db.query<{grants:string[]}>('SELECT grants FROM staff_access_profiles WHERE user_id=$1',[user.id]);
-      if(profile.rowCount){const permission=requestAccess(path,request.method);if(!permission||!profile.rows[0].grants.includes(permission)||!profile.rows[0].grants.includes(permission.split('.')[0]+'.VIEW'))throw new ForbiddenException('Bu İşlem İçin Müdür Tarafından Yetki Verilmemiş');return true;}
+      if(profile.rowCount){
+        const permission=requestAccess(path,request.method);
+        const grants=profile.rows[0].grants;
+        const status=request.body?.status;
+        const cargoUpdate=request.method==='PATCH' && /^\/(v1\/)?admin\/orders\/[^/]+\/status$/.test(path) &&
+          (status==='SHIPPED'||status==='DELIVERED');
+        if(!permission||!grants.includes(permission)||!grants.includes(permission.split('.')[0]+'.VIEW')||
+          (cargoUpdate&&(!grants.includes('SHIPPING.VIEW')||!grants.includes('SHIPPING.APPROVE')))){
+          throw new ForbiddenException('Bu İşlem İçin Müdür Tarafından Yetki Verilmemiş');
+        }
+        return true;
+      }
     }
     if (!roles) return true;
     if (!user || !roles.includes(user.role)) throw new ForbiddenException('Insufficient role'); return true;
