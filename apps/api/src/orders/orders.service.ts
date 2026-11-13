@@ -153,11 +153,16 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
   async operationalSummary(days=30,dateFrom?:string,dateTo?:string) {
     const period=reportPeriod(days,dateFrom,dateTo),bounds=(column:string)=>`${column}>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND ${column}<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')`;
     return (await this.db.query(`SELECT
-      (SELECT count(*)::int FROM returns WHERE status NOT IN ('REFUNDED','REJECTED','CANCELLED') AND ${bounds('requested_at')}) returns_open,
-      (SELECT count(*)::int FROM returns WHERE status='REFUNDED' AND ${bounds('completed_at')}) returns_refunded,
-      (SELECT count(*)::int FROM shipments WHERE status IN ('CREATED','IN_TRANSIT') AND ${bounds('created_at')}) shipments_active,
-      (SELECT count(*)::int FROM shipments WHERE status='FAILED' AND ${bounds('updated_at')}) shipments_failed,
-      (SELECT count(*)::int FROM support_tickets WHERE status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND due_at<now() AND ${bounds('due_at')}) support_overdue`,[period.dateFrom,period.dateTo])).rows[0];
+      (SELECT count(*)::int FROM returns r JOIN orders o ON o.id=r.order_id
+        WHERE o.archived_at IS NULL AND r.status NOT IN ('REFUNDED','REJECTED','CANCELLED') AND ${bounds('r.requested_at')}) returns_open,
+      (SELECT count(*)::int FROM returns r JOIN orders o ON o.id=r.order_id
+        WHERE o.archived_at IS NULL AND r.status='REFUNDED' AND ${bounds('r.completed_at')}) returns_refunded,
+      (SELECT count(*)::int FROM shipments s JOIN orders o ON o.id=s.order_id
+        WHERE o.archived_at IS NULL AND s.status IN ('CREATED','IN_TRANSIT') AND ${bounds('s.created_at')}) shipments_active,
+      (SELECT count(*)::int FROM shipments s JOIN orders o ON o.id=s.order_id
+        WHERE o.archived_at IS NULL AND s.status='FAILED' AND ${bounds('s.updated_at')}) shipments_failed,
+      (SELECT count(*)::int FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id
+        WHERE o.archived_at IS NULL AND t.status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND t.due_at<now() AND ${bounds('t.due_at')}) support_overdue`,[period.dateFrom,period.dateTo])).rows[0];
   }
   async detail(id:string) {
     const result=await this.db.query<{contact_name:string|null;contact_email:string|null}>(`SELECT o.id,o.customer_id,dealer.id AS dealer_id,COALESCE(NULLIF(dealer.company_name,''),dealer.contact_name) AS dealer_name,level.name AS dealer_level_name,o.order_number,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email,cs.contact_email,cs.contact_name,
