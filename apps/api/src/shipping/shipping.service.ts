@@ -46,7 +46,7 @@ export class ShippingService {
         await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES($1,$2,$3)',[orderId,nextOrder,userId]);
       }
       if(!replayed){
-        await client.query("UPDATE shipments SET status=$1,dispatched_at=CASE WHEN $1='IN_TRANSIT' THEN COALESCE(dispatched_at,now()) ELSE dispatched_at END,delivered_at=CASE WHEN $1='DELIVERED' THEN COALESCE(delivered_at,now()) ELSE delivered_at END,failure_reason=CASE WHEN $1='FAILED' THEN COALESCE($2,failure_reason,'Teslimat Sorunu') ELSE NULL END,updated_at=now() WHERE id=$3",[dto.status,dto.description?.trim()||null,shipment.id]);
+        await client.query("UPDATE shipments SET status=$1::shipment_status,dispatched_at=CASE WHEN $1::shipment_status='IN_TRANSIT' THEN COALESCE(dispatched_at,now()) ELSE dispatched_at END,delivered_at=CASE WHEN $1::shipment_status='DELIVERED' THEN COALESCE(delivered_at,now()) ELSE delivered_at END,failure_reason=CASE WHEN $1::shipment_status='FAILED' THEN COALESCE($2,failure_reason,'Teslimat Sorunu') ELSE NULL END,updated_at=now() WHERE id=$3",[dto.status,dto.description?.trim()||null,shipment.id]);
         await client.query('INSERT INTO shipment_events(shipment_id,status,provider_event_id,description) VALUES($1,$2,$3,$4) ON CONFLICT(shipment_id,provider_event_id) DO NOTHING',[shipment.id,dto.status,observation?.eventId??('manual:'+dto.status+':'+Date.now()),dto.description?.trim()||'Yönetim Panelinden Durum Güncellendi']);
         await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,observation?'shipment.aras.synced':'shipment.status_updated','shipment',shipment.id,JSON.stringify({from:shipment.status,to:dto.status})]);
       }

@@ -141,7 +141,8 @@ async function main(){
  // A delivery recorded from the shipping screen must finalize the same order and margin atomically.
  await pg.exec(`ALTER TABLE users ADD COLUMN is_active boolean DEFAULT true,ADD COLUMN role text DEFAULT 'ADMIN';
  CREATE TABLE commission_rules(id uuid PRIMARY KEY,product_id uuid,recipient_user_id uuid,recipient_kind text,amount_per_unit numeric(12,2),is_active boolean,sales_channel_group text);
- CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status text,provider text DEFAULT 'mock',provider_reference text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
+ CREATE TYPE shipment_status AS ENUM ('PENDING','CREATED','IN_TRANSIT','DELIVERED','FAILED','CANCELLED');
+ CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status shipment_status,provider text DEFAULT 'mock',provider_reference text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
  CREATE TABLE shipment_events(shipment_id uuid,status text,provider_event_id text,description text,UNIQUE(shipment_id,provider_event_id));`);
  const sale3=await adminOrders.create({...validBody,items:[{productId:product,quantity:1,unitAmount:550}]},uuid(50),actor,dealer);
  assert.equal((await dealerWallet(db,dealer)).available,'0.00');
