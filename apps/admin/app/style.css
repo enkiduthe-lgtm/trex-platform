@@ -1094,5 +1094,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 /* Compact, visible navigation actions and actual dealer level labels. */
 .admin-header .nav-dropdown a{background:#f1e8f8;border-color:#d3bee2;color:#382448;font-weight:650}
 .admin-header .nav-dropdown a:hover,.admin-header .nav-dropdown a:focus-visible{background:#dfc9ef;border-color:#8c57ae;color:#281336;outline-offset:2px}
+.admin-header .nav-menu>a{flex:1 1 auto;width:auto;min-width:0;padding-right:3px}
+.admin-header .nav-menu>.nav-menu-toggle{flex:0 0 27px;width:27px;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font-size:14px}
+.admin-header .nav-menu:hover>.nav-menu-toggle,.admin-header .nav-menu.active>.nav-menu-toggle{background:#440361;color:#fff}
+.admin-header .nav-menu>.nav-menu-toggle:focus-visible{outline:2px solid currentColor;outline-offset:-3px}
+@media(pointer:coarse){.admin-header .nav-menu>.nav-menu-toggle{flex-basis:40px;width:40px}}
 .dealer-level-badge{display:inline-flex;align-items:center;gap:9px;padding:9px 12px;margin:4px 0 8px;border:1px solid #b8cde5;border-radius:9px;background:#edf5ff;color:#21466b;max-width:100%}
 .dealer-level-badge>span{display:grid;gap:3px;min-width:0}.dealer-level-badge small{font-size:11px}.dealer-level-badge strong{white-space:normal;overflow-wrap:anywhere}.dealer-level-badge svg{flex-shrink:0}
