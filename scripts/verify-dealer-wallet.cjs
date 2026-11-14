@@ -66,9 +66,29 @@ async function main(){
  await payouts.decide(request.id,'APPROVED',user);await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date+1 WHERE id=$1",[request.id]);await assert.rejects(()=>payouts.pay(request.id,account,'REF-1',user));
  await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date-1 WHERE id=$1",[request.id]);await payouts.pay(request.id,account,'REF-1',user);assert.equal((await dealerWallet(db,dealer)).available,'450.00');
  await payouts.pay(request.id,account,'REF-1',user);assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions')).rows[0].count,1);
- const unpaid=await payouts.request(user,uuid(32),10);await payouts.decide(unpaid.id,'APPROVED',user);testNow='2026-11-06T12:00:00+03:00';await assert.rejects(()=>payouts.pay(unpaid.id,account,'LATE',user));testNow='2026-11-05T12:00:00+03:00';await payouts.decide(unpaid.id,'REJECTED',user);
+ const unpaid=await payouts.request(user,uuid(32),10);
+ await payouts.decide(unpaid.id,'APPROVED',user);
+ const listedPayout=async id=>(await payouts.list()).find(row=>row.id===id);
+ assert.equal((await listedPayout(unpaid.id)).payment_allowed,true);
+ testNow='2026-11-06T00:01:00+03:00';
+ await assert.rejects(()=>payouts.pay(unpaid.id,account,'LATE',user));
+ assert.equal((await listedPayout(unpaid.id)).scheduled_date,'2026-12-05');
+ assert.equal((await listedPayout(unpaid.id)).payment_allowed,false);
+ assert.equal((await listedPayout(request.id)).scheduled_date,'2026-11-04');
+ assert.equal((await payouts.portal(user)).requests.find(row=>row.id===unpaid.id).scheduled_date,'2026-12-05');
+ testNow='2026-12-05T00:00:00+03:00';
+ assert.equal((await listedPayout(unpaid.id)).payment_allowed,true);
+ testNow='2026-11-05T12:00:00+03:00';
+ await payouts.decide(unpaid.id,'REJECTED',user);
  await db.query('INSERT INTO dealer_prim_refunds(dealer_id,order_id,return_id,amount,created_by) VALUES($1,$2,$3,100,$4)',[dealer,olderOrder,returnA,user]);assert.equal((await dealerWallet(db,dealer)).available,'550.00');
  const report=await payouts.portal(user);assert.equal(report.balance.available,'550.00');assert.equal(report.requests.find(row=>row.id===request.id).status,'PAID');assert.equal(report.deductions.length,1);assert.equal(report.earnings.length,4);assert.equal(report.sales.length,0);
+ const earningPeriod=report.earnings.find(row=>row.entry_kind==='EARN');
+ const reversalPeriod=report.earnings.find(row=>row.entry_kind==='REVERSAL');
+ await db.query("UPDATE commission_entries SET created_at='2026-09-30T23:58:00+03:00',available_at='2026-10-01T00:05:00+03:00' WHERE id=$1",[earningPeriod.id]);
+ await db.query("UPDATE commission_entries SET reversed_at='2026-11-01T00:01:00+03:00',created_at='2026-10-31T23:59:00+03:00' WHERE id=$1",[reversalPeriod.id]);
+ const periods=(await payouts.portal(user)).earnings;
+ assert.equal(new Date(periods.find(row=>row.id===earningPeriod.id).period_at).toISOString(),'2026-09-30T21:05:00.000Z');
+ assert.equal(new Date(periods.find(row=>row.id===reversalPeriod.id).period_at).toISOString(),'2026-10-31T21:01:00.000Z');
  // Exercise the actual order service and cancellation service, including rollback of reservations.
  await pg.exec(`
  CREATE DOMAIN sales_channel_code AS text;
