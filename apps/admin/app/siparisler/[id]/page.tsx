@@ -401,7 +401,11 @@ export default function OrderDetail() {
     if (invoiceSaving || !confirm("Faturayı Paraşüt’e göndermek istiyor musunuz?")) return;
     setInvoiceSaving(true); setError("");
     try { setInvoice(await api<Invoice>(`/admin/orders/${id}/invoice/issue`, { method: "POST" })); }
-    catch (e) { setError(e instanceof Error ? e.message : "Fatura Paraşüt’e gönderilemedi"); }
+    catch (e) {
+      setError(e instanceof Error ? e.message : "Fatura Paraşüt’e gönderilemedi");
+      const latest = await api<Invoice | null>(`/admin/orders/${id}/invoice`).catch(() => null);
+      if (latest) setInvoice(latest);
+    }
     finally { setInvoiceSaving(false); }
   }
   useEffect(() => {
@@ -578,9 +582,15 @@ export default function OrderDetail() {
                 <summary>Fatura İşlemleri</summary>
                 {invoice ? (
                   <><p>
-                    {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura taslağı kaydedildi. Durum: {invoice.provider_status}
-                    {invoice.invoice_number ? ` · Fatura no: ${invoice.invoice_number}` : " · Paraşüt gönderimine hazır."}
-                  </p>{invoice.provider_status !== "ISSUED" && <button type="button" onClick={issueInvoice} disabled={invoiceSaving}>{invoiceSaving ? "Gönderiliyor…" : "Paraşüt’e gönder"}</button>}</>
+                    {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura · {({
+                      DRAFT: "Taslak hazır", PENDING_PROVIDER: "Paraşüt sonucu bekleniyor",
+                      ISSUED: "Paraşüt’e gönderildi", FAILED: "Gönderim başarısız", CANCELLED: "İptal edildi",
+                    } as Record<string,string>)[invoice.provider_status] ?? invoice.provider_status}
+                    {invoice.invoice_number && ` · Fatura no: ${invoice.invoice_number}`}
+                  </p>
+                  {invoice.provider_status === "PENDING_PROVIDER" && <p>Tekrar göndermeden önce Paraşüt’te sipariş numarasıyla faturayı kontrol edin.</p>}
+                  {data.currency === "TRY" && !["CANCELLED","REFUNDED"].includes(displayStatus) && ["DRAFT","FAILED"].includes(invoice.provider_status) &&
+                    <button type="button" onClick={issueInvoice} disabled={invoiceSaving}>{invoiceSaving ? "Gönderiliyor…" : "Paraşüt’e gönder"}</button>}</>
                 ) : (
                   <form onSubmit={saveInvoice}>
                     <label>Fatura türü

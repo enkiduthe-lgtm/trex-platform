@@ -112,6 +112,7 @@ async function main(){
  CREATE TABLE inventory_movements(product_id uuid,warehouse_id uuid,movement_type text,quantity_delta integer,reference_type text,reference_id uuid,created_by uuid);
  CREATE TABLE payments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),checkout_id uuid,provider text,provider_reference text,amount numeric(12,2),currency char(3),status text DEFAULT 'PENDING',verified_at timestamptz,created_at timestamptz DEFAULT now());
  CREATE TABLE payment_attempts(payment_id uuid,provider_request_id text,status text DEFAULT 'PENDING');
+ CREATE TABLE order_invoices(order_id uuid PRIMARY KEY,provider_status text);
  CREATE TABLE order_status_history(order_id uuid,status text,actor_user_id uuid);
  CREATE TABLE idempotency_records(key text PRIMARY KEY,request_hash text,resource_type text,resource_id uuid,expires_at timestamptz);
  CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,warehouse_id uuid,status text);
@@ -322,6 +323,9 @@ async function main(){
    JOIN payments p ON p.id=a.payment_id JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1`,[paymentEditOrder.id])).rows;
  assert.equal(attempts.filter(row=>row.status==='FAILED').length,2);
  assert.deepEqual(attempts.filter(row=>row.status==='PENDING'),[{status:'PENDING',provider_request_id:cashEdit.row.provider_reference}]);
+ await db.query("INSERT INTO order_invoices VALUES($1,'PENDING_PROVIDER')",[paymentEditOrder.id]);
+ await assert.rejects(()=>adminOrders.updatePrices(paymentEditOrder.id,{reason:'Fatura kontrolü',items:editBody.items},staffActor),/Paraşüt gönderimi/);
+ await assert.rejects(()=>adminOrders.update(paymentEditOrder.id,{...editBody,version:cashEdit.version,paymentMethod:'TRANSFER'},staffActor),/Fatura, tahsilat/);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

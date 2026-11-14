@@ -11,7 +11,11 @@ async function main(){const pg=new PGlite();try{
  CREATE TABLE picking_sessions(id uuid DEFAULT gen_random_uuid(),order_id uuid,warehouse_id uuid,status text);
  CREATE TABLE picking_items(picking_session_id uuid,order_item_id uuid,expected_quantity integer);
  CREATE TABLE packing_sessions(id uuid,picking_session_id uuid,packed_at timestamptz);
+ CREATE TABLE order_invoices(order_id uuid PRIMARY KEY,provider_status text);
+ CREATE TABLE returns(id uuid PRIMARY KEY,order_id uuid,status text);
+ CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity integer);
  CREATE TABLE finance_transactions(id uuid,order_id uuid,approved_at timestamptz);`);
+ await pg.exec('ALTER TABLE orders ADD COLUMN archived_at timestamptz');
  const query=async(sql,args=[])=>{const r=await pg.query(sql,args);return {rows:r.rows,rowCount:r.affectedRows||r.rows.length}};
  const db={query,async transaction(work){await pg.exec('BEGIN');try{const r=await work({query});await pg.exec('COMMIT');return r}catch(e){await pg.exec('ROLLBACK');throw e}}};
  const {AdminOrderService}=load(path.join(root,'apps/api/src/orders/admin-order.service.ts')),{dealerMarginAmount}=load(path.join(root,'apps/api/src/commissions/dealer-margin.ts'));

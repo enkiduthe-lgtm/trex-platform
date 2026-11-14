@@ -3,6 +3,12 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 type InvoiceLine = { description: string; quantity: number; unitPrice: number };
 type InvoiceRequest = { customerType: 'INDIVIDUAL' | 'CORPORATE'; recipientName: string; identityNumber: string | null; companyName: string | null; taxNumber: string | null; taxOffice: string | null; billingAddress: string; billingCity: string | null; billingDistrict: string | null; email: string | null; orderNumber: string; issueDate: string; lines: InvoiceLine[] };
 
+export class ParasutInvoiceOutcomeUnknown extends ServiceUnavailableException {
+  constructor() {
+    super('Paraşüt gönderiminin sonucu doğrulanamadı. Faturayı yeniden göndermeden önce Paraşüt’te kontrol edin.');
+  }
+}
+
 @Injectable()
 export class ParasutInvoiceProvider {
   // Reading a PDF must never issue a new invoice or change its fiscal status.
@@ -56,12 +62,20 @@ export class ParasutInvoiceProvider {
     } as { companyId: string; clientId: string; clientSecret: string; username: string; password: string };
   }
 
-  private async request<T>(url: string, init: RequestInit): Promise<T> {
-    const response = await fetch(url, init);
-    const text = await response.text();
+  private async request<T>(url: string, init: RequestInit, invoiceSubmission = false): Promise<T> {
+    let response: Response;
+    let text: string;
+    try {
+      response = await fetch(url, init);
+      text = await response.text();
+    } catch (error) {
+      if (invoiceSubmission) throw new ParasutInvoiceOutcomeUnknown();
+      throw error;
+    }
     let body: unknown = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = text; }
     if (!response.ok) {
+      if (invoiceSubmission && (response.status >= 500 || response.status === 408)) throw new ParasutInvoiceOutcomeUnknown();
       const message = typeof body === 'object' && body && 'errors' in body ? JSON.stringify((body as { errors: unknown }).errors) : text;
       throw new ServiceUnavailableException(`Paraşüt isteği başarısız oldu (${response.status}): ${message.slice(0, 500)}`);
     }
@@ -124,7 +138,8 @@ export class ParasutInvoiceProvider {
         item_type: 'invoice', description: `TREX siparişi ${input.orderNumber}`, issue_date: input.issueDate, due_date: input.issueDate,
         currency: 'TRL', billing_address: input.billingAddress, billing_city: input.billingCity || undefined, billing_district: input.billingDistrict || undefined,
       }, relationships: { contact: { data: { id: contact.data.id, type: 'contacts' } }, details: { data: input.lines.map((line, index) => ({ type: 'sales_invoice_details', attributes: { description: line.description, quantity: line.quantity, unit_price: line.unitPrice, vat_rate: 0 }, relationships: { product: { data: { id: productIds[index], type: 'products' } } } })) } } } }),
-    });
+    }, true);
+    if (!invoice?.data?.id) throw new ParasutInvoiceOutcomeUnknown();
     return { providerInvoiceId: invoice.data.id, invoiceNumber: invoice.data.attributes?.invoice_no ?? null, payload: invoice };
   }
 }

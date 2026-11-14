@@ -8,7 +8,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { editVersion } from './edit-version';
 import { ShippingService } from '../shipping/shipping.service';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
-import { ParasutInvoiceProvider } from './parasut-invoice.provider';
+import { ParasutInvoiceOutcomeUnknown, ParasutInvoiceProvider } from './parasut-invoice.provider';
 @Injectable()
 export class OrdersService {
   constructor(private readonly db: DatabaseService,private readonly shipping?: ShippingService, private readonly parasut?: ParasutInvoiceProvider) {}
@@ -153,37 +153,51 @@ export class OrdersService {
     if(individual&&!dto.identityNumber) throw new BadRequestException('Bireysel fatura için T.C. kimlik no zorunludur');
     if(!individual&&(!dto.companyName||!dto.taxNumber)) throw new BadRequestException('Kurumsal fatura için firma unvanı ve vergi no zorunludur');
     return this.db.transaction(async client=>{
-      const order=await client.query('SELECT id,status FROM orders WHERE id=$1 FOR KEY SHARE',[orderId]); if(!order.rowCount) throw new NotFoundException('Sipariş bulunamadı');
+      const order=await client.query<{status:string}>('SELECT status FROM orders WHERE id=$1 AND archived_at IS NULL FOR UPDATE',[orderId]);
+      if(!order.rows[0]) throw new NotFoundException('Sipariş bulunamadı');
+      if(['CANCELLED','REFUNDED'].includes(order.rows[0].status)) throw new ConflictException('Kapalı sipariş için fatura taslağı oluşturulamaz');
       const row=await client.query<{id:string}>(`INSERT INTO order_invoices(order_id,customer_type,recipient_name,identity_number,company_name,tax_number,tax_office,billing_address,billing_city,billing_district,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(order_id) DO UPDATE SET customer_type=EXCLUDED.customer_type,recipient_name=EXCLUDED.recipient_name,identity_number=EXCLUDED.identity_number,company_name=EXCLUDED.company_name,tax_number=EXCLUDED.tax_number,tax_office=EXCLUDED.tax_office,billing_address=EXCLUDED.billing_address,billing_city=EXCLUDED.billing_city,billing_district=EXCLUDED.billing_district,provider_status='DRAFT',failure_reason=NULL,updated_at=now() WHERE order_invoices.provider_status IN ('DRAFT','FAILED') RETURNING id`,[orderId,dto.customerType,dto.recipientName.trim(),individual?dto.identityNumber: null,individual?null:dto.companyName!.trim(),individual?null:dto.taxNumber!,individual?null:dto.taxOffice?.trim()||null,dto.billingAddress.trim(),dto.billingCity?.trim()||null,dto.billingDistrict?.trim()||null,actor.id]);
       if(!row.rowCount) throw new ConflictException('Paraşüt’e gönderilmiş fatura taslağı değiştirilemez');
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'invoice.parasut.draft_created','order',orderId,JSON.stringify({invoiceId:row.rows[0].id,customerType:dto.customerType})]); return {id:row.rows[0].id,status:'DRAFT'};
     });
   }
   async issueInvoice(orderId: string, actor: RequestUser) {
+    if (!this.parasut) throw new ServiceUnavailableException('Paraşüt bağlantısı kullanılamıyor');
     const result = await this.db.transaction(async client => {
+      const order = (await client.query<{ status: string; currency: string; cod_service_fee: string; order_number: string; created_at: string; customer_email: string | null }>(`
+        SELECT o.status,o.currency,o.cod_service_fee,o.order_number,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email
+        FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id
+        WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`, [orderId])).rows[0];
+      if (!order) throw new NotFoundException('Sipariş bulunamadı');
+      if (['CANCELLED','REFUNDED'].includes(order.status)) throw new ConflictException('Kapalı sipariş için yeni fatura düzenlenemez');
+      if (order.currency !== 'TRY') throw new ConflictException('Paraşüt gönderimi şu anda TL siparişler için kullanılabilir.');
       const invoice = (await client.query<{
         id: string; customer_type: 'INDIVIDUAL' | 'CORPORATE'; recipient_name: string; identity_number: string | null; company_name: string | null; tax_number: string | null; tax_office: string | null; billing_address: string; billing_city: string | null; billing_district: string | null; provider_status: string;
       }>('SELECT * FROM order_invoices WHERE order_id=$1 FOR UPDATE', [orderId])).rows[0];
       if (!invoice) throw new NotFoundException('Önce fatura taslağını kaydedin');
       if (invoice.provider_status === 'ISSUED') throw new ConflictException('Bu fatura zaten Paraşüt’e gönderildi');
-      const order = (await client.query<{ cod_service_fee?: string; order_number: string; created_at: string; customer_email: string | null }>(`SELECT o.cod_service_fee,o.order_number,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1`, [orderId])).rows[0];
-      if (!order) throw new NotFoundException('Sipariş bulunamadı');
+      if (invoice.provider_status === 'PENDING_PROVIDER') throw new ConflictException('Fatura gönderiminin sonucu bekleniyor. Paraşüt’teki kaydı kontrol edin.');
+      if (!['DRAFT','FAILED'].includes(invoice.provider_status)) throw new ConflictException('Fatura bu durumda gönderilemez');
       const lines = (await client.query<{ product_name: string; quantity: number; unit_amount: string }>('SELECT product_name,quantity,unit_amount FROM order_items WHERE order_id=$1 ORDER BY id', [orderId])).rows;
-      if(Number(order.cod_service_fee??0)>0)lines.push({product_name:'Kapıda Ödeme Hizmet Bedeli',quantity:1,unit_amount:order.cod_service_fee!});
       if (!lines.length) throw new BadRequestException('Sipariş kalemi bulunamadı');
+      if(Number(order.cod_service_fee)>0)lines.push({product_name:'Kapıda Ödeme Hizmet Bedeli',quantity:1,unit_amount:order.cod_service_fee});
       await client.query("UPDATE order_invoices SET provider_status='PENDING_PROVIDER',failure_reason=NULL,updated_at=now() WHERE id=$1", [invoice.id]);
       return { invoice, order, lines };
     });
+    let sent: Awaited<ReturnType<ParasutInvoiceProvider['issue']>>;
     try {
-      const sent = await this.parasut!.issue({ customerType: result.invoice.customer_type, recipientName: result.invoice.recipient_name, identityNumber: result.invoice.identity_number, companyName: result.invoice.company_name, taxNumber: result.invoice.tax_number, taxOffice: result.invoice.tax_office, billingAddress: result.invoice.billing_address, billingCity: result.invoice.billing_city, billingDistrict: result.invoice.billing_district, email: result.order.customer_email, orderNumber: result.order.order_number, issueDate: new Date(result.order.created_at).toISOString().slice(0, 10), lines: result.lines.map(line => ({ description: line.product_name, quantity: Number(line.quantity), unitPrice: Number(line.unit_amount) })) });
-      await this.db.query("UPDATE order_invoices SET provider_status='ISSUED',provider_invoice_id=$2,invoice_number=$3,provider_payload=$4,updated_at=now() WHERE order_id=$1", [orderId, sent.providerInvoiceId, sent.invoiceNumber, JSON.stringify(sent.payload)]);
-      await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'invoice.parasut.issued', 'order', orderId, JSON.stringify({ providerInvoiceId: sent.providerInvoiceId })]);
-      return this.invoice(orderId);
+      sent = await this.parasut.issue({ customerType: result.invoice.customer_type, recipientName: result.invoice.recipient_name, identityNumber: result.invoice.identity_number, companyName: result.invoice.company_name, taxNumber: result.invoice.tax_number, taxOffice: result.invoice.tax_office, billingAddress: result.invoice.billing_address, billingCity: result.invoice.billing_city, billingDistrict: result.invoice.billing_district, email: result.order.customer_email, orderNumber: result.order.order_number, issueDate: new Intl.DateTimeFormat('sv-SE',{ timeZone:'Europe/Istanbul',year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date(result.order.created_at)), lines: result.lines.map(line => ({ description: line.product_name, quantity: Number(line.quantity), unitPrice: Number(line.unit_amount) })) });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 1000) : 'Bilinmeyen Paraşüt hatası';
-      await this.db.query("UPDATE order_invoices SET provider_status='FAILED',failure_reason=$2,updated_at=now() WHERE order_id=$1", [orderId, message]);
+      await this.db.query("UPDATE order_invoices SET provider_status=$2,failure_reason=$3,updated_at=now() WHERE order_id=$1 AND provider_status='PENDING_PROVIDER'",
+        [orderId, error instanceof ParasutInvoiceOutcomeUnknown ? 'PENDING_PROVIDER' : 'FAILED', message]);
       throw error;
     }
+    await this.db.transaction(async client => {
+      await client.query("UPDATE order_invoices SET provider_status='ISSUED',provider_invoice_id=$2,invoice_number=$3,provider_payload=$4,updated_at=now() WHERE order_id=$1", [orderId, sent.providerInvoiceId, sent.invoiceNumber, JSON.stringify(sent.payload)]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'invoice.parasut.issued', 'order', orderId, JSON.stringify({ providerInvoiceId: sent.providerInvoiceId })]);
+    });
+    return this.invoice(orderId);
   }
   async reportSummary(days=30,dateFrom?:string,dateTo?:string,currency='TRY',actor?:RequestUser) {
     const period=reportPeriod(days,dateFrom,dateTo,currency),params=[period.dateFrom,period.dateTo,period.currency];

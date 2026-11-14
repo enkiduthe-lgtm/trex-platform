@@ -7,6 +7,7 @@ CREATE TABLE customers(id uuid,email text); CREATE TABLE checkout_sessions(id uu
 CREATE TABLE dealers(id uuid,company_name text,contact_name text,dealer_level_id uuid); CREATE TABLE dealer_levels(id uuid,name text);
 CREATE TABLE audit_logs(id uuid,entity_type text,action text,entity_id text,metadata jsonb,created_at timestamptz);
 CREATE TABLE payments(checkout_id uuid,status text); CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
+CREATE TABLE order_invoices(order_id uuid PRIMARY KEY,provider_status text);
 CREATE TABLE picking_sessions(id uuid,order_id uuid,status text); CREATE TABLE packing_sessions(picking_session_id uuid);`);
 await db.exec(`ALTER TABLE audit_logs ADD COLUMN actor_user_id uuid; CREATE TABLE users(id uuid,email text);
 ALTER TABLE picking_sessions ADD COLUMN created_at timestamptz,ADD COLUMN completed_at timestamptz;

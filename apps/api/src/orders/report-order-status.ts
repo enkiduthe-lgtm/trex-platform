@@ -47,6 +47,9 @@ export const hasPackedOrder = `EXISTS (
   SELECT 1 FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id
   WHERE ps.order_id=o.id AND pk.packed_at IS NOT NULL
 )`;
+export const hasCommittedInvoice = `EXISTS (
+  SELECT 1 FROM order_invoices i WHERE i.order_id=o.id AND i.provider_status IN ('PENDING_PROVIDER','ISSUED')
+)`;
 export const orderPriceEditable = `(
   o.archived_at IS NULL
   AND o.sales_channel IN (${sqlValues(editableAdminChannels)})
@@ -56,6 +59,7 @@ export const orderPriceEditable = `(
     AND p.status='PENDING' AND p.provider IN (${sqlValues(manualPaymentProviders)}))
   AND NOT ${hasApprovedCollection}
   AND NOT ${hasPackedOrder}
+  AND NOT ${hasCommittedInvoice}
 )`;
 export const canCancelOrder = `(
   o.archived_at IS NULL
