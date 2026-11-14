@@ -50,3 +50,12 @@ test('only pending bank transfers offer transfer matching',()=>{
     assert.equal(needsTransferMatching({status,payment_method:'bank_transfer'}),false);
   }
 });
+
+test('preparation reflects payment status and shipment requires a package barcode', () => {
+  assert.equal(nextPreparationAction({status:'PROCESSING', payment_method:'bank_transfer', payment_status:'PENDING'}), null);
+  assert.equal(nextPreparationAction({status:'PROCESSING', payment_method:'cash_on_delivery_card', payment_status:'FAILED'}), null);
+  assert.equal(nextPreparationAction({status:'PROCESSING', payment_method:'cash_on_delivery_card', payment_status:'PENDING'}), 'prepare');
+  assert.equal(nextPreparationAction({status:'PROCESSING', payment_method:'bank_transfer', payment_status:'SUCCEEDED'}), 'prepare');
+  assert.equal(nextPreparationAction({status:'PROCESSING', packed_at:'2026-11-06', package_barcode:null}), null);
+  assert.equal(nextPreparationAction({status:'PROCESSING', packed_at:'2026-11-06', package_barcode:'TRX-PKG-1'}), 'ship');
+});

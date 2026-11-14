@@ -18,7 +18,7 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const {OrdersService}=load(path.join(root,'apps/api/src/orders/orders.service.ts')),{groupSales}=load(path.join(root,'apps/admin/app/lib/sales-groups.ts'));
  const rows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');assert.equal(rows.length,4);assert.equal(rows.find(r=>r.id==='00000000-0000-4000-8000-000000000001').payment_method,'cash');
  await pg.exec("UPDATE shipments SET tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001'");
- const {orderQueueStatus}=load(path.join(root,'apps/admin/app/lib/order-queue.ts'));
+ const {orderQueueStatus,nextPreparationAction}=load(path.join(root,'apps/admin/app/lib/order-queue.ts'));
  const returnRows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');
  assert.ok(returnRows.filter(row=>row.id==='00000000-0000-4000-8000-000000000001').every(row=>orderQueueStatus(row)==='CARRIER_RETURN'));
  const queue=await new OrdersService(db).queueCounts();
@@ -40,14 +40,15 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  await pg.exec(`
    ALTER TABLE orders ADD COLUMN admin_note text,ADD COLUMN commission_amount numeric,ADD COLUMN shipping_cost_amount numeric;
    ALTER TABLE order_items ADD COLUMN product_id text;
-   ALTER TABLE payments ADD COLUMN status text;
+   DELETE FROM payments WHERE id='1';
+   ALTER TABLE payments ADD COLUMN status text,ADD PRIMARY KEY(id),ADD UNIQUE(checkout_id);
    ALTER TABLE shipments ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid(),ADD COLUMN tracking_number text;
    ALTER TABLE customers ADD PRIMARY KEY(id);
    ALTER TABLE checkout_sessions ADD PRIMARY KEY(id);
    ALTER TABLE order_addresses ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid();
    CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
-   CREATE TABLE picking_sessions(id uuid,order_id uuid,status text,created_at timestamptz);
-   CREATE TABLE packing_sessions(picking_session_id uuid,packed_at timestamptz);
+   CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid UNIQUE,status text,created_at timestamptz);
+   CREATE TABLE packing_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),picking_session_id uuid UNIQUE,packed_at timestamptz,package_barcode text);
    UPDATE shipments SET tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001';
    INSERT INTO orders(id,order_number,status,sales_channel,total_amount,currency,created_at)
    SELECT ('00000000-0000-4000-8000-'||lpad((200+n)::text,12,'0'))::uuid,'N'||n,'PAID','RETAIL',1,'TRY','2026-11-01'
@@ -68,5 +69,20 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  assert.deepEqual((await service.list(undefined,undefined,undefined,{query:'SKU2'})).map(order=>order.order_number),['A']);
  assert.equal((await service.list(undefined,undefined,undefined,{query:'%'})).length,0);
  assert.ok(!(await service.list(undefined,undefined,undefined,{from:'2026-10-01',to:'2026-10-01'})).some(order=>order.order_number==='D'));
+ const preparationOrder='00000000-0000-4000-8000-000000000003';
+ await pg.query("UPDATE orders SET status='PROCESSING',checkout_id='prep-checkout' WHERE id=$1",[preparationOrder]);
+ await pg.exec("INSERT INTO payments(id,checkout_id,provider,status) VALUES('prep-payment','prep-checkout','bank_transfer','PENDING')");
+ const [unpaid]=await service.list(undefined,undefined,'PROCESSING');
+ assert.equal(unpaid.payment_status,'PENDING');
+ assert.equal(nextPreparationAction(unpaid),null);
+ await pg.exec("UPDATE payments SET provider='cash_on_delivery_card' WHERE id='prep-payment'");
+ assert.equal(nextPreparationAction((await service.list(undefined,undefined,'PROCESSING'))[0]),'prepare');
+ const pick=(await pg.query("INSERT INTO picking_sessions(order_id,status) VALUES($1,'COMPLETED') RETURNING id",[preparationOrder])).rows[0].id;
+ await pg.query("INSERT INTO packing_sessions(picking_session_id,packed_at) VALUES($1,now())",[pick]);
+ assert.equal(nextPreparationAction((await service.list(undefined,undefined,'PROCESSING'))[0]),null);
+ await pg.query("UPDATE packing_sessions SET package_barcode='TRX-PKG-1' WHERE picking_session_id=$1",[pick]);
+ const [packed]=await service.list(undefined,undefined,'PROCESSING');
+ assert.equal(nextPreparationAction(packed),'ship');
+ assert.equal(Number(packed.item_count),1);
  await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});

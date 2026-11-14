@@ -27,11 +27,17 @@ export class OrdersService {
     const normalized=channel?.trim().toUpperCase();
     const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'];
     if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı');
-    return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,(SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) AS payment_method,(SELECT ps.status FROM picking_sessions ps WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS preparation_status,(SELECT pk.packed_at FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS packed_at,o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
+    return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,
+      p.provider AS payment_method,p.status AS payment_status,ps.status AS preparation_status,pk.packed_at,pk.package_barcode,
+      o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('product_name',lines.product_name,'sku',lines.sku,'quantity',lines.quantity) ORDER BY lines.product_name,lines.sku)
         FROM (SELECT product_id,product_name,sku,SUM(quantity)::int AS quantity FROM order_items
           WHERE order_id=o.id GROUP BY product_id,product_name,sku) lines),'[]'::jsonb) AS products
-      FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN shipments s ON s.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id WHERE o.archived_at IS NULL AND ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) AND ($2::uuid IS NULL OR (o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)) AND ($3::text IS NULL OR (${orderQueueStatusSql})=$3)
+      FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN shipments s ON s.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id
+      LEFT JOIN payments p ON p.checkout_id=o.checkout_id
+      LEFT JOIN picking_sessions ps ON ps.order_id=o.id
+      LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
+      WHERE o.archived_at IS NULL AND ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) AND ($2::uuid IS NULL OR (o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)) AND ($3::text IS NULL OR (${orderQueueStatusSql})=$3)
         AND ($4::date IS NULL OR o.created_at >= ($4::date::timestamp AT TIME ZONE 'Europe/Istanbul'))
         AND ($5::date IS NULL OR o.created_at < (($5::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul'))
         AND ($6::text IS NULL OR
@@ -45,7 +51,7 @@ export class OrdersService {
           OR EXISTS (SELECT 1 FROM order_items item WHERE item.order_id=o.id
             AND strpos(lower(translate(concat_ws(' ',item.product_name,item.sku),'IİĞÜŞÖÇ','ıiğüşöç')),$6)>0)
         )
-      GROUP BY o.id,c.id,cs.id,oa.id,s.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
+      GROUP BY o.id,c.id,cs.id,oa.id,s.id,p.id,ps.id,pk.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
   }
   async queueCounts() {
     return (await this.db.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count

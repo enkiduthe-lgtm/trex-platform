@@ -12,7 +12,14 @@ import { orderPermissions } from '../../lib/order-permissions';
 import { needsTransferMatching, nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
-const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,sales_status:order.sales_status,shipment_status:order.fulfillment?.shipment_status,tracking_direction_code:order.fulfillment?.tracking_direction_code,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
+const preparationAction = (order:Detail) => nextPreparationAction({
+  status:order.status, sales_status:order.sales_status,
+  shipment_status:order.fulfillment?.shipment_status ?? order.shipments[0]?.status,
+  tracking_direction_code:order.fulfillment?.tracking_direction_code,
+  preparation_status:order.fulfillment?.picking_status, packed_at:order.fulfillment?.packed_at,
+  package_barcode:order.fulfillment?.package_barcode,
+  payment_method:order.payments[0]?.provider ?? null, payment_status:order.payments[0]?.status ?? null,
+});
 const editableAdminChannels = ["ADMIN_ORDER", "RETAIL", "WHOLESALE", "PUBLIC_WEB", "INSTAGRAM", "MARKETPLACE"];
 
 type Detail = {
@@ -459,7 +466,7 @@ export default function OrderDetail() {
                 <li id="barkod" className={data.fulfillment?.packed_at ? styles.flowDone : styles.flowCard}>
                   <span className={styles.flowNumber}>2</span>
                   <strong>Paketle Ve Barkod Oluştur</strong>
-                  <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : "Paket kapanınca barkod oluşur."}</p>
+                  <p>{data.fulfillment?.package_barcode ? `Paket barkodu: ${data.fulfillment.package_barcode}` : data.fulfillment?.packed_at ? "Paket kaydında barkod eksik. Kargo kaydı açılmadan önce paket kaydını kontrol edin." : "Paket kapanınca barkod oluşur."}</p>
                   {canPrepare && preparationAction(data) === 'pack' && <button type="button" disabled={operationBusy} onClick={() => void startPreparation()}>{operationBusy ? "Paket Hazırlanıyor…" : "Paketle Ve Barkod Oluştur"}</button>}
                   {!data.fulfillment?.packed_at && data.fulfillment?.picking_status!=='COMPLETED' && <button type="button" disabled>Önce Ürünleri Hazırlayın</button>}
                   {data.fulfillment?.package_barcode && <details><summary>Paket İç Etiketi</summary><button type="button" className={styles.secondaryAction} onClick={() => printPackageBarcode(data.fulfillment!.package_barcode!)}>Paket İç Etiketini Yazdır</button></details>}
@@ -468,7 +475,7 @@ export default function OrderDetail() {
                   <span className={styles.flowNumber}>3</span>
                   <strong>Aras Kaydı Ve Kargo Takibi</strong>
                   {automaticTracking&&data.shipments.some(s=>s.provider==='aras')&&<p>Gönderi Durumu Aras Kargo Üzerinden Otomatik Güncellenir.</p>}
-                  <p>{data.fulfillment?.tracking_direction_code === '3' ? 'Aras Kargo gönderiyi iade olarak bildirdi.' : data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Şube Kabulü Ve Takip Numarası Bekleniyor.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
+                  <p>{data.fulfillment?.tracking_direction_code === '3' ? 'Aras Kargo gönderiyi iade olarak bildirdi.' : data.fulfillment?.shipment_status === 'FAILED' ? 'Kargo kaydında sorun var. Gönderi durumunu kontrol edin.' : data.fulfillment?.tracking_number ? `Takip Kodu: ${data.fulfillment.tracking_number}` : data.fulfillment?.shipment_status ? 'Kargo Kaydı Mevcut. Şube Kabulü Ve Takip Numarası Bekleniyor.' : "Paket Hazırlandıktan Sonra Kargo Kaydını Oluşturun."}</p>
                   {canVerify && data.shipments.some(s=>s.provider==='aras') && <button type="button" className={styles.secondaryAction} disabled={operationBusy} onClick={()=>void verifyArasOnly()}>{operationBusy?'Aras Sorgulanıyor…':'Yalnız Aras Kaydını Sorgula'}</button>}
                   {canShip && preparationAction(data) === 'ship' && <button type="button" disabled={operationBusy} onClick={() => void createShipment()}>{operationBusy ? "Kargo Kaydı Açılıyor…" : "Kargo Kaydını Hazırla"}</button>}
                   {canShip && data.status === "PROCESSING" && data.fulfillment?.shipment_status === "CREATED" && arasCheck?.found === false && <button type="button" disabled={operationBusy} onClick={()=>void createShipment()}>{operationBusy?'Aras Kaydı Kontrol Ediliyor…':'Aras Kaydını Yeniden Gönder'}</button>}
