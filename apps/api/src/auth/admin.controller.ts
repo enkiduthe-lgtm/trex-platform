@@ -22,14 +22,21 @@ export class AdminController {
     if(req.user.role!=='SUPER_ADMIN')throw new ConflictException('Bu İşlemi Yalnız Müdür Yapabilir');
     if(!['staff','dealer'].includes(kind)||id===req.user.id)throw new BadRequestException('Bu Hesap Silinemez');
     return this.db.transaction(async client=>{
-      const result=kind==='staff'
-        ?await client.query("UPDATE users SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,is_active=false,updated_at=now() WHERE id=$1 AND role='ADMIN' RETURNING id",[id,dto.isActive])
-        :await client.query("UPDATE dealers SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,status='SUSPENDED' WHERE id=$1 RETURNING id",[id,dto.isActive]);
-      if(!result.rowCount)throw new BadRequestException('Hesap Bulunamadı');
-      if(kind==='staff')await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL',[id]);
-      else {
-        await client.query('UPDATE users SET is_active=false WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)',[id]);
-        await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1) AND revoked_at IS NULL',[id]);
+      const account = kind === 'staff'
+        ? await client.query<{ archived_at: Date | null }>("SELECT archived_at FROM users WHERE id=$1 AND role='ADMIN' FOR UPDATE", [id])
+        : await client.query<{ archived_at: Date | null }>('SELECT archived_at FROM dealers WHERE id=$1 FOR UPDATE', [id]);
+
+      const current = account.rows[0];
+      if (!current) throw new BadRequestException('Hesap Bulunamadı');
+      if (Boolean(current.archived_at) === !dto.isActive) return { id };
+
+      if (kind === 'staff') {
+        await client.query('UPDATE users SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,is_active=false,updated_at=now() WHERE id=$1', [id,dto.isActive]);
+        await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      } else {
+        await client.query("UPDATE dealers SET archived_at=CASE WHEN $2 THEN NULL ELSE now() END,status='SUSPENDED',updated_at=now() WHERE id=$1", [id,dto.isActive]);
+        await client.query("UPDATE users SET is_active=false,updated_at=now() WHERE role='DEALER' AND id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [id]);
+        await client.query("UPDATE sessions SET revoked_at=now() WHERE revoked_at IS NULL AND user_id IN (SELECT u.id FROM users u JOIN dealer_user_accounts a ON a.user_id=u.id WHERE a.dealer_id=$1 AND u.role='DEALER')", [id]);
       }
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[req.user.id,dto.isActive?'account.restored':'account.archived',kind,id]);
       return {id};
@@ -59,8 +66,9 @@ export class AdminController {
   @Patch('staff/:id/role') @RequireRoles(Roles.SUPER_ADMIN) async changeStaffRole(@Param('id') id: string, @Body() dto: ChangeStaffRoleDto, @Req() req: UserRequest) {
     if (id === req.user.id) throw new ConflictException('Kendi yetkinizi bu ekrandan değiştiremezsiniz');
     return this.db.transaction(async client => {
-      await client.query("SELECT id FROM users WHERE role='SUPER_ADMIN' ORDER BY id FOR UPDATE");
-      const changed = await client.query<{ id: string; role: string }>('UPDATE users SET role=$1,updated_at=now() WHERE id=$2 AND role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id,role', [dto.role, id]);
+      const directors = await client.query<{ id: string }>("SELECT id FROM users WHERE role='SUPER_ADMIN' AND is_active AND archived_at IS NULL ORDER BY id FOR UPDATE");
+      if (!directors.rows.some(director => director.id === req.user.id)) throw new ConflictException('Yalnız aktif Müdür yetki değiştirebilir');
+      const changed = await client.query<{ id: string; role: string }>('UPDATE users SET role=$1,updated_at=now() WHERE id=$2 AND archived_at IS NULL AND role IN (\'SUPER_ADMIN\',\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id,role', [dto.role, id]);
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
       await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)', [req.user.id, 'staff.role.changed', 'user', id, JSON.stringify({ role: dto.role })]);
@@ -70,7 +78,7 @@ export class AdminController {
   @Post('staff/:id/reset-password') @RequireRoles(Roles.SUPER_ADMIN) async resetStaffPassword(@Param('id') id: string, @Body() dto: ResetStaffPasswordDto, @Req() req: UserRequest) {
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     return this.db.transaction(async client => {
-      const changed = await client.query('UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [passwordHash, id]);
+      const changed = await client.query('UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND archived_at IS NULL AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [passwordHash, id]);
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
       await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [req.user.id, 'staff.password.reset', 'user', id]);

@@ -56,7 +56,18 @@ export class AuthService {
       return { message: 'Yeni Şifreniz Oluşturuldu. Yeni Şifrenizle Giriş Yapabilirsiniz.' };
     });
   }
-  private async createSession(user: Pick<UserRow, 'id' | 'email' | 'role'>, metadata: { ip?: string; userAgent?: string }) { const refreshToken = randomBytes(48).toString('base64url'); const expiresAt = this.expiry(); const session = await this.db.query<{ id: string }>('INSERT INTO sessions (user_id,token_hash,expires_at,ip,user_agent) VALUES($1,$2,$3,$4,$5) RETURNING id', [user.id,this.hashToken(refreshToken),expiresAt,metadata.ip ?? null,metadata.userAgent ?? null]); return { accessToken: await this.accessToken(user, session.rows[0].id), refreshToken, expiresAt }; }
+  private async createSession(user: UserRow, metadata: { ip?: string; userAgent?: string }) {
+    const refreshToken = randomBytes(48).toString('base64url');
+    const expiresAt = this.expiry();
+    const session = await this.db.query<{ id: string }>(`WITH account AS (
+      SELECT id FROM users WHERE id=$1 AND is_active AND role=$6 AND password_hash=$7
+        AND mfa_secret_ciphertext IS NOT DISTINCT FROM $8 AND (mfa_enabled_at IS NOT NULL)=$9 FOR UPDATE
+    ) INSERT INTO sessions (user_id,token_hash,expires_at,ip,user_agent)
+      SELECT id,$2,$3,$4,$5 FROM account RETURNING id`, [user.id, this.hashToken(refreshToken), expiresAt,
+      metadata.ip ?? null, metadata.userAgent ?? null, user.role, user.password_hash, user.mfa_secret_ciphertext, Boolean(user.mfa_enabled_at)]);
+    if (!session.rows[0]) throw new UnauthorizedException('Invalid credentials');
+    return { accessToken: await this.accessToken(user, session.rows[0].id), refreshToken, expiresAt };
+  }
   async rotate(refreshToken: string, metadata: { ip?: string; userAgent?: string }) {
     const hash = this.hashToken(refreshToken);
     return this.db.transaction(async (client: PoolClient) => {

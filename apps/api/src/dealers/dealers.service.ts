@@ -102,14 +102,12 @@ export class DealersService {
   async setLevel(dealerId:string,levelId:string|null|undefined,actor:RequestUser) { if(levelId) { const level=await this.db.query('SELECT 1 FROM dealer_levels WHERE id=$1 AND is_active=true',[levelId]); if(!level.rowCount) throw new NotFoundException('Aktif bayi seviyesi bulunamadı'); } const result=await this.db.query<{id:string}>('UPDATE dealers SET dealer_level_id=$1,price_group_id=NULL,updated_at=now() WHERE id=$2 RETURNING id',[levelId??null,dealerId]); if(!result.rowCount) throw new NotFoundException('Bayi bulunamadı'); await this.audit(actor,'dealer.level_changed',dealerId); return result.rows[0]; }
   async updateStatus(dealerId: string, status: DealerStatus, actor: RequestUser) {
     const changed = await this.db.transaction(async client => {
-      if (status === 'ACTIVE') {
-        
-        // IBAN bilgisi isteğe bağlıdır; bayi onayı ve sipariş için engel olmaz.
-      }
       const updated = await client.query<{ id: string; status: string }>('UPDATE dealers SET status=$1,updated_at=now() WHERE id=$2 AND archived_at IS NULL RETURNING id,status', [status, dealerId]);
-      if (!updated.rowCount) throw new NotFoundException('Dealer not found');
-      if (status === 'ACTIVE') await client.query("UPDATE users SET is_active=true,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);
-      if (status === 'SUSPENDED' || status === 'REJECTED') await client.query("UPDATE users SET is_active=false,updated_at=now() WHERE id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId]);
+      if (!updated.rowCount) throw new NotFoundException('Bayi bulunamadı');
+      await client.query("UPDATE users SET is_active=$2,updated_at=now() WHERE role='DEALER' AND id IN (SELECT user_id FROM dealer_user_accounts WHERE dealer_id=$1)", [dealerId, status === 'ACTIVE']);
+      if (status !== 'ACTIVE') {
+        await client.query("UPDATE sessions SET revoked_at=now() WHERE revoked_at IS NULL AND user_id IN (SELECT u.id FROM users u JOIN dealer_user_accounts a ON a.user_id=u.id WHERE a.dealer_id=$1 AND u.role='DEALER')", [dealerId]);
+      }
       await client.query('INSERT INTO audit_logs (actor_user_id,action,entity_type,entity_id) VALUES ($1,$2,$3,$4)', [actor.id, `dealer.status.${status.toLowerCase()}`, 'dealer', dealerId]);
       return updated.rows[0];
     });
