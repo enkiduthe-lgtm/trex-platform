@@ -6,6 +6,7 @@ import { MockPaymentProvider } from './mock-payment.provider';
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 import { PaytrCallbackDto } from './dto/paytr-callback.dto';
 import { PaytrPaymentProvider } from './paytr-payment.provider';
+import { nextOrderNumber } from '../orders/order-number';
 
 @Injectable()
 export class PaymentsService {
@@ -95,9 +96,9 @@ export class PaymentsService {
         const stock=await client.query<{physical_quantity:number;reserved_quantity:number}>('SELECT physical_quantity,reserved_quantity FROM inventory WHERE product_id=$1 AND warehouse_id=$2 FOR UPDATE',[product,warehouseId]);
         if(!stock.rows[0] || stock.rows[0].reserved_quantity<quantity || stock.rows[0].physical_quantity<stock.rows[0].reserved_quantity) throw new ConflictException('Ayrılan stok doğrulanamadı');
       }
-      const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
+      const orderNumber = await nextOrderNumber(client);
       const orderStatus = options.orderStatus ?? 'PAID';
-      const order = await client.query<{ id: string; order_number: string }>('INSERT INTO orders (order_number,checkout_id,total_amount,currency,status) VALUES ($1,$2,$3,$4,$5) RETURNING id,order_number', [sequence.rows[0].value, payment.checkout_id, checkout.rows[0].total_amount, checkout.rows[0].currency, orderStatus]);
+      const order = await client.query<{ id: string; order_number: string }>('INSERT INTO orders (order_number,checkout_id,total_amount,currency,status) VALUES ($1,$2,$3,$4,$5) RETURNING id,order_number', [orderNumber, payment.checkout_id, checkout.rows[0].total_amount, checkout.rows[0].currency, orderStatus]);
       if (checkout.rows[0].coupon_id) {
         const coupon = await client.query<{usage_limit:number|null;used_count:number}>('SELECT usage_limit,used_count FROM coupons WHERE id=$1 FOR UPDATE', [checkout.rows[0].coupon_id]);
         if (!coupon.rows[0] || (coupon.rows[0].usage_limit !== null && coupon.rows[0].used_count >= coupon.rows[0].usage_limit)) throw new ConflictException('Coupon is no longer available');

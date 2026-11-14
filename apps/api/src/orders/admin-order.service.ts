@@ -6,6 +6,7 @@ import { CreateAdminOrderDto } from './dto/create-admin-order.dto';
 import { UpdateAdminOrderPricesDto } from './dto/update-admin-order-prices.dto';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
+import { nextOrderNumber } from './order-number';
 import { allocatePack, cents, codFee, formatCents } from './order-pricing';
 import { dealerWallet,moneyCents } from '../commissions/dealer-wallet';
 import { editableAdminChannels, financialEditStatuses, hasCommittedInvoice, manualPaymentProviders, reportOrderStatus } from './report-order-status';
@@ -154,8 +155,8 @@ export class AdminOrderService {
       const cart = await client.query<{ id: string }>("INSERT INTO carts(customer_id,session_key_hash,currency,expires_at) VALUES ($1,$2,$3,now()+interval '30 days') RETURNING id", [dto.customerId ?? null,createHash('sha256').update(randomBytes(48)).digest('hex'),currency]);
       const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions(cart_id,status,total_amount,contact_email,contact_name,currency,expires_at,completed_at) VALUES ($1,'COMPLETED',$2,$3,$4,$5,now()+interval '30 days',now()) RETURNING id", [cart.rows[0].id,total,dto.contactEmail.trim().toLowerCase(),dto.recipientName.trim(),currency]);
       const checkoutId = checkout.rows[0].id;
-      const sequence = await client.query<{ value: string }>("SELECT to_char(now(),'YYYYMMDD') || '-' || lpad(nextval('order_number_seq')::text,6,'0') AS value");
-      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,$7::sales_channel_code) RETURNING id,order_number,status,total_amount,currency", [sequence.rows[0].value,checkoutId,dealerId ? null : (dto.customerId ?? null),total,orderStatus,currency,salesChannel]);
+      const orderNumber = await nextOrderNumber(client);
+      const order = await client.query<{ id: string; order_number: string; status: string; total_amount: string; currency: string }>("INSERT INTO orders(order_number,checkout_id,customer_id,status,total_amount,currency,sales_channel) VALUES ($1,$2,$3,$5,$4,$6,$7::sales_channel_code) RETURNING id,order_number,status,total_amount,currency", [orderNumber,checkoutId,dealerId ? null : (dto.customerId ?? null),total,orderStatus,currency,salesChannel]);
       const orderId = order.rows[0].id;
       await client.query('UPDATE orders SET cod_service_fee=$1 WHERE id=$2',[formatCents(serviceFee),orderId]);
       if(isCommission)await client.query('INSERT INTO dealer_commission_spends(dealer_id,order_id,amount,created_by) VALUES($1,$2,$3,$4)',[dealerId,orderId,total,actor.id]);

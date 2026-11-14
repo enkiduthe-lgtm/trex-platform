@@ -127,6 +127,13 @@ async function main(){
  `);
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/069_staff_channel_pools.sql'),'utf8'));
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/074_cod_fee_and_dealer_packs.sql'),'utf8'));
+ const {nextOrderNumber}=load(path.join(root,'apps/api/src/orders/order-number.ts'));
+ testNow='2026-11-05T22:00:00Z';
+ await pg.exec('ALTER SEQUENCE order_number_seq RESTART WITH 999999');
+ assert.equal(await nextOrderNumber(db),'20261106-999999');
+ assert.equal(await nextOrderNumber(db),'20261106-1000000');
+ testNow='2026-11-05T12:00:00+03:00';
+ await pg.exec('ALTER SEQUENCE order_number_seq RESTART WITH 1');
  const level=uuid(40),warehouse=uuid(41);await db.query('UPDATE dealers SET dealer_level_id=$1 WHERE id=$2',[level,dealer]);
  await db.query("INSERT INTO products VALUES($1,'Test Product','SKU','ACTIVE')",[product]);
  await db.query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency,starts_at) VALUES($1,'DEALER_LEVEL',$2,500,'TRY',now())",[product,level]);
