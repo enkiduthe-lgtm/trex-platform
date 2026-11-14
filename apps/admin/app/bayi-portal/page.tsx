@@ -20,7 +20,7 @@ type Shipment = { id: string; order_number: string; provider: string; tracking_n
 type Item = { packSize?:number; packAmount?:string; baseAmount:string; productId: string; quantity: number; unitAmount: string; currency: string };
 const tabs = ['Yeni Sipariş', 'Ürünler', 'Siparişlerim', 'Kargo Takibi', 'Primlerim', 'Cari Hesabım'] as const;
 type Tab = typeof tabs[number];
-const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi', PENDING: 'Bekliyor', CONFIRMED: 'Kesinleşti', AVAILABLE: 'Kullanılabilir', CREATED: 'Kargo Kaydı Oluşturuldu', IN_TRANSIT: 'Kargoda', FAILED: 'İşlem Başarısız' };
+const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', REGISTERED: 'Kargo Kaydı Açıldı', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CARRIER_RETURN: 'Kargo İadesi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi', PENDING: 'Bekliyor', CONFIRMED: 'Kesinleşti', AVAILABLE: 'Kullanılabilir', CREATED: 'Kargo Kaydı Oluşturuldu', IN_TRANSIT: 'Kargoda', FAILED: 'İşlem Başarısız' };
 const money = (value: string, currency = 'TRY') => Number(value).toLocaleString('tr-TR', { style: 'currency', currency });
 function refundSummary(order: Order) {
   if (!order.refunded_amount || Number(order.refunded_amount) <= 0) return null;

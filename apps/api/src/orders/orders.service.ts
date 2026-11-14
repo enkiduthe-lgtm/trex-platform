@@ -29,6 +29,7 @@ export class OrdersService {
     if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı');
     return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,
       p.provider AS payment_method,p.status AS payment_status,ps.status AS preparation_status,pk.packed_at,pk.package_barcode,
+      dealer.id AS dealer_id,COALESCE(NULLIF(dealer.company_name,''),dealer.contact_name) AS dealer_name,
       o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('product_name',lines.product_name,'sku',lines.sku,'quantity',lines.quantity) ORDER BY lines.product_name,lines.sku)
         FROM (SELECT product_id,product_name,sku,SUM(quantity)::int AS quantity FROM order_items
@@ -37,13 +38,19 @@ export class OrdersService {
       LEFT JOIN payments p ON p.checkout_id=o.checkout_id
       LEFT JOIN picking_sessions ps ON ps.order_id=o.id
       LEFT JOIN packing_sessions pk ON pk.picking_session_id=ps.id
+      LEFT JOIN LATERAL (
+        SELECT metadata->>'dealerId' AS dealer_id FROM audit_logs
+        WHERE o.sales_channel='DEALER_PORTAL' AND entity_type='order' AND action='order.dealer.created' AND entity_id=o.id::text
+        ORDER BY created_at,id LIMIT 1
+      ) origin ON true
+      LEFT JOIN dealers dealer ON dealer.id::text=lower(origin.dealer_id)
       WHERE o.archived_at IS NULL AND ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) AND ($2::uuid IS NULL OR (o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)) AND ($3::text IS NULL OR (${orderQueueStatusSql})=$3)
         AND ($4::date IS NULL OR o.created_at >= ($4::date::timestamp AT TIME ZONE 'Europe/Istanbul'))
         AND ($5::date IS NULL OR o.created_at < (($5::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul'))
         AND ($6::text IS NULL OR
           strpos(lower(translate(concat_ws(' ',o.order_number,
             COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name),
-            COALESCE(c.email,cs.contact_email),o.sales_channel,o.marketplace_name,
+            COALESCE(c.email,cs.contact_email),o.sales_channel,o.marketplace_name,dealer.company_name,dealer.contact_name,dealer.code,
             CASE o.sales_channel WHEN 'RETAIL' THEN 'Perakende' WHEN 'WHOLESALE' THEN 'Toptan'
               WHEN 'PUBLIC_WEB' THEN 'Site' WHEN 'INSTAGRAM' THEN 'Instagram' WHEN 'DEALER_PORTAL' THEN 'Sistem Bayi'
               WHEN 'MARKETPLACE' THEN 'Pazaryeri' WHEN 'ADMIN_ORDER' THEN 'Yönetici Siparişi' END
@@ -51,7 +58,7 @@ export class OrdersService {
           OR EXISTS (SELECT 1 FROM order_items item WHERE item.order_id=o.id
             AND strpos(lower(translate(concat_ws(' ',item.product_name,item.sku),'IİĞÜŞÖÇ','ıiğüşöç')),$6)>0)
         )
-      GROUP BY o.id,c.id,cs.id,oa.id,s.id,p.id,ps.id,pk.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
+      GROUP BY o.id,c.id,cs.id,oa.id,s.id,p.id,ps.id,pk.id,dealer.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
   }
   async queueCounts() {
     return (await this.db.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count

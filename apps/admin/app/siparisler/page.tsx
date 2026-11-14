@@ -37,6 +37,8 @@ type Order = {
   payment_method?: string | null;
   payment_status?: string | null;
   sales_channel?: string;
+  dealer_id?: string | null;
+  dealer_name?: string | null;
   marketplace_name?: string | null;
   shipping_provider?: string | null;
   tracking_number?: string | null;
@@ -106,7 +108,7 @@ function OrdersContent() {
   const [isDirector,setIsDirector]=useState(false);
   const [permissions, setPermissions] = useState(() => orderPermissions(''));
   const {
-    create: canCreate, edit: canEdit, prepare: canPrepare, ship: canShip,
+    create: canCreate, edit: canEdit, prepare: canPrepare, ship: canShip, viewDealer: canViewDealer,
     verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer, viewCustomer: canViewCustomer,
   } = permissions;
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -511,7 +513,9 @@ function OrdersContent() {
                   </td>
                   <td>
                     <b>{order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—")}</b>
-                    <small>{order.sales_channel ?? "Kanal belirtilmedi"}</small>
+                    {order.dealer_name && <small>{canViewDealer && order.dealer_id
+                      ? <Link href={`/bayiler/${order.dealer_id}`}>{order.dealer_name}</Link>
+                      : order.dealer_name}</small>}
                   </td>
                   <td>
                     <Link href={`/siparisler/${order.id}`}>

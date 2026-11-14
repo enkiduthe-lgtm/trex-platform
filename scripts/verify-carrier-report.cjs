@@ -47,6 +47,8 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
    ALTER TABLE checkout_sessions ADD PRIMARY KEY(id);
    ALTER TABLE order_addresses ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid();
    CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
+   CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),entity_type text,entity_id text,action text,metadata jsonb,created_at timestamptz DEFAULT now());
+   CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,contact_name text,code text);
    CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid UNIQUE,status text,created_at timestamptz);
    CREATE TABLE packing_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),picking_session_id uuid UNIQUE,packed_at timestamptz,package_barcode text);
    UPDATE shipments SET tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001';
@@ -84,5 +86,14 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const [packed]=await service.list(undefined,undefined,'PROCESSING');
  assert.equal(nextPreparationAction(packed),'ship');
  assert.equal(Number(packed.item_count),1);
+ await pg.query("UPDATE orders SET sales_channel='DEALER_PORTAL' WHERE id=$1",[preparationOrder]);
+ const dealer='00000000-0000-4000-8000-000000000399';
+ await pg.query("INSERT INTO dealers VALUES($1,'İnci Bayi','İnci','INC-01')",[dealer]);
+ await pg.query(`INSERT INTO audit_logs(entity_type,entity_id,action,metadata)
+   VALUES('order',$1,'order.dealer.created',jsonb_build_object('dealerId',$2::text)),
+         ('order',$1,'order.dealer.created',jsonb_build_object('dealerId',$2::text))`,[preparationOrder,dealer]);
+ const dealerOrders=await service.list('DEALER_PORTAL',undefined,'PROCESSING',{query:'inci bayi'});
+ assert.deepEqual(dealerOrders.map(row=>row.dealer_id),[dealer]);
+ assert.equal(Number(dealerOrders[0].item_count),1);
  await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});

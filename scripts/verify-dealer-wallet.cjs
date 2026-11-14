@@ -92,7 +92,8 @@ async function main(){
  CREATE TABLE payment_attempts(payment_id uuid,provider_request_id text,status text DEFAULT 'PENDING');
  CREATE TABLE order_status_history(order_id uuid,status text,actor_user_id uuid);
  CREATE TABLE idempotency_records(key text PRIMARY KEY,request_hash text,resource_type text,resource_id uuid,expires_at timestamptz);
- CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status text);
+ CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,warehouse_id uuid,status text);
+ CREATE TABLE picking_items(picking_session_id uuid,order_item_id uuid,expected_quantity integer);
  CREATE TABLE packing_sessions(id uuid PRIMARY KEY,picking_session_id uuid,packed_at timestamptz);
  ALTER TABLE finance_transactions ADD COLUMN approved_at timestamptz;
  `);
@@ -183,6 +184,17 @@ async function main(){
  assert.equal(listed.refunded_amount,'300.00');
  assert.equal(listed.net_amount,'700.00');
  assert.equal(listed.can_cancel,false);
+ await pg.exec('ALTER TABLE shipments ADD COLUMN tracking_number text, ADD COLUMN created_at timestamptz DEFAULT now(), ADD COLUMN tracking_checked_at timestamptz');
+ const dealerCod=await adminOrders.create({...validBody,paymentMethod:'COD_CARD'},uuid(73),actor,dealer);
+ await db.query("INSERT INTO shipments(order_id,status,provider,tracking_number) VALUES($1,'CREATED','aras',$2)",[dealerCod.id,dealerCod.order_number]);
+ const dealerOrders=()=>dealerPortal.listOrders({user:{id:user}});
+ const dealerShipments=()=>dealerPortal.shipments({user:{id:user}});
+ assert.equal((await dealerOrders()).find(row=>row.id===dealerCod.id).status,'REGISTERED');
+ assert.equal((await dealerShipments()).find(row=>row.order_number===dealerCod.order_number).tracking_number,null);
+ await db.query("UPDATE shipments SET status='FAILED',tracking_direction_code='3',tracking_number='6521575476166' WHERE order_id=$1",[dealerCod.id]);
+ assert.equal((await dealerOrders()).find(row=>row.id===dealerCod.id).status,'CARRIER_RETURN');
+ assert.equal((await dealerShipments()).find(row=>row.order_number===dealerCod.order_number).status,'CARRIER_RETURN');
+ assert.deepEqual(await dealerPortal.shipments({user:{id:uuid(74)}}),[]);
  const openOrder=await adminOrders.create({...validBody,paymentMethod:'TRANSFER'},uuid(69),actor,dealer);
  const orderFlags=async()=>new Map((await dealerPortal.listOrders({user:{id:user}})).map(row=>[row.id,row.can_cancel]));
  assert.equal((await orderFlags()).get(openOrder.id),true);
