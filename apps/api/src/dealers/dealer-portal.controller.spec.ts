@@ -9,7 +9,7 @@ describe('DealerPortalController', () => {
     await expect(controller.orderDetail('other-order', request)).rejects.toThrow('Sipariş Bulunamadı');
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][1]).toEqual(['dealer-user', 'other-order']);
-    expect(query.mock.calls[0][0]).toContain('al.actor_user_id=$1');
+    expect(query.mock.calls[0][0]).toContain('origin.dealer_id=portal.dealer_id::text');
   });
 
   it('returns the saved order prices and delivery address for an owned order', async () => {
@@ -52,11 +52,11 @@ describe('DealerPortalController', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('WHERE dua.user_id=$1'), ['dealer-user']);
   });
 
-  it('restricts shipment records to orders created by the authenticated dealer', async () => {
+  it('restricts shipment records to the authenticated dealer account', async () => {
     const query = jest.fn().mockResolvedValue({ rows: [] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
     await expect(controller.shipments(request)).resolves.toEqual([]);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('al.actor_user_id=$1'), ['dealer-user']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('origin.dealer_id=portal.dealer_id::text'), ['dealer-user']);
     expect(query.mock.calls[0][0]).toContain('al.entity_id=o.id::text');
   });
 
@@ -89,10 +89,13 @@ describe('DealerPortalController', () => {
     await expect(controller.acceptAgreement(request)).rejects.toThrow('Aktif Bir Bayi Hesabı');
   });
 
-  it('counts orders written by the current dealer under both portal audit actions', async () => {
-    const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ order_count: '2' }] });
+  it('counts orders for the current dealer account and uses wallet rules for its balance', async () => {
+    const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'dealer', order_count: '2' }] })
+      .mockResolvedValueOnce({ rows: [{ available: '12.34' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
-    await expect(controller.summary(request)).resolves.toEqual({ order_count: '2' });
+    await expect(controller.summary(request)).resolves.toEqual({ order_count: '2', available_commission: '12.34' });
+    expect(query.mock.calls[0][0]).toContain('origin.dealer_id=portal.dealer_id::text');
+    expect(query.mock.calls[1][1]).toEqual(['dealer', 'TRY', null]);
     expect(query.mock.calls[0][0]).toContain("'order.dealer.created','order.admin.created'");
   });
 

@@ -14,6 +14,24 @@ import { dealerWallet } from '../commissions/dealer-wallet';
 
 type UserRequest = Request & { user: RequestUser };
 
+const dealerOwnsOrder = `EXISTS (
+  SELECT 1 FROM dealer_user_accounts portal
+  JOIN dealers dealer ON dealer.id=portal.dealer_id
+  LEFT JOIN LATERAL (
+    SELECT NULLIF(lower(metadata->>'dealerId'),'') AS dealer_id FROM audit_logs
+    WHERE entity_id=o.id::text AND entity_type='order' AND action='order.dealer.created'
+    ORDER BY created_at,id LIMIT 1
+  ) origin ON true
+  WHERE portal.user_id=$1 AND dealer.archived_at IS NULL AND dealer.status='ACTIVE'
+    AND (
+      origin.dealer_id=portal.dealer_id::text
+      OR (origin.dealer_id IS NULL AND o.sales_channel='DEALER_PORTAL' AND EXISTS (
+        SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.entity_type='order' AND al.actor_user_id=$1
+          AND al.action IN ('order.dealer.created','order.admin.created') AND NULLIF(al.metadata->>'dealerId','') IS NULL
+      ))
+    )
+)`;
+
 @Controller('dealer-portal')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @RequireRoles(Roles.DEALER)
@@ -22,9 +40,19 @@ export class DealerPortalController {
 
   @Get('summary')
   async summary(@Req() req: UserRequest) {
-    const result = await this.db.query<{ company_name: string; code: string; status: string; dealer_balance: string; available_commission: string; order_count: string; agreement_accepted_at: string | null; has_primary_iban: boolean }>("SELECT d.company_name,d.code,d.status,dua.agreement_accepted_at,EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) AS has_primary_iban,COALESCE((SELECT SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END) FROM dealer_ledger_entries WHERE dealer_id=d.id AND currency='TRY'),0)::text AS dealer_balance,COALESCE((SELECT SUM(amount) FROM commission_entries WHERE dealer_id=d.id AND status IN ('CONFIRMED','AVAILABLE')),0)::text AS available_commission,(SELECT count(DISTINCT al.entity_id) FROM audit_logs al JOIN orders o ON o.id::text=al.entity_id WHERE o.archived_at IS NULL AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')::text AS order_count FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1", [req.user.id]);
+    const result = await this.db.query<{
+      id: string; company_name: string; code: string; status: string; agreement_accepted_at: string | null;
+      has_primary_iban: boolean; dealer_balance: string; order_count: string;
+    }>(`SELECT d.id,d.company_name,d.code,d.status,dua.agreement_accepted_at,
+      EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) AS has_primary_iban,
+      COALESCE((SELECT SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END)
+        FROM dealer_ledger_entries WHERE dealer_id=d.id AND currency='TRY'),0)::text AS dealer_balance,
+      (SELECT count(*) FROM orders o WHERE o.archived_at IS NULL AND ${dealerOwnsOrder})::text AS order_count
+      FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id
+      WHERE dua.user_id=$1 AND d.status='ACTIVE' AND d.archived_at IS NULL`, [req.user.id]);
     if (!result.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
-    return result.rows[0];
+    const { id, ...summary } = result.rows[0];
+    return { ...summary, available_commission: (await dealerWallet(this.db,id)).available };
   }
 
   @Get('orders')
@@ -33,9 +61,9 @@ export class DealerPortalController {
       (${canCancelOrder} AND EXISTS (SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order'
         AND a.actor_user_id=$1 AND a.action='order.dealer.created')) AS can_cancel,
       ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at,
-      COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at
+      GREATEST(o.created_at,s.updated_at,(SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id)) AS status_updated_at
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
-      WHERE o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')
+      WHERE o.archived_at IS NULL AND ${dealerOwnsOrder}
       ORDER BY o.created_at DESC,o.id`, [req.user.id]);
     return result.rows;
   }
@@ -51,8 +79,7 @@ export class DealerPortalController {
     const order = await this.db.query(`SELECT o.id,o.order_number,${orderQueueStatusSql} AS status,o.total_amount,
       ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
-      WHERE o.id=$2 AND o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text
-        AND al.entity_type='order' AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))`, [req.user.id,id]);
+      WHERE o.id=$2 AND o.archived_at IS NULL AND ${dealerOwnsOrder}`, [req.user.id,id]);
     if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');
     const [items,address] = await Promise.all([
       this.db.query('SELECT id,product_name,sku,quantity,unit_amount,(quantity*unit_amount)::text AS line_total FROM order_items WHERE order_id=$1 ORDER BY id', [id]),
@@ -83,8 +110,7 @@ export class DealerPortalController {
       CASE WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN' ELSE s.status::text END AS status,
       s.created_at,s.tracking_checked_at
       FROM shipments s JOIN orders o ON o.id=s.order_id
-      WHERE o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.entity_type='order'
-        AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))
+      WHERE o.archived_at IS NULL AND ${dealerOwnsOrder}
       ORDER BY o.created_at DESC,s.id`, [req.user.id])).rows;
   }
 
@@ -97,14 +123,14 @@ export class DealerPortalController {
 
   @Post('orders')
   async createOrder(@Body() dto: CreateAdminOrderDto, @Headers('idempotency-key') key: string, @Req() req: UserRequest) {
-    const account = await this.db.query<{ dealer_id:string }>("SELECT dua.dealer_id FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1 AND d.status='ACTIVE' AND dua.agreement_accepted_at IS NOT NULL", [req.user.id]);
+    const account = await this.db.query<{ dealer_id:string }>("SELECT dua.dealer_id FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id WHERE dua.user_id=$1 AND d.status='ACTIVE' AND dua.agreement_accepted_at IS NOT NULL AND d.archived_at IS NULL", [req.user.id]);
     if (!account.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
     return this.adminOrders.create({ ...dto, salesChannel: 'DEALER_PORTAL', customerId: undefined, priceChangeReason: dto.priceChangeReason?.trim() || 'Bayi portalı fiyatı' }, key, req.user, account.rows[0].dealer_id);
   }
 
   @Post('agreement/accept')
   async acceptAgreement(@Req() req: UserRequest) {
-    const result = await this.db.query("UPDATE dealer_user_accounts dua SET agreement_accepted_at=now() FROM dealers d WHERE dua.dealer_id=d.id AND dua.user_id=$1 AND d.status='ACTIVE' RETURNING dua.dealer_id", [req.user.id]);
+    const result = await this.db.query("UPDATE dealer_user_accounts dua SET agreement_accepted_at=COALESCE(dua.agreement_accepted_at,now()) FROM dealers d WHERE dua.dealer_id=d.id AND dua.user_id=$1 AND d.status='ACTIVE' AND d.archived_at IS NULL RETURNING dua.dealer_id", [req.user.id]);
     if (!result.rowCount) throw new ConflictException('Sözleşme Onayı İçin Aktif Bir Bayi Hesabı Gereklidir');
     return { accepted: true };
   }

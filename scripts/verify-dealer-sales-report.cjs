@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error};if(name==='../orders/report-period'||name==='../orders/report-order-status'||name==='./report-totals'||name==='./finance-report')return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
+function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common'){const decorator=()=>()=>{};return {Injectable:decorator,Controller:decorator,UseGuards:decorator,Get:decorator,Param:decorator,Req:decorator,Query:decorator,Post:decorator,Body:decorator,Headers:decorator,ParseUUIDPipe:class{},BadRequestException:Error,ConflictException:Error,NotFoundException:Error};}if(name==='../auth/roles.decorator')return {RequireRoles:()=>()=>{}};if(name==='../auth/roles')return {Roles:{DEALER:'DEALER'}};if(name==='../orders/report-period'||name==='../orders/report-order-status'||name==='./report-totals'||name==='./finance-report')return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
  const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
  const {DealersService}=load(path.join(root,'apps/api/src/dealers/dealers.service.ts')),service=new DealersService(db,{}),{groupDealerSales}=load(path.join(root,'apps/admin/app/lib/dealer-sales-report.ts'));
@@ -76,6 +76,34 @@ async function main(){
   await db.query('INSERT INTO dealer_prim_refunds VALUES($1,$2,$3,3,now())',[id(860+dealer),id(dealer),id(dealer===10?20:23)]);
  }
  const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,2);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');assert.equal(detail.requests.length,1);assert.equal(detail.requests[0].reference_number,'REF');assert.equal(detail.deductions.length,1);assert.equal(detail.spends.length,2);assert.equal(detail.spends.filter(x=>x.kind==='REFUND').length,1);await assert.rejects(()=>service.detail(id(999)));
- await pg.close();console.log('Dealer sales report checks passed: duplicate-audit and multi-line order totals, currency/status grouping, historical level snapshot, missing level disclosure, passive dealers, real payment state, SKU/literal search, Istanbul dates and invalid filters.');
+ await pg.exec(`ALTER TABLE dealers ADD COLUMN archived_at timestamptz;
+   ALTER TABLE audit_logs ADD COLUMN actor_user_id uuid;
+   ALTER TABLE orders ADD COLUMN sales_channel text DEFAULT 'DEALER_PORTAL';
+   ALTER TABLE shipments ADD COLUMN id uuid DEFAULT gen_random_uuid(),ADD COLUMN provider text DEFAULT 'aras',ADD COLUMN tracking_number text,ADD COLUMN created_at timestamptz,ADD COLUMN updated_at timestamptz,ADD COLUMN tracking_checked_at timestamptz;
+   ALTER TABLE orders ADD COLUMN cod_service_fee numeric DEFAULT 0;
+   ALTER TABLE payments ADD COLUMN provider text;
+   CREATE TABLE dealer_user_accounts(dealer_id uuid,user_id uuid);
+   CREATE TABLE order_status_history(order_id uuid,created_at timestamptz);
+   CREATE TABLE order_addresses(order_id uuid,recipient_name text,phone text,city text,district text,address_line text,postal_code text);
+   CREATE TABLE packing_sessions(picking_session_id uuid,packed_at timestamptz);
+   CREATE TABLE picking_sessions(id uuid,order_id uuid);
+   CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
+   INSERT INTO dealer_user_accounts VALUES('${id(10)}','${id(700)}'),('${id(11)}','${id(701)}');
+   UPDATE audit_logs SET actor_user_id='${id(799)}' WHERE entity_id='${id(20)}';
+   UPDATE audit_logs SET actor_user_id='${id(700)}' WHERE entity_id='${id(23)}';
+   INSERT INTO audit_logs(id,entity_id,entity_type,action,metadata,created_at,actor_user_id) VALUES
+     ('${id(777)}','${id(23)}','order','order.dealer.created','{"dealerId":"${id(10)}"}',now()+interval '1 minute','${id(700)}');
+   UPDATE shipments SET updated_at='${at}' WHERE order_id='${id(20)}';`);
+ const {DealerPortalController}=load(path.join(root,'apps/api/src/dealers/dealer-portal.controller.ts')),portal=new DealerPortalController(db,{},{});
+ const req={user:{id:id(700)}};
+ const portalOrders=await portal.listOrders(req);
+ assert.equal(portalOrders.length,3);
+ assert.equal(portalOrders.find(row=>row.id===id(20)).can_cancel,false);
+ assert.equal((await portal.shipments(req)).length,1);
+ await assert.rejects(()=>portal.orderDetail(id(23),req),/Sipariş Bulunamadı/);
+ assert.equal((await portal.orderDetail(id(20),req)).items.length,2);
+ await pg.exec(`UPDATE dealers SET archived_at=now() WHERE id='${id(10)}'`);
+ assert.deepEqual(await portal.listOrders(req),[]);
+ await pg.close();console.log('Dealer sales and portal ownership passed: historical levels, partial returns, account isolation, repeated audit records, and archived dealers.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
