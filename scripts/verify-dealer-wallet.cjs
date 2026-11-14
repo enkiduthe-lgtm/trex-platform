@@ -132,7 +132,15 @@ async function main(){
  await db.query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency,starts_at) VALUES($1,'DEALER_LEVEL',$2,500,'TRY',now())",[product,level]);
  await db.query("INSERT INTO warehouses VALUES($1,'GENEL_STOK','General',true)",[warehouse]);await db.query('INSERT INTO inventory VALUES($1,$2,10,0,now())',[product,warehouse]);
  const adminOrders=new AdminOrderService(db),actor={id:user,role:'DEALER',email:'test@example.test',sessionId:uuid(42)};
+ const secondary=uuid(39);
+ await db.query("INSERT INTO warehouses VALUES($1,'OTHER','Secondary',true)",[secondary]);
+ await db.query('INSERT INTO inventory VALUES($1,$2,99,0,now())',[product,secondary]);
+ const dealerOptions=await adminOrders.options(dealer);
+ assert.deepEqual(dealerOptions.warehouses.map(row=>row.id),[warehouse]);
+ assert.equal(dealerOptions.products[0].available_quantity,10);
  const body={warehouseId:warehouse,recipientName:'Test Buyer',contactEmail:'test@example.test',phone:'000',city:'Test',district:'Test',addressLine:'Test',paymentMethod:'COMMISSION',currency:'TRY',priceChangeReason:'Test Sale',items:[{productId:product,quantity:1,unitAmount:650}]};
+ await assert.rejects(()=>adminOrders.create({...body,warehouseId:secondary},uuid(43),actor,dealer),/Sipariş deposu değişti/);
+ await db.query('DELETE FROM inventory WHERE warehouse_id=$1',[secondary]);
  await assert.rejects(()=>adminOrders.create(body,uuid(43),actor,dealer),/Prim/);
  assert.equal((await db.query('SELECT reserved_quantity FROM inventory')).rows[0].reserved_quantity,0);
  const validBody={...body,items:[{productId:product,quantity:1,unitAmount:500}]};

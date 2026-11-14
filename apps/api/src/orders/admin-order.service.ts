@@ -19,6 +19,7 @@ const effectivePrice = `SELECT amount,currency FROM product_prices
   ORDER BY CASE WHEN scope='CHANNEL' AND channel=$2::sales_channel_code THEN 0 WHEN scope='CHANNEL' AND channel='ADMIN_ORDER' THEN 1 ELSE 2 END,starts_at DESC,id DESC LIMIT 1`;
 const activeDealerPrice = (levelParameter: '$1' | '$2') => `scope='DEALER_LEVEL' AND dealer_level_id=${levelParameter}
   AND currency='TRY' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())`;
+const activeWarehouseOrder = "WHERE is_active=true ORDER BY CASE WHEN code='GENEL_STOK' THEN 0 ELSE 1 END,name,id";
 
 @Injectable()
 export class AdminOrderService {
@@ -27,15 +28,19 @@ export class AdminOrderService {
     const salesChannel = (requestedChannel ?? 'RETAIL').trim().toUpperCase() as ManualSalesChannel;
     if (!dealerId && !manualSalesChannels.includes(salesChannel)) throw new BadRequestException('Geçersiz satış kanalı');
     const dealerContext = dealerId ? await this.db.query<{ id:string; dealer_level_id:string|null; price_group_id:string|null }>(
-      "SELECT d.id,d.dealer_level_id,d.price_group_id FROM dealers d WHERE d.id=$1 AND d.status='ACTIVE'", [dealerId]) : null;
+      "SELECT d.id,d.dealer_level_id,d.price_group_id FROM dealers d WHERE d.id=$1 AND d.status='ACTIVE' AND d.archived_at IS NULL", [dealerId]) : null;
     if (dealerId && !dealerContext?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
     const context = dealerContext?.rows[0];
     const productQuery = dealerId
-      ? this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency,
+      ? this.db.query(`WITH dispatch_warehouse AS (
+          SELECT id FROM warehouses ${activeWarehouseOrder} LIMIT 1
+        ) SELECT p.id,p.name,p.sku,price.amount,price.currency,
+          COALESCE(stock.physical_quantity-stock.reserved_quantity,0)::int AS available_quantity,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('size',q.pack_size,'amount',q.amount) ORDER BY q.pack_size) FROM (SELECT DISTINCT ON (pack_size) pack_size,amount FROM product_prices WHERE product_id=p.id AND pack_size>1 AND ${activeDealerPrice('$1')} ORDER BY pack_size,starts_at DESC,id DESC) q),'[]'::jsonb) AS packs FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND ${activeDealerPrice('$1')}
             ORDER BY starts_at DESC,id DESC LIMIT 1) price ON true
-          WHERE p.status='ACTIVE' ORDER BY p.name`, [context!.dealer_level_id])
+          LEFT JOIN inventory stock ON stock.product_id=p.id AND stock.warehouse_id=(SELECT id FROM dispatch_warehouse)
+          WHERE p.status='ACTIVE' ORDER BY p.name`, [context?.dealer_level_id])
       : this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
             AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel=$1::sales_channel_code) OR ($1='RETAIL' AND scope='CHANNEL' AND channel='ADMIN_ORDER'))
@@ -43,7 +48,7 @@ export class AdminOrderService {
           WHERE p.status='ACTIVE' ORDER BY p.name`, [salesChannel]);
     const [products, warehouses, customers] = await Promise.all([
       productQuery,
-      this.db.query("SELECT id,name FROM warehouses WHERE is_active=true ORDER BY CASE WHEN code='GENEL_STOK' THEN 0 ELSE 1 END,name"),
+      this.db.query(`SELECT id,name FROM warehouses ${activeWarehouseOrder}${dealerId?' LIMIT 1':''}`),
       dealerId ? Promise.resolve({ rows: [] }) : this.db.query('SELECT id,email,first_name,last_name,phone FROM customers WHERE is_active=true ORDER BY first_name,last_name'),
     ]);
     const rate = dealerId ? await this.dealerRate(currency) : 1;
@@ -95,12 +100,15 @@ export class AdminOrderService {
         const order = await client.query('SELECT id,order_number,status,total_amount,currency FROM orders WHERE id=$1', [prior.rows[0].resource_id]);
         return { ...order.rows[0], replayed: true };
       }
-      const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' FOR UPDATE", [dealerId]) : null;
+      const dealer = dealerId ? await client.query<{id:string;dealer_level_id:string|null;price_group_id:string|null}>("SELECT id,dealer_level_id,price_group_id FROM dealers WHERE id=$1 AND status='ACTIVE' AND archived_at IS NULL FOR UPDATE", [dealerId]) : null;
       if (dealerId && !dealer?.rowCount) throw new ForbiddenException('Aktif bayi hesabı bulunamadı');
       if (dealerId && !dealer?.rows[0].dealer_level_id) throw new ForbiddenException('Sipariş İçin Bayi Seviyesi Atanmalı.');
       const exchangeRate=dealerId?await this.dealerRate(currency):1;
-      const warehouse = await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
+      const warehouse = dealerId
+        ? await client.query<{id:string}>(`SELECT id FROM warehouses ${activeWarehouseOrder} LIMIT 1 FOR SHARE`)
+        : await client.query<{id:string}>('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
       if (!warehouse.rowCount) throw new NotFoundException('Aktif depo bulunamadı');
+      if (dealerId && warehouse.rows[0].id !== dto.warehouseId.toLowerCase()) throw new ConflictException('Sipariş deposu değişti. Bayi panelindeki bilgileri yenileyin.');
       if (dto.customerId) {
         const customer = await client.query('SELECT id FROM customers WHERE id=$1 AND is_active=true FOR SHARE', [dto.customerId]);
         if (!customer.rowCount) throw new NotFoundException('Aktif müşteri bulunamadı');
