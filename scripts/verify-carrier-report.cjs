@@ -31,6 +31,14 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  await pg.exec(`INSERT INTO customers VALUES('member1','Aynı','İsim','bir@example.test'),('member2','Aynı','İsim','iki@example.test');UPDATE orders SET customer_id='member1' WHERE id='00000000-0000-4000-8000-000000000001';UPDATE orders SET customer_id='member2' WHERE id='00000000-0000-4000-8000-000000000002';`);
  const members=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');const memberGroups=groupSales(members,'customer');assert.equal(memberGroups.length,2);assert.equal(memberGroups.find(g=>g.status==='DELIVERED').orderCount,1);assert.equal(memberGroups.find(g=>g.status==='DELIVERED').amount,'30.00');assert.ok(memberGroups.some(g=>g.label.includes('bir@example.test')));assert.ok(memberGroups.some(g=>g.label.includes('iki@example.test')));
  const sameName=members.map(r=>({...r,customer_email:null,status:'PAID'}));assert.equal(groupSales(sameName,'customer').length,2);
+ await pg.exec("INSERT INTO returns VALUES('partial','00000000-0000-4000-8000-000000000001','REFUNDED'),('pending','00000000-0000-4000-8000-000000000001','INSPECTED'); INSERT INTO return_items VALUES('partial','1',1),('pending','1',1)");
+ const partial=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');
+ assert.equal(partial.find(row=>row.item_id==='1').net_quantity,1);
+ assert.equal(Number(partial.find(row=>row.item_id==='3').net_line_total),0);
+ const adjustedGroup=groupSales(partial,'carrier').find(row=>row.status==='DELIVERED');
+ assert.equal(adjustedGroup.quantity,3);
+ assert.equal(adjustedGroup.netQuantity,2);
+ assert.equal(adjustedGroup.netAmount,'20.00');
  await assert.rejects(()=>new OrdersService(db).salesReport('2026-10-31','2026-10-01'));
  const {CustomersService}=load(path.join(root,'apps/api/src/customers/customers.service.ts')),customers=new CustomersService(db);
  const customerReport=await customers.orderReport('member1','2026-10-01','2026-10-31');assert.equal(customerReport.length,2);assert.equal(customerReport[0].payment_method,'cash');assert.equal(customerReport.reduce((sum,r)=>sum+Number(r.line_total),0),30);
