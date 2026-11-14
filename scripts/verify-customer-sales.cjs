@@ -30,7 +30,9 @@ async function main() {
       INSERT INTO return_items VALUES(1,1,1),(2,2,1);
     `);
     const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-    const status = read('apps/api/src/orders/report-order-status.ts').split('`')[1];
+    const reportSql = read('apps/api/src/orders/report-order-status.ts');
+    const sql = name => reportSql.match(new RegExp(`export const ${name} = \x60([^\x60]+)\x60`))[1];
+    const status = sql('reportOrderStatus').replace('${netItemQuantity}', sql('netItemQuantity'));
     const source = read('apps/api/src/customers/customers.service.ts');
     const query = method => source.slice(source.indexOf('async '+method+'(')).match(/this\.db\.query\(`([^`]+)`/)[1]
       .replaceAll('${reportOrderStatus}',status);
