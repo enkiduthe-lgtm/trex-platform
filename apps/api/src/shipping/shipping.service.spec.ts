@@ -52,6 +52,14 @@ describe('ShippingService', () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
+  it('never registers a shipment that Aras marked as returned',async()=>{
+    const query=jest.fn().mockResolvedValueOnce({rows:[{locked:true}]}).mockResolvedValueOnce({rows:[{status:'FAILED',tracking_direction_code:'3'}]});
+    const provider={createShipment:jest.fn()};
+    const service=new ShippingService({transaction:async(work:any)=>work({query})} as never,provider as never,provider as never);
+    await expect(service.create('order')).rejects.toThrow('iade bildirilen gönderi');
+    expect(provider.createShipment).not.toHaveBeenCalled();
+  });
+
   it('lists only packed orders without an existing shipment in the shipment queue', async () => {
     const db={query:jest.fn().mockResolvedValue({rows:[{order_id:'order',order_number:'2026-0001'}]})};
     const service=new ShippingService(db as never,{} as never,{} as never);
@@ -66,7 +74,7 @@ describe('ShippingService', () => {
     await expect(service.updateStatus('order',{status:'IN_TRANSIT'} as never,'actor')).resolves.toEqual({id:'shipment',status:'IN_TRANSIT'});
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'),['order']);
     expect(query).toHaveBeenCalledWith(expect.stringContaining('shipment_events'),expect.any(Array));
-    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-1','SHIPPED');
+    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-1','SHIPPED',{query});
   });
   it('allows a newly created shipment to be cancelled before dispatch',async()=>{
     const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',status:'CREATED',contact_email:null,order_number:'2026-1'}]}).mockResolvedValue({rows:[]});
@@ -79,7 +87,7 @@ describe('ShippingService', () => {
     const notifications={recordOrderStatus:jest.fn()};
     const service=new ShippingService({transaction:async(work:(client:unknown)=>unknown)=>work({query})} as never,{} as never,{} as never,notifications as never);
     await service.updateStatus('order',{status:'FAILED'} as never,'actor');
-    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-2','DELIVERY_EXCEPTION');
+    expect(notifications.recordOrderStatus).toHaveBeenCalledWith('buyer@example.com','2026-2','DELIVERY_EXCEPTION',{query});
   });
 });
 

@@ -42,6 +42,7 @@ type Order = {
   shipping_provider?: string | null;
   tracking_number?: string | null;
   shipment_status?: string | null;
+  tracking_direction_code?: string | null;
   preparation_status?: string | null; packed_at?: string | null;
 };
 type ExportLine = { id: string; order_number: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; total_amount: string; cod_service_fee: string; currency: string; payment_method: string; sales_channel: string; marketplace_name: string | null; customer_name: string; status: string; shipment_status: string | null; shipping_provider: string | null; created_at: string };
@@ -524,7 +525,7 @@ function OrdersContent() {
                   </td>
                   <td>
                     <b>{order.shipping_provider ?? "Kargo bekliyor"}</b>
-                    <small>{order.tracking_number ?? (order.shipment_status === "CREATED" ? "Şube Kabulü / Takip Bekleniyor" : order.status === "PROCESSING" ? "Paketleme Sonrası Oluşur" : order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"))}</small>
+                    <small>{order.tracking_direction_code === '3' ? 'Aras İade Bildirdi' : order.tracking_number ?? (order.shipment_status === "CREATED" ? "Şube Kabulü / Takip Bekleniyor" : order.status === "PROCESSING" ? "Paketleme Sonrası Oluşur" : order.marketplace_name ?? (order.sales_channel ? channelText[order.sales_channel] ?? order.sales_channel : "—"))}</small>
                   </td>
                   <td>
                     <time>{date(order.created_at)}</time>

@@ -28,6 +28,7 @@ test('preparation proceeds in sequence and never restarts a registered or termin
   assert.equal(nextPreparationAction({status:'PROCESSING',preparation_status:'COMPLETED'}),'pack');
   assert.equal(nextPreparationAction({status:'PROCESSING',packed_at:'2026-11-06'}),'ship');
   assert.equal(nextPreparationAction({status:'PROCESSING',packed_at:'2026-11-06',shipment_status:'FAILED'}),'ship');
+  assert.equal(nextPreparationAction({status:'PROCESSING',packed_at:'2026-11-06',shipment_status:'FAILED',tracking_direction_code:'3'}),null);
   for(const status of ['PENDING_PAYMENT','SHIPPED','DELIVERED','CANCELLED','REFUNDED'])assert.equal(nextPreparationAction({status}),null);
   for(const shipment_status of ['CREATED','IN_TRANSIT','DELIVERED','RETURNED'])assert.equal(nextPreparationAction({status:'PROCESSING',shipment_status}),null);
 });

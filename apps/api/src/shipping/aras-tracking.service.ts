@@ -40,7 +40,7 @@ export class ArasTrackingService implements OnModuleInit, OnModuleDestroy {
           try {
             const observation = await this.query.query(row.provider_reference);
             if (!observation) {
-              await client.query("UPDATE shipments SET tracking_checked_at=now(),tracking_error='Aras Henüz Gönderi Hareketi Bildirmedi' WHERE id=$1", [row.id]);
+              await this.recordQueryResult(row, 'Aras Henüz Gönderi Hareketi Bildirmedi');
               continue;
             }
             const eventId = 'aras:' + createHash('sha256').update(JSON.stringify([observation.reference, observation.code, observation.direction])).digest('hex');
@@ -49,11 +49,21 @@ export class ArasTrackingService implements OnModuleInit, OnModuleDestroy {
           } catch {
             // Neither credentials nor the carrier's raw response enter logs or the UI.
             failed++;
-            await client.query("UPDATE shipments SET tracking_checked_at=now(),tracking_error='Aras Kontrolü Tamamlanamadı; Son Kayıtlı Durumu Kontrol Edin' WHERE id=$1", [row.id]);
+            await this.recordQueryResult(row, 'Aras Kontrolü Tamamlanamadı; Son Kayıtlı Durumu Kontrol Edin');
           }
         }
         return { configured: true, checked, updated, failed };
       });
     } finally { this.running = false; }
+  }
+  private async recordQueryResult(
+    row: { id: string; provider_reference: string },
+    message: string,
+  ) {
+    await this.db.query(`UPDATE shipments SET tracking_checked_at=now(),tracking_error=$3
+      WHERE id=$1 AND provider='aras' AND provider_reference=$2
+      AND status IN ('CREATED','IN_TRANSIT','FAILED') AND tracking_direction_code IS DISTINCT FROM '3'
+      AND EXISTS (SELECT 1 FROM orders o WHERE o.id=shipments.order_id AND o.archived_at IS NULL AND o.status IN ('PROCESSING','SHIPPED'))`,
+      [row.id, row.provider_reference, message]);
   }
 }

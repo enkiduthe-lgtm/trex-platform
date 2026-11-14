@@ -1,4 +1,4 @@
-type QueueOrder = {status:string;sales_status?:string;shipment_status?:string|null};
+type QueueOrder = {status:string;sales_status?:string;shipment_status?:string|null;tracking_direction_code?:string|null};
 
 export function orderQueueStatus(order: QueueOrder) {
   if (order.sales_status === 'REFUNDED') return 'REFUNDED';
@@ -12,6 +12,7 @@ export function orderQueueStatus(order: QueueOrder) {
 export function nextPreparationAction(order: QueueOrder & {preparation_status?:string|null;packed_at?:string|null}): 'prepare'|'pack'|'ship'|null {
   if(order.sales_status==='REFUNDED')return null;
   if(!['PAID','PROCESSING'].includes(order.status))return null;
+  if(order.tracking_direction_code==='3')return null;
   if(order.shipment_status && order.shipment_status!=='FAILED')return null;
   if(order.packed_at)return order.status==='PROCESSING'?'ship':null;
   return order.preparation_status==='COMPLETED'?'pack':'prepare';

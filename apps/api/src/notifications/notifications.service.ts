@@ -31,14 +31,14 @@ export class NotificationsService {
     await this.enqueue(id);
     return { id, status: 'PENDING' };
   }
-  async recordOrderStatus(recipient: string | null, orderNumber: string, status: 'SHIPPED' | 'DELIVERED' | 'DELIVERY_EXCEPTION') {
+  async recordOrderStatus(recipient: string | null, orderNumber: string, status: 'SHIPPED' | 'DELIVERED' | 'DELIVERY_EXCEPTION', client: { query: (sql: string, values: string[]) => Promise<unknown> } = this.db) {
     if (!recipient) return;
     const copy = status === 'SHIPPED'
       ? { subject: 'Siparişiniz kargoya verildi', body: `Siparişiniz kargoya verildi. Sipariş no: ${orderNumber}.` }
       : status === 'DELIVERED'
         ? { subject: 'Siparişiniz teslim edildi', body: `Siparişiniz teslim edildi. Sipariş no: ${orderNumber}.` }
         : { subject: 'Siparişinizin teslimatında sorun var', body: `Siparişinizin teslimatında bir sorun bildirildi. Sipariş no: ${orderNumber}. Lütfen destek ekibiyle iletişime geçin.` };
-    await this.db.query(
+    await client.query(
       "INSERT INTO notifications (channel,recipient,template_code,subject,body,status,provider_reference,sent_at) VALUES ('IN_APP',$1,'ORDER_STATUS',$2,$3,'SENT',$4,now())",
       [recipient, copy.subject, copy.body, `system_order_${status.toLowerCase()}_${orderNumber}`],
     );
