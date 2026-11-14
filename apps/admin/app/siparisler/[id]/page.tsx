@@ -31,6 +31,8 @@ type Detail = {
   sales_status?: string;
   can_cancel?: boolean;
   price_editable?: boolean;
+  archived_at?: string | null;
+  archive_reason?: string | null;
   total_amount: string; cod_service_fee?:string;
   currency: string;
   customer_email: string | null;
@@ -216,7 +218,7 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const autoPrinted = useRef(false);
   useEffect(() => {
-    if (!data || !permissionsReady || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
+    if (!data || data.archived_at || !permissionsReady || autoPrinted.current || new URLSearchParams(window.location.search).get('print') !== 'barcode') return;
     autoPrinted.current = true;
     if(data.shipments.some(shipment=>shipment.provider==='aras')) {
       if (!canVerify) { setError('Aras Barkod Doğrulaması İçin Kargo Yetkisi Gerekli.'); return; }
@@ -226,7 +228,9 @@ export default function OrderDetail() {
       }).catch(e=>setError(e instanceof Error?e.message:'Aras Kaydı Doğrulanamadı. Barkod Yazdırılmadı.'));
       return;
     }
-    printPackageBarcode(data.fulfillment?.package_barcode || data.order_number);
+    const barcode = data.fulfillment?.package_barcode;
+    if (barcode) printPackageBarcode(barcode);
+    else setError('Bu siparişin paket barkodu henüz oluşturulmamış.');
   }, [data, permissionsReady, canVerify]);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -451,8 +455,14 @@ export default function OrderDetail() {
         </section>}
         {data && (
           <>
+            {data.archived_at && <section className={styles.detailCard}>
+              <h2>Arşivlenen Sipariş</h2>
+              <p>Arşiv tarihi {financeDateTime(data.archived_at)}</p>
+              {data.archive_reason && <p>{data.archive_reason}</p>}
+              {role === 'SUPER_ADMIN' && <Link className={styles.secondaryAction} href="/siparisler/sil">Silinen siparişlere git</Link>}
+            </section>}
             <div className={styles.detailLayout}>
-            <section className={`${styles.detailCard} ${styles.detailWide}`}>
+            {!data.archived_at && <section className={`${styles.detailCard} ${styles.detailWide}`}>
               <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Aras Kaydı ve Parça Barkodu → Kargo Takibi</span></div>
               {displayStatus === 'PENDING_PAYMENT' && <p className={styles.notice}>
                 Hazırlamaya geçmek için ödeme onayı bekleniyor.{' '}
@@ -490,7 +500,7 @@ export default function OrderDetail() {
               </ol>
 
               {arasCheck&&<div className={styles.tableWrap} role="status"><table><caption>Aras Servis Kontrolü — Yeni Gönderim Yapılmadı</caption><thead><tr><th>Sonuç</th><th>Entegrasyon Kodu</th><th>Paket Barkodu</th><th>Kontrol Zamanı</th></tr></thead><tbody><tr><td>{arasCheck.found?'Aras Servisinde Kayıt Ve Paket Barkodu Eşleşti. Portal Görünürlüğü Ve Şube Kabulü Ayrıca Doğrulanmalı.':'Aras Servisinde Kayıt Bulunamadı.'}</td><td>{arasCheck.integrationCode}</td><td>{arasCheck.packageBarcode}</td><td>{financeDateTime(arasCheck.checkedAt)}</td></tr></tbody></table></div>}
-            </section>
+            </section>}
             <section className={`${styles.detailCard} ${styles.summaryCard}`}>
               <div className={styles.cardHeader}>
                 <h2>Sipariş özeti</h2>
@@ -501,7 +511,7 @@ export default function OrderDetail() {
                 <div><small>Ödeme yöntemi</small><strong>{data.payments.map((payment) => paymentMethod[payment.provider] ?? payment.provider).join(", ") || "Belirtilmedi"}</strong></div>
               </div>
               <div className={styles.cardActions}>
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED", "CARRIER_RETURN"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
+                {!data.archived_at && canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED", "CARRIER_RETURN"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
                 {canEdit && data.can_cancel && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
                 {canEdit && role === "SUPER_ADMIN" && data.price_editable && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
               </div>
@@ -589,9 +599,9 @@ export default function OrderDetail() {
                     {invoice.invoice_number && ` · Fatura no: ${invoice.invoice_number}`}
                   </p>
                   {invoice.provider_status === "PENDING_PROVIDER" && <p>Tekrar göndermeden önce Paraşüt’te sipariş numarasıyla faturayı kontrol edin.</p>}
-                  {data.currency === "TRY" && !["CANCELLED","REFUNDED"].includes(displayStatus) && ["DRAFT","FAILED"].includes(invoice.provider_status) &&
+                  {!data.archived_at && data.currency === "TRY" && !["CANCELLED","REFUNDED"].includes(displayStatus) && ["DRAFT","FAILED"].includes(invoice.provider_status) &&
                     <button type="button" onClick={issueInvoice} disabled={invoiceSaving}>{invoiceSaving ? "Gönderiliyor…" : "Paraşüt’e gönder"}</button>}</>
-                ) : (
+                ) : !data.archived_at && !["CANCELLED","REFUNDED"].includes(displayStatus) ? (
                   <form onSubmit={saveInvoice}>
                     <label>Fatura türü
                       <select value={invoiceType} onChange={(event) => setInvoiceType(event.target.value as "INDIVIDUAL" | "CORPORATE")}>
@@ -602,7 +612,7 @@ export default function OrderDetail() {
                     <label>Fatura adresi<input name="billingAddress" required defaultValue={data.address ? `${data.address.address_line}, ${data.address.district} / ${data.address.city}` : ""} /></label>
                     <button type="submit" disabled={invoiceSaving}>{invoiceSaving ? "Kaydediliyor…" : "Fatura taslağını kaydet"}</button>
                   </form>
-                )}
+                ) : <p>Bu siparişte kayıtlı fatura bulunmuyor.</p>}
                 <div className={styles.cardActions}><Link className={styles.financeLink} href={`/siparisler/${id}/fatura`} target="_blank" rel="noopener noreferrer">Fatura PDF Belgesini Aç / Yazdır</Link></div>
               </details>
             )}

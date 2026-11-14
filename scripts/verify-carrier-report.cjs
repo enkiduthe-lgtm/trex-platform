@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
 function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,NotFoundException:Error,ForbiddenException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
-async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args)};
+async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args),transaction:work=>pg.transaction(work)};
  await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','PUBLIC_WEB','MARKETPLACE');
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
  CREATE TABLE order_items(id text,order_id uuid,product_name text,sku text,quantity int,unit_amount numeric);
@@ -47,7 +47,7 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
    ALTER TABLE checkout_sessions ADD PRIMARY KEY(id);
    ALTER TABLE order_addresses ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid();
    CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
-   CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),entity_type text,entity_id text,action text,metadata jsonb,created_at timestamptz DEFAULT now());
+   CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),actor_user_id uuid,entity_type text,entity_id text,action text,metadata jsonb,created_at timestamptz DEFAULT now());
    CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,contact_name text,code text);
    CREATE TABLE picking_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid UNIQUE,status text,created_at timestamptz);
    CREATE TABLE packing_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),picking_session_id uuid UNIQUE,packed_at timestamptz,package_barcode text);
@@ -109,5 +109,13 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  await assert.rejects(()=>service.track('C','other@example.test'),/bulunamadı/);
  await pg.query('UPDATE orders SET archived_at=now() WHERE id=$1',[preparationOrder]);
  await assert.rejects(()=>service.track('C','buyer@example.test'),/bulunamadı/);
+ await assert.rejects(()=>service.updateNote(preparationOrder,'Arşiv notu',dealer),/Aktif sipariş/);
+ const openOrder='00000000-0000-4000-8000-000000000004';
+ assert.equal((await service.updateNote(openOrder,'  Kutu kontrol edildi  ',dealer)).admin_note,'Kutu kontrol edildi');
+ await service.updateNote(openOrder,'Kutu kontrol edildi',dealer);
+ assert.equal((await pg.query("SELECT count(*)::int AS n FROM audit_logs WHERE action='order.admin_note.updated'")).rows[0].n,1);
+ await pg.exec("ALTER TABLE audit_logs ADD CHECK (action<>'order.admin_note.updated') NOT VALID");
+ await assert.rejects(()=>service.updateNote(openOrder,'Başarısız kayıt',dealer),/check constraint/);
+ assert.equal((await service.listNotes()).find(row=>row.id===openOrder).admin_note,'Kutu kontrol edildi');
  await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});

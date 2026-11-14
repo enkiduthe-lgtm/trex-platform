@@ -194,8 +194,28 @@ export class OrdersService {
     ]);
     return {...period,stockAsOf:new Date().toISOString(),summary:summary.rows[0]??{},products:products.rows,payments:payments.rows,collections:collections.rows,expenses:expenses.rows,stock:stock.rows,channelProducts:channelProducts.rows,commissions:commissions.rows};
   }
-  async listNotes() { return (await this.db.query<{id:string;admin_note:string|null}>('SELECT id,admin_note FROM orders WHERE admin_note IS NOT NULL ORDER BY created_at DESC LIMIT 100')).rows; }
-  async updateNote(id:string,note:string|undefined,userId:string) { const value=note?.trim()||null; const result=await this.db.query<{id:string;admin_note:string|null}>('UPDATE orders SET admin_note=$1 WHERE id=$2 RETURNING id,admin_note',[value,id]); if(!result.rowCount) throw new NotFoundException('Sipariş bulunamadı'); await this.db.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[userId,'order.admin_note.updated','order',id,JSON.stringify({hasNote:Boolean(value)})]); return result.rows[0]; }
+  async listNotes() {
+    return (await this.db.query<{id:string;admin_note:string|null}>(
+      'SELECT id,admin_note FROM orders WHERE archived_at IS NULL AND admin_note IS NOT NULL ORDER BY created_at DESC,id DESC LIMIT 100',
+    )).rows;
+  }
+  async updateNote(id:string,note:string|undefined,userId:string) {
+    const value=note?.trim()||null;
+    return this.db.transaction(async client=>{
+      const order=await client.query<{id:string;admin_note:string|null}>(
+        'SELECT id,admin_note FROM orders WHERE id=$1 AND archived_at IS NULL FOR UPDATE',[id],
+      );
+      if(!order.rows[0])throw new NotFoundException('Aktif sipariş bulunamadı');
+      if(order.rows[0].admin_note===value)return order.rows[0];
+      const updated=await client.query<{id:string;admin_note:string|null}>(
+        'UPDATE orders SET admin_note=$1 WHERE id=$2 RETURNING id,admin_note',[value,id],
+      );
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',
+        [userId,'order.admin_note.updated','order',id,JSON.stringify({hasNote:Boolean(value)})],
+      );
+      return updated.rows[0];
+    });
+  }
   async invoice(orderId:string) { return (await this.db.query('SELECT * FROM order_invoices WHERE order_id=$1',[orderId])).rows[0]??null; }
   async invoicePdf(orderId: string) {
     const invoice = await this.invoice(orderId);
@@ -288,6 +308,7 @@ export class OrdersService {
   }
   async detail(id:string) {
     const result=await this.db.query<{contact_name:string|null;contact_email:string|null}>(`SELECT o.id,o.customer_id,dealer.id AS dealer_id,COALESCE(NULLIF(dealer.company_name,''),dealer.contact_name) AS dealer_name,level.name AS dealer_level_name,o.order_number,o.status,${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.sales_channel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email,cs.contact_email,cs.contact_name,
+      o.archived_at,o.archive_reason,
       ${orderPriceEditable} AS price_editable,
       (${orderPriceEditable}
       AND NOT EXISTS(SELECT 1 FROM picking_sessions ps WHERE ps.order_id=o.id AND ps.status<>'OPEN')

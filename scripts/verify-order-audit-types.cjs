@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const vm=require('node:vm'),ts=require('typescript');
 const {PGlite}=require(path.resolve(process.argv[2]||'tmp/order-sql-check','node_modules/@electric-sql/pglite'));
 (async()=>{const db=new PGlite();try{
-await db.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,customer_id uuid,checkout_id uuid,order_number text,status text,sales_channel text,total_amount numeric,cod_service_fee numeric,currency text,created_at timestamptz,archived_at timestamptz);
+await db.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,customer_id uuid,checkout_id uuid,order_number text,status text,sales_channel text,total_amount numeric,cod_service_fee numeric,currency text,created_at timestamptz,archived_at timestamptz,archive_reason text);
 CREATE TABLE customers(id uuid,email text); CREATE TABLE checkout_sessions(id uuid,contact_email text,contact_name text);
 CREATE TABLE dealers(id uuid,company_name text,contact_name text,dealer_level_id uuid); CREATE TABLE dealer_levels(id uuid,name text);
 CREATE TABLE audit_logs(id uuid,entity_type text,action text,entity_id text,metadata jsonb,created_at timestamptz);
