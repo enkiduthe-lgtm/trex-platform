@@ -7,9 +7,23 @@ import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 import { ResetStaffPasswordDto } from './dto/reset-staff-password.dto';
 import { REQUIRED_ROLES } from './roles.decorator';
 import { Roles } from './roles';
+import { RolesGuard } from './roles.guard';
 
 const request = { user: { id: 'owner' } } as never;
 describe('Staff security', () => {
+  it('limits the dealer payout account picker to managers with approval and view grants', async () => {
+    const context = {
+      getHandler: () => undefined, getClass: () => undefined,
+      switchToHttp: () => ({ getRequest: () => ({
+        user: { id: 'staff', role: 'ADMIN' }, method: 'GET', path: '/v1/admin/dealer-payouts/payment-accounts',
+      }) }),
+    } as never;
+    const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ grants: ['COMMISSIONS.VIEW'] }] });
+    const guard = new RolesGuard({ getAllAndOverride: () => [Roles.ADMIN] } as never, { query } as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');
+    query.mockResolvedValue({ rowCount: 1, rows: [{ grants: ['COMMISSIONS.VIEW', 'COMMISSIONS.APPROVE'] }] });
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
   it.each(['SUPER_ADMIN', 'ADMIN'])('accepts staff role %s', role => {
     expect(validateSync(plainToInstance(CreateStaffUserDto, { email: 'staff@example.com', password: 'long-password-123', role }))).toHaveLength(0);
   });

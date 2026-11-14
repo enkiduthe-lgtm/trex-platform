@@ -18,6 +18,7 @@ export class DealerPayoutsController {
  @Get('dealer-portal/wallet') @RequireRoles(Roles.DEALER) wallet(@Req() req:UserRequest){return this.payouts.portal(req.user.id);}
  @Post('dealer-portal/payout-requests') @RequireRoles(Roles.DEALER) request(@Body() dto:RequestPayoutDto,@Req() req:UserRequest){return this.payouts.request(req.user.id,dto.requestKey,dto.amount);}
  @Get('admin/dealer-payouts') @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN,Roles.FINANCE) list(){return this.payouts.list();}
+ @Get('admin/dealer-payouts/payment-accounts') @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN,Roles.FINANCE) paymentAccounts(){return this.payouts.paymentAccounts();}
  @Get('admin/dealer-payouts/return-fee') @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN,Roles.FINANCE) feeCandidates(){return this.payouts.returnFeeCandidates();}
  @Post('admin/dealer-payouts/return-fee') @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN,Roles.FINANCE) fee(@Body() dto:ReturnFeeDto,@Req() req:UserRequest){return this.payouts.returnFee(dto.returnId,dto.amount,dto.note,req.user.id);}
  @Post('admin/dealer-payouts/:id/decision') @RequireRoles(Roles.SUPER_ADMIN,Roles.ADMIN) decide(@Param('id',ParseUUIDPipe) id:string,@Body() dto:DecideDto,@Req() req:UserRequest){return this.payouts.decide(id,dto.status,req.user.id,dto.note);}

@@ -17,6 +17,7 @@ export function requestAccess(path:string,method:string):string|null {
  }
  if(!resource)return null;
  if(method==='GET'&&/^\/returns\/admin\/(refund-accounts|inspection-warehouses)$/.test(p))return 'RETURNS.APPROVE';
+ if(method==='GET'&&p==='/admin/dealer-payouts/payment-accounts')return 'COMMISSIONS.APPROVE';
  let action='VIEW';
  if(method==='DELETE')action='DELETE';
  else if(!['GET','HEAD','OPTIONS'].includes(method)) {

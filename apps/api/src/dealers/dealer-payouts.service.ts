@@ -53,6 +53,9 @@ export class DealerPayoutsService {
     (r.status='APPROVED' AND r.due_date<=${payoutToday} AND ${paymentDay}) AS payment_allowed
     FROM dealer_prim_requests r JOIN dealers d ON d.id=r.dealer_id ORDER BY r.due_date,r.created_at`)).rows;
  }
+ async paymentAccounts() {
+  return (await this.db.query('SELECT id,name,currency FROM finance_accounts WHERE is_active=true ORDER BY name,id')).rows;
+ }
  async returnFeeCandidates() {
   return (await this.db.query(`SELECT r.id,o.order_number,o.currency,r.requested_at,
     COALESCE(NULLIF(d.company_name,''),d.contact_name) AS dealer_name
