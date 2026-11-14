@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
+import { AdminOrderService } from './admin-order.service';
 
 const dto={version:'a'.repeat(64),reason:'Correction',recipientName:'Test User',contactEmail:'test@example.com',phone:'05000000000',city:'Test',district:'Test',addressLine:'Test address',postalCode:'',items:[{itemId:'d91db1b6-5bd6-4c68-9564-e063d34e1f68',quantity:2,unitAmount:20.25}]};
 describe('Order edit validation',()=>{
@@ -13,6 +14,13 @@ describe('Order edit validation',()=>{
   it.each(['TRANSFER','COD_CARD','COD_CASH','HAND_CASH'])('accepts payment method %s',async paymentMethod=>expect(await validate(plainToInstance(UpdateAdminOrderDto,{...dto,paymentMethod}))).toHaveLength(0));
   it('rejects an invalid payment method',async()=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,paymentMethod:'FORGED'}))).length).toBeGreaterThan(0));
   it('rejects a missing edit version',async()=>expect((await validate(plainToInstance(UpdateAdminOrderDto,{...dto,version:undefined}))).length).toBeGreaterThan(0));
+  it('blocks the separate price action for managers before opening a transaction',async()=>{
+    const transaction=jest.fn();
+    const service=new AdminOrderService({transaction} as never);
+    await expect(service.updatePrices('order',{reason:dto.reason,items:dto.items},{id:'manager',role:'ADMIN'} as never))
+      .rejects.toThrow('Sipariş birim fiyatını yalnız Müdür değiştirebilir');
+    expect(transaction).not.toHaveBeenCalled();
+  });
   it('versions detect quantity, price and address changes',()=>{
     const contact={contact_name:'Test',contact_email:'test@example.com'},address={recipient_name:'Test',phone:'0500',city:'Test',district:'Test',address_line:'Address',postal_code:null};
     const items=[{id:'line',quantity:1,unit_amount:'20.25'}],version=editVersion(contact,address,items);

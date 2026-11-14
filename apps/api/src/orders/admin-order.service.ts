@@ -8,7 +8,7 @@ import { UpdateAdminOrderDto } from './dto/update-admin-order.dto';
 import { editVersion } from './edit-version';
 import { allocatePack, cents, codFee, formatCents } from './order-pricing';
 import { dealerWallet,moneyCents } from '../commissions/dealer-wallet';
-import { reportOrderStatus } from './report-order-status';
+import { editableAdminChannels, financialEditStatuses, manualPaymentProviders, reportOrderStatus } from './report-order-status';
 
 const manualSalesChannels = ['RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'] as const;
 type ManualSalesChannel = typeof manualSalesChannels[number];
@@ -185,7 +185,7 @@ export class AdminOrderService {
         FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Sipariş Düzenlenemez');
-      if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
+      if(!editableAdminChannels.includes(order.sales_channel)||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
       const contact=(await client.query<{contact_name:string|null;contact_email:string|null}>('SELECT contact_name,contact_email FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
       const payments=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
       if(payments.length!==1) throw new ConflictException('Ödeme kaydı doğrulanamadı');
@@ -201,7 +201,7 @@ export class AdminOrderService {
       const financialChanged=changes.some(line=>line.quantity!==line.next.quantity||line.unit_amount!==line.next.unitAmount.toFixed(2));
       const priceChanged=changes.some(line=>line.unit_amount!==line.next.unitAmount.toFixed(2));
       if(priceChanged&&actor.role!=='SUPER_ADMIN') throw new ForbiddenException('Sipariş birim fiyatını yalnız ana yönetici değiştirebilir');
-      const financialEditable=['PENDING_PAYMENT','PROCESSING'].includes(order.status)&&payments[0].status==='PENDING'&&['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payments[0].provider)&&!collected&&!packing&&picks.every(pick=>pick.status==='OPEN');
+      const financialEditable=financialEditStatuses.includes(order.status)&&payments[0].status==='PENDING'&&manualPaymentProviders.includes(payments[0].provider)&&!collected&&!packing&&picks.every(pick=>pick.status==='OPEN');
       if(financialChanged&&!financialEditable) throw new ConflictException('Tahsilat veya depo işlemi başlamış siparişte yalnız müşteri/teslimat bilgileri düzeltilebilir');
       const providerByMethod={TRANSFER:'bank_transfer',HAND_CASH:'cash',COD_CARD:'cash_on_delivery_card',COD_CASH:'cash_on_delivery_cash'} as const;
       const requestedProvider=dto.paymentMethod?providerByMethod[dto.paymentMethod]:undefined;
@@ -243,6 +243,7 @@ export class AdminOrderService {
     });
   }
   async updatePrices(id:string,dto:UpdateAdminOrderPricesDto,actor:RequestUser) {
+    if(actor.role!=='SUPER_ADMIN') throw new ForbiddenException('Sipariş birim fiyatını yalnız Müdür değiştirebilir');
     if(!dto.reason.trim()) throw new BadRequestException('Fiyat değişiklik nedeni gerekli');
     if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
     return this.db.transaction(async client=>{
@@ -251,10 +252,10 @@ export class AdminOrderService {
         FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Siparişin Fiyatı Değiştirilemez');
-      if(!['ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE'].includes(order.sales_channel)||!['PENDING_PAYMENT','PROCESSING'].includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
+      if(!editableAdminChannels.includes(order.sales_channel)||!financialEditStatuses.includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
       const payment=(await client.query<{id:string;status:string;provider:string}>(
         'SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
-      if(!payment||payment.status!=='PENDING'||!['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) throw new ConflictException('Tahsil edilmiş siparişin fiyatı değiştirilemez');
+      if(!payment||payment.status!=='PENDING'||!manualPaymentProviders.includes(payment.provider)) throw new ConflictException('Tahsil edilmiş siparişin fiyatı değiştirilemez');
       const collection=await client.query('SELECT id FROM finance_transactions WHERE order_id=$1 AND approved_at IS NOT NULL LIMIT 1',[id]);
       if(collection.rowCount) throw new ConflictException('Kısmi tahsilat yapılmış siparişin fiyatı değiştirilemez');
       const packed=await client.query('SELECT pk.id FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=$1 AND pk.packed_at IS NOT NULL LIMIT 1',[id]);

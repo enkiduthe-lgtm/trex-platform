@@ -52,7 +52,7 @@ export class OrdersController {
   @Get(':id/invoice/pdf') @Header('Cache-Control', 'no-store') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN) invoicePdf(@Param('id',new ParseUUIDPipe()) id:string) { return this.orders.invoicePdf(id); }
   @Post(':id/invoice') @RequireRoles(Roles.SUPER_ADMIN) invoiceDraft(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:CreateInvoiceDraftDto,@Req() req:UserRequest) { return this.orders.createInvoiceDraft(id,dto,req.user); }
   @Post(':id/invoice/issue') @RequireRoles(Roles.SUPER_ADMIN) invoiceIssue(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) { return this.orders.issueInvoice(id,req.user); }
-  @Patch(':id/prices') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
+  @Patch(':id/prices') @RequireRoles(Roles.SUPER_ADMIN)
   prices(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateAdminOrderPricesDto,@Req() req:UserRequest) { return this.adminOrders.updatePrices(id,dto,req.user); }
   @Patch(':id') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)
   edit(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateAdminOrderDto,@Req() req:UserRequest) { return this.adminOrders.update(id,dto,req.user); }

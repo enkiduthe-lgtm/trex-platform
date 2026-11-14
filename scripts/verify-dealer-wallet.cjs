@@ -231,6 +231,19 @@ async function main(){
  assert.equal((await returnService.pageAdmin({query:returnOrderNumber,status:'ATTENTION'})).totals.count,0);
  await db.query("UPDATE returns SET status='REQUESTED',requested_at=now()-interval '2 days' WHERE id=$1",[cursorId]);
  assert.deepEqual((await returnService.pageAdmin({query:returnOrderNumber,status:'ATTENTION'})).rows.map(row=>row.id),[cursorId]);
+ const editCheckout=(await db.query('INSERT INTO checkout_sessions DEFAULT VALUES RETURNING id')).rows[0].id;
+ const editOrder=(await db.query("INSERT INTO orders(checkout_id,sales_channel,status) VALUES($1,'RETAIL','PROCESSING') RETURNING id",[editCheckout])).rows[0].id;
+ const {orderPriceEditable}=load(path.join(root,'apps/api/src/orders/report-order-status.ts'));
+ const priceEditable=async()=>(await db.query(`SELECT ${orderPriceEditable} AS eligible FROM orders o WHERE o.id=$1`,[editOrder])).rows[0].eligible;
+ await db.query("INSERT INTO payments(checkout_id,provider) VALUES($1,'online')",[editCheckout]);
+ assert.equal(await priceEditable(),false);
+ await db.query("UPDATE payments SET provider='cash_on_delivery_card' WHERE checkout_id=$1",[editCheckout]);
+ assert.equal(await priceEditable(),true);
+ const editPick=(await db.query("INSERT INTO picking_sessions(order_id,status) VALUES($1,'COMPLETED') RETURNING id",[editOrder])).rows[0].id;
+ await db.query('INSERT INTO packing_sessions(id,picking_session_id) VALUES($1,$2)',[uuid(71),editPick]);
+ assert.equal(await priceEditable(),true);
+ await db.query('UPDATE packing_sessions SET packed_at=now() WHERE picking_session_id=$1',[editPick]);
+ assert.equal(await priceEditable(),false);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

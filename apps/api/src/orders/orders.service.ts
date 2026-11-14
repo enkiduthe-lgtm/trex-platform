@@ -1,5 +1,5 @@
 import { realizedCash } from '../finance/finance-cash-sql';
-import { canCancelOrder, manualCancellationChannels, manualCancellationStatuses, manualPaymentProviders, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from './report-order-status';
+import { canCancelOrder, manualCancellationChannels, manualCancellationStatuses, manualPaymentProviders, orderPriceEditable, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from './report-order-status';
 import { reportPeriod } from './report-period';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
@@ -203,10 +203,8 @@ export class OrdersService {
   }
   async detail(id:string) {
     const result=await this.db.query<{contact_name:string|null;contact_email:string|null}>(`SELECT o.id,o.customer_id,dealer.id AS dealer_id,COALESCE(NULLIF(dealer.company_name,''),dealer.contact_name) AS dealer_name,level.name AS dealer_level_name,o.order_number,o.status,${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.sales_channel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email,cs.contact_email,cs.contact_name,
-      (o.sales_channel IN ('ADMIN_ORDER','RETAIL','WHOLESALE','PUBLIC_WEB','INSTAGRAM','MARKETPLACE') AND o.status IN ('PENDING_PAYMENT','PROCESSING')
-      AND EXISTS(SELECT 1 FROM payments p WHERE p.checkout_id=o.checkout_id AND p.status='PENDING')
-      AND NOT EXISTS(SELECT 1 FROM payments p WHERE p.checkout_id=o.checkout_id AND p.status<>'PENDING')
-      AND NOT EXISTS(SELECT 1 FROM finance_transactions t WHERE t.order_id=o.id AND t.approved_at IS NOT NULL)
+      ${orderPriceEditable} AS price_editable,
+      (${orderPriceEditable}
       AND NOT EXISTS(SELECT 1 FROM picking_sessions ps WHERE ps.order_id=o.id AND ps.status<>'OPEN')
       AND NOT EXISTS(SELECT 1 FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id)) AS financial_editable
       FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id
