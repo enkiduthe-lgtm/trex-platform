@@ -1,7 +1,8 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const vm=require('node:vm'),ts=require('typescript');
 const {PGlite}=require(path.resolve(process.argv[2]||'tmp/order-sql-check','node_modules/@electric-sql/pglite'));
 (async()=>{const db=new PGlite();try{
-await db.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,customer_id uuid,checkout_id uuid,order_number text,status text,sales_channel text,total_amount numeric,cod_service_fee numeric,currency text,created_at timestamptz);
+await db.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,customer_id uuid,checkout_id uuid,order_number text,status text,sales_channel text,total_amount numeric,cod_service_fee numeric,currency text,created_at timestamptz,archived_at timestamptz);
 CREATE TABLE customers(id uuid,email text); CREATE TABLE checkout_sessions(id uuid,contact_email text,contact_name text);
 CREATE TABLE dealers(id uuid,company_name text,contact_name text,dealer_level_id uuid); CREATE TABLE dealer_levels(id uuid,name text);
 CREATE TABLE audit_logs(id uuid,entity_type text,action text,entity_id text,metadata jsonb,created_at timestamptz);
@@ -10,11 +11,11 @@ CREATE TABLE picking_sessions(id uuid,order_id uuid,status text); CREATE TABLE p
 await db.exec(`ALTER TABLE audit_logs ADD COLUMN actor_user_id uuid; CREATE TABLE users(id uuid,email text);
 ALTER TABLE picking_sessions ADD COLUMN created_at timestamptz,ADD COLUMN completed_at timestamptz;
 ALTER TABLE packing_sessions ADD COLUMN packed_at timestamptz,ADD COLUMN package_barcode text;
-ALTER TABLE payments ADD COLUMN id uuid,ADD COLUMN provider text,ADD COLUMN amount numeric,ADD COLUMN currency text,ADD COLUMN created_at timestamptz,ADD COLUMN verified_at timestamptz;
+ALTER TABLE payments ADD COLUMN id uuid,ADD COLUMN provider text,ADD COLUMN provider_reference text,ADD COLUMN amount numeric,ADD COLUMN currency text,ADD COLUMN created_at timestamptz,ADD COLUMN verified_at timestamptz;
 CREATE TABLE order_addresses(order_id uuid,recipient_name text,phone text,city text,district text,address_line text,postal_code text);
 CREATE TABLE order_items(id uuid,order_id uuid,product_name text,sku text,quantity integer,unit_amount numeric,currency text);
 CREATE TABLE support_tickets(id uuid,order_id uuid,ticket_number text,subject text,status text,priority text,created_at timestamptz);
-CREATE TABLE shipments(id uuid,order_id uuid,status text,tracking_number text,provider text,created_at timestamptz);
+CREATE TABLE shipments(id uuid,order_id uuid,status text,tracking_number text,provider text,created_at timestamptz,tracking_direction_code text);
 CREATE TABLE shipment_events(shipment_id uuid,description text,occurred_at timestamptz);
 CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity integer); CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);`);
 const orderId='11111111-1111-4111-8111-111111111111',dealerId='22222222-2222-4222-8222-222222222222',levelId='33333333-3333-4333-8333-333333333333';
@@ -24,8 +25,14 @@ await db.query("INSERT INTO dealer_levels VALUES($1,'Test Seviyesi')",[levelId])
 await db.query("INSERT INTO audit_logs(id,entity_type,action,entity_id,metadata,created_at) VALUES($1,'order','order.dealer.created',$2,$3,now()),($4,'other','test','not-a-uuid','{}',now())",[orderId,orderId,JSON.stringify({dealerId}),dealerId]);
 const source=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/orders.service.ts'),'utf8');
 const detail=source.slice(source.indexOf('async detail(id:string)'),source.indexOf('  async track('));
-const reportStatus=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/report-order-status.ts'),'utf8').split(String.fromCharCode(96))[1];
-const sql=detail.match(/this\.db\.query[^`]*`([^`]+)`/)[1].replace('${reportOrderStatus}',reportStatus);
+const box={exports:{}};
+const statusSource=fs.readFileSync(path.join(__dirname,'../apps/api/src/orders/report-order-status.ts'),'utf8');
+vm.runInNewContext(ts.transpileModule(statusSource,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,box);
+const resolveSql=(sql)=>sql.replace(/\$\{(\w+)\}/g,(_,name)=>{
+ assert.equal(typeof box.exports[name],'string',`Missing SQL expression ${name}`);
+ return box.exports[name];
+});
+const sql=resolveSql(detail.match(/this\.db\.query[^`]*`([^`]+)`/)[1]);
 assert.ok(sql.includes('entity_id=o.id::text'));
 await assert.rejects(db.query(sql.replace('entity_id=o.id::text','entity_id=o.id'),[orderId]),/operator does not exist: text = uuid/);
 const result=await db.query(sql,[orderId]);
@@ -34,8 +41,8 @@ await db.query("INSERT INTO order_items VALUES($1,$1,'Test Ürün','TEST',5,20,'
 await db.query("INSERT INTO order_addresses VALUES($1,'Test Alıcı','000','Test İl','Test İlçe','Test Adres','00000')",[orderId]);
 await db.query("INSERT INTO picking_sessions VALUES($1,$2,'COMPLETED',now(),now())",[levelId,orderId]);
 await db.query("INSERT INTO packing_sessions VALUES($1,now(),'TEST-PKG')",[levelId]);
-await db.query("INSERT INTO shipments VALUES($1,$2,'CREATED',NULL,'aras',now())",[dealerId,orderId]);
-const queries=[...detail.matchAll(/this\.db\.query(?:<[^>]*>)?\((['`])([\s\S]*?)\1,\[id\]\)/g)].map(match=>match[2].replace('${reportOrderStatus}',reportStatus));
+await db.query("INSERT INTO shipments(id,order_id,status,tracking_number,provider,created_at) VALUES($1,$2,'CREATED',NULL,'aras',now())",[dealerId,orderId]);
+const queries=[...detail.matchAll(/this\.db\.query(?:<[^>]*>)?\((['`])([\s\S]*?)\1,\[id\]\)/g)].map(match=>resolveSql(match[2]));
 assert.equal(queries.length,9,'Every order detail SQL query must be tested');
 const results=[];for(const query of queries)results.push(await db.query(query,[orderId]));
 assert.equal(results[1].rows[0].recipient_name,'Test Alıcı');

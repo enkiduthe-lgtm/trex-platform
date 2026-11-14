@@ -208,9 +208,11 @@ export class OrdersService {
       (SELECT count(*)::int FROM returns r JOIN orders o ON o.id=r.order_id
         WHERE o.archived_at IS NULL AND r.status='REFUNDED' AND ${bounds('r.completed_at')}) returns_refunded,
       (SELECT count(*)::int FROM shipments s JOIN orders o ON o.id=s.order_id
-        WHERE o.archived_at IS NULL AND s.status IN ('CREATED','IN_TRANSIT') AND ${bounds('s.created_at')}) shipments_active,
+        WHERE o.archived_at IS NULL AND s.status IN ('CREATED','IN_TRANSIT') AND s.tracking_direction_code IS DISTINCT FROM '3' AND ${bounds('s.created_at')}) shipments_active,
       (SELECT count(*)::int FROM shipments s JOIN orders o ON o.id=s.order_id
-        WHERE o.archived_at IS NULL AND s.status='FAILED' AND ${bounds('s.updated_at')}) shipments_failed,
+        WHERE o.archived_at IS NULL AND s.status='FAILED' AND s.tracking_direction_code IS DISTINCT FROM '3' AND ${bounds('s.updated_at')}) shipments_failed,
+      (SELECT count(*)::int FROM shipments s JOIN orders o ON o.id=s.order_id
+        WHERE o.archived_at IS NULL AND s.tracking_direction_code='3' AND ${bounds('COALESCE(s.tracking_checked_at,s.updated_at)')}) shipments_returned,
       (SELECT count(*)::int FROM support_tickets t LEFT JOIN orders o ON o.id=t.order_id
         WHERE o.archived_at IS NULL AND t.status IN ('OPEN','IN_PROGRESS','WAITING_CUSTOMER') AND t.due_at<now() AND ${bounds('t.due_at')}) support_overdue`,[period.dateFrom,period.dateTo])).rows[0];
   }
@@ -229,7 +231,7 @@ export class OrdersService {
     const [address,items,payments,supportTickets,shipments,returns,activity,fulfillment]=await Promise.all([
       this.db.query<{recipient_name:string;phone:string;city:string;district:string;address_line:string;postal_code:string|null}>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1',[id]),
       this.db.query<{id:string;quantity:number;unit_amount:string}>('SELECT id,product_name,sku,quantity,unit_amount,currency FROM order_items WHERE order_id=$1 ORDER BY id',[id]),
-      this.db.query<{provider_reference:string}&Record<string,unknown>>('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at,p.provider_reference FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
+      this.db.query<{provider_reference:string}>('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at,p.provider_reference FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
       this.db.query('SELECT id,ticket_number,subject,status,priority,created_at FROM support_tickets WHERE order_id=$1 ORDER BY created_at DESC',[id]),
       this.db.query(`SELECT s.id,s.status,s.tracking_number,s.provider,s.created_at,pk.package_barcode,
         se.description AS last_event_description,se.occurred_at AS last_event_at

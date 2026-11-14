@@ -10,7 +10,7 @@ import { reportPeriodLink } from '../lib/report-period';
 
 type Row = { status?: string; sales_channel?: string; label?: string; sku?: string; count: number; amount: string };
 type Report = { dateFrom: string; dateTo: string; currency: string; totals: { order_count: number; revenue: string; average_order: string }; financial: { income: string; expense: string; net: string }; statuses: Row[]; channels: Row[]; daily: Row[]; topProducts: Row[] };
-type Operations = { returns_open: number; returns_refunded: number; shipments_active: number; shipments_failed: number; support_overdue: number };
+type Operations = { returns_open: number; returns_refunded: number; shipments_active: number; shipments_failed: number; shipments_returned?: number; support_overdue: number };
 type Filters = { dateFrom: string; dateTo: string; currency: string };
 const calendarDate = (days=0) => new Intl.DateTimeFormat('sv-SE', {timeZone:'Europe/Istanbul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-days*86400000));
 const channel = (value:string) => ({PUBLIC_WEB:'Site Satışı',ADMIN_ORDER:'Yönetici Siparişi',RETAIL:'Perakende',DEALER_PORTAL:'Sistem Bayi',WHOLESALE:'Toptan',INSTAGRAM:'Instagram',MARKETPLACE:'Pazaryeri'}[value]??value);
@@ -67,7 +67,7 @@ export default function Reports() {
    <ReportTable title="Sipariş Durumları" headers={['Durum','Sipariş Sayısı','Sipariş Tutarı']} rows={data.statuses.map(r=>[statusName(r.status??''),r.count,money(r.amount)])}/>
    <ReportTable title="En Çok Satan 10 Ürün" headers={['Ürün','SKU','Adet','İptal ve Tam İadeler Hariç Tutar']} rows={data.topProducts.map(r=>[r.label??'',r.sku??'',r.count,money(r.amount)])}/>
   </>}
-  {operations&&<ReportTable title="Dönem Operasyon Özeti — Tüm Para Birimleri" headers={['Açık İade','Tamamlanan İade','Aktif Kargo','Sorunlu Kargo','Vadesi Geçen Destek']} rows={[[operations.returns_open,operations.returns_refunded,operations.shipments_active,operations.shipments_failed,operations.support_overdue]]}/>}
+  {operations&&<ReportTable title="Dönem Operasyon Özeti — Tüm Para Birimleri" headers={['Açık İade','Tamamlanan İade','Aktif Kargo','Sorunlu Kargo','Kargo İadesi','Vadesi Geçen Destek']} rows={[[operations.returns_open,operations.returns_refunded,operations.shipments_active,operations.shipments_failed,operations.shipments_returned ?? '—',operations.support_overdue]]}/>}
   <section className={styles.catalog}><div className={styles.catalogHeader}><h2>Rapor Kataloğu</h2><label>Rapor Ara<input value={reportSearch} onChange={e=>setReportSearch(e.target.value)}/></label></div>
    <div className={styles.tableWrap}><table><thead><tr><th>Rapor Adı</th><th>Kategori</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>
     <tr><td>Detaylı Satış Raporu</td><td>Satışlar</td><td>Hazır</td><td><Link href={reportPeriodLink('/raporlar/satis',data??filters)}>Raporu Aç</Link></td></tr>

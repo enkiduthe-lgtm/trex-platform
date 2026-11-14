@@ -12,7 +12,8 @@ async function main(){
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid,product_name text,sku text,quantity int,unit_amount numeric(12,2));
  CREATE TABLE audit_logs(id uuid PRIMARY KEY,entity_id text,entity_type text,action text,metadata jsonb,created_at timestamptz DEFAULT now());
  CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);
- CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(order_id uuid PRIMARY KEY,status text); CREATE TABLE payments(id uuid PRIMARY KEY,checkout_id uuid,status text,created_at timestamptz);`);
+ CREATE TABLE return_refunds(return_id uuid,amount numeric(12,2),currency text);
+ CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(order_id uuid PRIMARY KEY,status text,tracking_direction_code text); CREATE TABLE payments(id uuid PRIMARY KEY,checkout_id uuid,status text,created_at timestamptz);`);
  await db.query("INSERT INTO dealer_levels VALUES($1,'Eski Seviye'),($2,'Yeni Seviye')",[id(1),id(2)]);await db.query("INSERT INTO dealers VALUES($1,'D1','Bayi Bir',$2,'ACTIVE'),($3,'D2','Pasif Bayi',$2,'SUSPENDED')",[id(10),id(2),id(11)]);
  for(const [n,currency,total,status,dealer,level] of [[20,'TRY',35,'PAID',10,1],[21,'USD',50,'PAID',10,1],[22,'TRY',100,'CANCELLED',10,1],[23,'TRY',10,'PAID',11,null]]){
   await db.query('INSERT INTO orders(id,order_number,checkout_id,status,total_amount,currency,created_at) VALUES($1,$2,$1,$3,$4,$5,$6)',[id(n),'ORDER-'+n,status,total,currency,at]);
@@ -37,7 +38,7 @@ async function main(){
  assert.equal(refundedDealer.item_count,3);
  assert.equal((await service.salesReportDetail(today,today,undefined,undefined,'REFUNDED')).length,1);
  await db.query("UPDATE orders SET status='PROCESSING' WHERE id=$1",[id(20)]);
- await db.query("INSERT INTO shipments VALUES($1,'CREATED')",[id(20)]);
+ await db.query("INSERT INTO shipments(order_id,status) VALUES($1,'CREATED')",[id(20)]);
  const registered=await service.salesReportDetail(today,today,undefined,undefined,'REGISTERED');
  assert.equal(registered.length,2);
  assert(registered.every(row=>row.order_id===id(20)&&row.status==='REGISTERED'));
