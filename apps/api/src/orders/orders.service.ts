@@ -244,13 +244,14 @@ export class OrdersService {
   async issueInvoice(orderId: string, actor: RequestUser) {
     if (!this.parasut) throw new ServiceUnavailableException('Paraşüt bağlantısı kullanılamıyor');
     const result = await this.db.transaction(async client => {
-      const order = (await client.query<{ status: string; currency: string; cod_service_fee: string; order_number: string; created_at: string; customer_email: string | null }>(`
-        SELECT o.status,o.currency,o.cod_service_fee,o.order_number,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email
+      const order = (await client.query<{ status: string; currency: string; cod_service_fee: string; discount_amount: string; order_number: string; created_at: string; customer_email: string | null }>(`
+        SELECT o.status,o.currency,o.cod_service_fee,COALESCE(cs.discount_amount,0)::text AS discount_amount,o.order_number,o.created_at,COALESCE(c.email,cs.contact_email) AS customer_email
         FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id
         WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`, [orderId])).rows[0];
       if (!order) throw new NotFoundException('Sipariş bulunamadı');
       if (['CANCELLED','REFUNDED'].includes(order.status)) throw new ConflictException('Kapalı sipariş için yeni fatura düzenlenemez');
       if (order.currency !== 'TRY') throw new ConflictException('Paraşüt gönderimi şu anda TL siparişler için kullanılabilir.');
+      if (Number(order.discount_amount)>0) throw new ConflictException('Kuponlu siparişin indirimli faturasını Paraşüt’te hazırlayın.');
       const invoice = (await client.query<{
         id: string; customer_type: 'INDIVIDUAL' | 'CORPORATE'; recipient_name: string; identity_number: string | null; company_name: string | null; tax_number: string | null; tax_office: string | null; billing_address: string; billing_city: string | null; billing_district: string | null; provider_status: string;
       }>('SELECT * FROM order_invoices WHERE order_id=$1 FOR UPDATE', [orderId])).rows[0];

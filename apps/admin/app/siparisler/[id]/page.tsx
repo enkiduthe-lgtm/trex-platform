@@ -32,6 +32,7 @@ type Detail = {
   can_cancel?: boolean;
   price_editable?: boolean;
   archived_at?: string | null;
+  discount_amount?: string;
   archive_reason?: string | null;
   total_amount: string; cod_service_fee?:string;
   currency: string;
@@ -590,6 +591,7 @@ export default function OrderDetail() {
             {role === "SUPER_ADMIN" && (
               <details id="fatura" className={`${styles.detailCard} ${styles.detailWide} ${styles.foldCard}`}>
                 <summary>Fatura İşlemleri</summary>
+                {Number(data.discount_amount ?? 0)>0 && invoice?.provider_status !== "ISSUED" && <p>Kupon indirimini içeren faturayı Paraşüt’te hazırlayın.</p>}
                 {invoice ? (
                   <><p>
                     {invoice.customer_type === "CORPORATE" ? "Kurumsal" : "Bireysel"} fatura · {({
@@ -599,9 +601,9 @@ export default function OrderDetail() {
                     {invoice.invoice_number && ` · Fatura no: ${invoice.invoice_number}`}
                   </p>
                   {invoice.provider_status === "PENDING_PROVIDER" && <p>Tekrar göndermeden önce Paraşüt’te sipariş numarasıyla faturayı kontrol edin.</p>}
-                  {!data.archived_at && data.currency === "TRY" && !["CANCELLED","REFUNDED"].includes(displayStatus) && ["DRAFT","FAILED"].includes(invoice.provider_status) &&
+                  {!data.archived_at && !Number(data.discount_amount ?? 0) && data.currency === "TRY" && !["CANCELLED","REFUNDED"].includes(displayStatus) && ["DRAFT","FAILED"].includes(invoice.provider_status) &&
                     <button type="button" onClick={issueInvoice} disabled={invoiceSaving}>{invoiceSaving ? "Gönderiliyor…" : "Paraşüt’e gönder"}</button>}</>
-                ) : !data.archived_at && !["CANCELLED","REFUNDED"].includes(displayStatus) ? (
+                ) : !data.archived_at && !Number(data.discount_amount ?? 0) && !["CANCELLED","REFUNDED"].includes(displayStatus) ? (
                   <form onSubmit={saveInvoice}>
                     <label>Fatura türü
                       <select value={invoiceType} onChange={(event) => setInvoiceType(event.target.value as "INDIVIDUAL" | "CORPORATE")}>

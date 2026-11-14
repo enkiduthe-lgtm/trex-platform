@@ -19,10 +19,10 @@ async function main(){
  await assert.rejects(()=>service.invoicePdf('order'),/Henüz Fatura/);
  invoice={provider_status:'DRAFT',provider_invoice_id:'42'};await assert.rejects(()=>service.invoicePdf('order'),/Gönderilmemiş/);assert.equal(pdfCalls,0);
  invoice={provider_status:'ISSUED',provider_invoice_id:'42'};assert.equal((await service.invoicePdf('order')).ready,true);assert.equal(pdfCalls,1);
- let attempts=0;
+ let attempts=0,discountAmount='10.00';
  invoice={id:'draft',provider_status:'DRAFT'};
  const invoiceDb={async query(sql,args){
-  if(sql.includes('FROM orders o'))return {rows:[{status:'PROCESSING',currency:'TRY',cod_service_fee:'75.00',order_number:'TEST-1',created_at:'2026-11-05T21:01:00Z'}]};
+  if(sql.includes('FROM orders o'))return {rows:[{status:'PROCESSING',currency:'TRY',cod_service_fee:'75.00',discount_amount:discountAmount,order_number:'TEST-1',created_at:'2026-11-05T21:01:00Z'}]};
   if(sql.includes('SELECT * FROM order_invoices'))return {rows:[invoice]};
   if(sql.includes('SELECT product_name'))return {rows:[{product_name:'Tea',quantity:1,unit_amount:'100.00'}]};
   if(sql.includes("SET provider_status='PENDING_PROVIDER'"))invoice.provider_status='PENDING_PROVIDER';
@@ -33,6 +33,8 @@ async function main(){
    attempts++;assert.equal(input.issueDate,'2026-11-06');assert.equal(input.lines[1].unitPrice,75);
    throw new ParasutInvoiceOutcomeUnknown();
  }});
+ await assert.rejects(()=>issueService.issueInvoice('order',{id:'director'}),/Kuponlu sipariş/);
+ assert.equal(attempts,0);discountAmount='0.00';
  await assert.rejects(()=>issueService.issueInvoice('order',{id:'director'}),ParasutInvoiceOutcomeUnknown);
  assert.equal(invoice.provider_status,'PENDING_PROVIDER');
  await assert.rejects(()=>issueService.issueInvoice('order',{id:'director'}),/sonucu bekleniyor/);

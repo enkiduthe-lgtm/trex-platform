@@ -9,6 +9,7 @@ describe('CheckoutService', () => {
       if(sql.startsWith('SELECT request_hash')) return {rows:[]};
       if(sql.startsWith('SELECT id FROM carts')) return {rows:[{id:dto.cartId}],rowCount:1};
       if(sql.startsWith('SELECT ci.product_id')) return {rows:items};
+      if(sql.startsWith('SELECT c.id,c.discount_type')) return {rows:[{id:'coupon',discount_type:'PERCENT',discount_value:'33.33',usage_limit:null,used_count:0}]};
       if(sql.startsWith('SELECT id FROM warehouses')) return {rows:warehouse?[{id:dto.warehouseId}]:[]};
       if(sql.startsWith('SELECT physical_quantity')) return {rows:[{physical_quantity:10,reserved_quantity:0}]};
       if(sql.startsWith('INSERT INTO checkout_sessions')) return {rows:[{id:'checkout'}]};
@@ -39,6 +40,11 @@ describe('CheckoutService', () => {
     expect(calls.find(([sql])=>sql.startsWith('SELECT ci.product_id'))![0]).toContain('ORDER BY ci.product_id FOR SHARE OF p');
     expect(calls.find(([sql])=>sql.startsWith('INSERT INTO checkout_items'))![1]).toEqual(['checkout','product','Tea','TEA',2,'759.99','TRY']);
     expect(calls.find(([sql])=>sql.startsWith('INSERT INTO inventory_movements'))![1]).toEqual(['product',dto.warehouseId,'reservation']);
+  });
+  it('rounds a percentage coupon once to the nearest cent', async () => {
+    const { service, pricing } = checkoutSetup([{...activeItem,quantity:3}]);
+    pricing.resolve.mockResolvedValue({amount:'10.01',currency:'TRY'});
+    await expect(service.create({...dto,couponCode:'TEST'},'coupon-key')).resolves.toMatchObject({ subtotal:'30.03',discount:'10.01',total:'20.02' });
   });
   it('records an active legal document version with a checkout when supplied', async () => {
     const { service, query } = checkoutSetup();

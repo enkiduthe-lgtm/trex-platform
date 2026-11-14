@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import { PricingService } from '../pricing/pricing.service';
 import { SalesChannel } from '../pricing/dto/create-price.dto';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { cents, formatCents } from '../orders/order-pricing';
 
 interface CartItem { product_id: string; quantity: number; name: string; sku: string; status: string; }
 @Injectable()
@@ -39,16 +40,21 @@ export class CheckoutService {
       const priced = await Promise.all(items.map(async (item) => ({ ...item, price: await this.pricing.resolve(item.product_id, { channel: SalesChannel.PUBLIC_WEB }) })));
       if (priced.some((item) => !item.price)) throw new ConflictException('An item has no effective price');
       if (priced.some(item => item.price!.currency !== 'TRY')) throw new ConflictException('Mağaza siparişi için ürün fiyatları TL olmalıdır. Yönetim panelindeki mağaza fiyatını kontrol edin.');
-      const subtotal = priced.reduce((sum, item) => sum + Number(item.price!.amount) * item.quantity, 0);
-      let couponId: string | null = null; let discount = 0;
+      const subtotal = priced.reduce((sum, item) => sum + cents(item.price!.amount) * BigInt(item.quantity), 0n);
+      let couponId: string | null = null;
+      let discount = 0n;
       if (dto.couponCode) {
         const coupon = await client.query<{id:string;discount_type:'FIXED_TRY'|'PERCENT';discount_value:string;usage_limit:number|null;used_count:number}>("SELECT c.id,c.discount_type,c.discount_value,c.usage_limit,c.used_count FROM coupons c JOIN campaigns p ON p.id=c.campaign_id WHERE upper(c.code)=upper($1) AND p.status='ACTIVE' AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>now()) AND (p.starts_at IS NULL OR p.starts_at<=now()) AND (p.ends_at IS NULL OR p.ends_at>now()) FOR UPDATE", [dto.couponCode]);
         const row=coupon.rows[0]; if (!row || (row.usage_limit !== null && row.used_count >= row.usage_limit)) throw new ConflictException('Coupon is not available');
-        couponId=row.id; const raw=row.discount_type==='PERCENT' ? subtotal * Number(row.discount_value) / 100 : Number(row.discount_value); discount=Math.min(subtotal,Math.round(raw*100)/100);
+        couponId = row.id;
+        const value = cents(row.discount_value);
+        const calculated = row.discount_type === 'PERCENT' ? (subtotal * value + 5_000n) / 10_000n : value;
+        discount = calculated < subtotal ? calculated : subtotal;
       }
       const total = subtotal - discount;
+      if (total > 999999999999n || discount > 999999999999n) throw new ConflictException('Sipariş tutarı kayıt sınırını aşıyor.');
       const minimumOrderAmount = Number(settings.minimumOrderAmount ?? 0);
-      if (Number.isFinite(minimumOrderAmount) && minimumOrderAmount > 0 && total < minimumOrderAmount) throw new ConflictException(`Minimum sipariş tutarı ${minimumOrderAmount.toLocaleString('tr-TR')} TL olmalıdır.`);
+      if (Number.isFinite(minimumOrderAmount) && minimumOrderAmount > 0 && Number(total) / 100 < minimumOrderAmount) throw new ConflictException(`Minimum sipariş tutarı ${minimumOrderAmount.toLocaleString('tr-TR')} TL olmalıdır.`);
       const warehouse = await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR SHARE', [dto.warehouseId]);
       if (!warehouse.rows[0]) throw new ConflictException('Teslimat için aktif depo bulunamadı');
       for (const item of priced) {
@@ -56,7 +62,7 @@ export class CheckoutService {
         if (!inventory.rows[0] || inventory.rows[0].physical_quantity - inventory.rows[0].reserved_quantity < item.quantity) throw new ConflictException(`Insufficient stock for ${item.sku}`);
         await client.query('UPDATE inventory SET reserved_quantity=reserved_quantity+$1, updated_at=now() WHERE product_id=$2 AND warehouse_id=$3', [item.quantity, item.product_id, dto.warehouseId]);
       }
-      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions (cart_id,total_amount,coupon_id,discount_amount,contact_email,contact_name,expires_at) VALUES ($1,$2,$3,$4,$5,$6,now() + ($7 * interval '1 minute')) RETURNING id", [dto.cartId, total, couponId, discount, dto.contactEmail.trim().toLowerCase(), dto.recipientName.trim(), dto.reservationMinutes]);
+      const checkout = await client.query<{ id: string }>("INSERT INTO checkout_sessions (cart_id,total_amount,coupon_id,discount_amount,contact_email,contact_name,expires_at) VALUES ($1,$2,$3,$4,$5,$6,now() + ($7 * interval '1 minute')) RETURNING id", [dto.cartId, formatCents(total), couponId, formatCents(discount), dto.contactEmail.trim().toLowerCase(), dto.recipientName.trim(), dto.reservationMinutes]);
       const activeLegal = await client.query<{ id: string; code: string; version: string }>("SELECT id,code,version FROM legal_documents WHERE is_active=true AND published_at IS NOT NULL ORDER BY code");
       const accepted = new Set((dto.legalAcceptances ?? []).map(item => `${item.code}:${item.version}`));
       if (activeLegal.rows.some(document => !accepted.has(`${document.code}:${document.version}`))) throw new ConflictException('Devam etmek için güncel yasal metinleri onaylayın.');
@@ -70,7 +76,7 @@ export class CheckoutService {
         await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,reference_id) VALUES ($1,$2,'RESERVATION',0,'stock_reservation',$3)", [item.product_id,dto.warehouseId,reservation.rows[0].id]);
       }
       await client.query('INSERT INTO idempotency_records (key,request_hash,resource_type,resource_id,expires_at) VALUES ($1,$2,$3,$4,now() + interval \'24 hours\')', [idempotencyKey, requestHash, 'checkout', checkout.rows[0].id]);
-      return { checkoutId: checkout.rows[0].id, subtotal: subtotal.toFixed(2), discount: discount.toFixed(2), total: total.toFixed(2), currency: 'TRY', replayed: false };
+      return { checkoutId: checkout.rows[0].id, subtotal: formatCents(subtotal), discount: formatCents(discount), total: formatCents(total), currency: 'TRY', replayed: false };
     });
   }
 }
