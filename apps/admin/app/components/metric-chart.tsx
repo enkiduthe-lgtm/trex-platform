@@ -11,10 +11,16 @@ export function MetricChart({ title, description, data, currency, variant = 'bar
 }) {
   const id = useId();
   const [selection, setSelection] = useState<{index:number;signature:string}|null>(null);
+  const [preview, setPreview] = useState<{index:number;signature:string}|null>(null);
   const rows = data.filter(item => Number.isFinite(item.value));
   const signature = JSON.stringify([currency,variant,rows.map(row=>[row.label,row.value])]);
-  const active = selection?.signature === signature ? selection.index : null;
-  const setActive = (index:number|null) => setSelection(index===null?null:{index,signature});
+  const chosen = selection?.signature === signature ? selection.index : null;
+  const active = preview?.signature === signature ? preview.index : chosen;
+  const previewRow = (index:number|null) => setPreview(index===null?null:{index,signature});
+  const selectRow = (index:number) => {
+    setPreview(null);
+    setSelection(chosen===index?null:{index,signature});
+  };
   const format = (value: number, compact = false) => new Intl.NumberFormat('tr-TR', currency
     ? { style: 'currency', currency, notation: compact && Math.abs(value)>=1000 ? 'compact' : 'standard', maximumFractionDigits: compact && Math.abs(value)>=1000 ? 1 : 2 }
     : { notation: compact && Math.abs(value)>=1000 ? 'compact' : 'standard', maximumFractionDigits: compact && Math.abs(value)>=1000 ? 1 : 0 }).format(value);
@@ -35,17 +41,18 @@ export function MetricChart({ title, description, data, currency, variant = 'bar
       <svg className={styles.ring} viewBox="0 0 200 200" role="img" aria-label={title}>
         <circle cx="100" cy="100" r="74" fill="none" stroke="#eeeaf3" strokeWidth="24" />
         {rows.map((row, index) => {
+          if (row.value === 0) return null;
           const part = row.value / total * 100, offset = ringOffset; ringOffset += part;
           return <circle key={index} cx="100" cy="100" r="74" fill="none" stroke={ringColor(row,index)} strokeWidth={active === index ? 30 : 24} pathLength="100" strokeDasharray={`${part} ${100 - part}`} strokeDashoffset={-offset} transform="rotate(-90 100 100)" opacity={active === null || active === index ? 1 : .35}><title>{`${row.label}: ${format(row.value)}`}</title></circle>;
         })}
         <text x="100" y="97" textAnchor="middle" className={styles.ringTotal}>{format(total, true)}</text><text x="100" y="119" textAnchor="middle" className={styles.ringCaption}>Toplam</text>
       </svg>
-      <div className={styles.legend}>{rows.map((row, index) => <button key={index} type="button" onMouseEnter={() => setActive(index)} onMouseLeave={() => setActive(null)} onFocus={() => setActive(index)} onBlur={() => setActive(null)} onClick={() => setActive(index)} aria-pressed={active === index}><i style={{ background: ringColor(row,index) }} /><span>{row.label}</span><b>{format(row.value)}<small>%{(row.value / total * 100).toLocaleString('tr-TR', { maximumFractionDigits: 1 })}</small></b></button>)}</div>
+      <div className={styles.legend}>{rows.map((row, index) => <button key={index} type="button" onMouseEnter={() => previewRow(index)} onMouseLeave={() => previewRow(null)} onFocus={() => previewRow(index)} onBlur={() => previewRow(null)} onClick={() => selectRow(index)} aria-pressed={chosen === index}><i style={{ background: ringColor(row,index) }} /><span>{row.label}</span><b>{format(row.value)}<small>%{(row.value / total * 100).toLocaleString('tr-TR', { maximumFractionDigits: 1 })}</small></b></button>)}</div>
     </div> : <div className={styles.plot}>
       <svg viewBox="0 0 720 242" className={styles.bars} role="group" aria-label={title}>
         {ticks.map(value => <g key={value}><line x1="90" x2="692" y1={y(value)} y2={y(value)} stroke="#e9e5ee" strokeDasharray="4 5" /><text x="80" y={y(value) + 4} textAnchor="end" className={styles.axis}>{format(value, true)}</text></g>)}
         <line x1="90" x2="692" y1={y(0)} y2={y(0)} stroke="#c1b5cd" />
-        {rows.map((row, index) => <g key={index} role="button" tabIndex={0} aria-label={`${row.label}: ${format(row.value)}`} onMouseEnter={() => setActive(index)} onMouseLeave={() => setActive(null)} onFocus={() => setActive(index)} onBlur={() => setActive(null)} onClick={() => setActive(index)} onKeyDown={event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); setActive(index); } }}>
+        {rows.map((row, index) => <g key={index} role="button" tabIndex={0} aria-pressed={chosen === index} aria-label={`${row.label}: ${format(row.value)}`} onMouseEnter={() => previewRow(index)} onMouseLeave={() => previewRow(null)} onFocus={() => previewRow(index)} onBlur={() => previewRow(null)} onClick={() => selectRow(index)} onKeyDown={event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); selectRow(index); } }}>
           <rect x={90 + index * step} y="16" width={step} height="196" fill="transparent" />
           <rect x={90 + index * step + step * .23} y={Math.min(y(0), y(row.value))} width={step * .54} height={Math.abs(y(row.value) - y(0))} rx="5" fill={row.color ?? (row.value<0?'#db457b':'#7c3aed')} opacity={active === null || active === index ? 1 : .35} />
           <text x={90 + index * step + step / 2} y="224" textAnchor="middle" className={styles.axis}>{row.label.length > 13 ? row.label.slice(0, 12) + '…' : row.label}</text>

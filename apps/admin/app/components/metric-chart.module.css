@@ -6,3 +6,8 @@
 .empty{min-height:215px;display:grid;place-items:center;background:#faf8fc;border:1px dashed #e1d8e8;border-radius:10px;color:#786b82;font-size:13px;text-align:center;padding:20px}.details{margin-top:12px;border-top:1px solid #eee8f3;padding-top:10px}.details summary{color:#705b80;font-size:12px;cursor:pointer}.details>div{max-height:240px;overflow:auto;margin-top:10px}.details table{border-collapse:collapse;width:100%;font-size:12px}.details th,.details td{padding:8px 10px;text-align:left;border-bottom:1px solid #eee8f3}.details td:last-child,.details th:last-child{text-align:right;white-space:nowrap}
 @media(max-width:650px){.card{padding:15px;border-radius:12px}.readout strong{font-size:21px}.ringLayout{grid-template-columns:1fr}.ring{max-width:190px}}@media(prefers-reduced-motion:reduce){.bars rect{transition:none}}
 .readout{flex-wrap:wrap}.readout strong{max-width:100%;white-space:normal;overflow-wrap:anywhere}.legend span{min-width:0;overflow-wrap:anywhere}.legend b{max-width:65%;white-space:normal;overflow-wrap:anywhere}
+.card{box-sizing:border-box;display:flex;flex-direction:column;container-type:inline-size}
+.plot{display:flex;flex-direction:column;justify-content:center;flex:1 0 auto;min-height:215px}
+.details{margin-top:auto;padding-top:10px}
+.plot,.ringLayout,.empty{margin-bottom:12px}
+@container (max-width:340px){.ringLayout{grid-template-columns:minmax(0,1fr);gap:10px}.ring{max-width:175px}}
