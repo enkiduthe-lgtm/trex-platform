@@ -6,7 +6,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { RequireRoles } from '../auth/roles.decorator';
 import { Roles } from '../auth/roles';
 import { RequestUser } from '../auth/auth.types';
-import { reportOrderStatus } from '../orders/report-order-status';
+import { completedRefundAmount, netOrderAmount, reportOrderStatus } from '../orders/report-order-status';
 import { OrdersService } from '../orders/orders.service';
 import { AdminOrderService } from '../orders/admin-order.service';
 import { CreateAdminOrderDto } from '../orders/dto/create-admin-order.dto';
@@ -29,7 +29,11 @@ export class DealerPortalController {
 
   @Get('orders')
   async listOrders(@Req() req: UserRequest) {
-    const result = await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at FROM orders o WHERE o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order') ORDER BY o.created_at DESC`, [req.user.id]);
+    const result = await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,
+      ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at,
+      COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at
+      FROM orders o WHERE o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')
+      ORDER BY o.created_at DESC,o.id`, [req.user.id]);
     return result.rows;
   }
 
@@ -41,7 +45,8 @@ export class DealerPortalController {
 
   @Get('orders/:id')
   async orderDetail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
-    const order = await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,o.cod_service_fee,o.currency,o.created_at
+    const order = await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,
+      ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at
       FROM orders o WHERE o.id=$2 AND o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text
         AND al.entity_type='order' AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created'))`, [req.user.id,id]);
     if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');

@@ -8,14 +8,14 @@ const cache=new Map();
 function load(file){
  file=path.resolve(file);if(cache.has(file))return cache.get(file);
  const output=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
- const box={exports:{},require(name){if(name==='@nestjs/common')return {Injectable:()=>target=>target,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error};if(name.startsWith('.'))return load(path.resolve(path.dirname(file),name+'.ts'));return require(name);}};
+ const box={exports:{},require(name){if(name==='@nestjs/common')return {...require(name),Injectable:()=>target=>target,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error};if(name.startsWith('.'))return load(path.resolve(path.dirname(file),name+'.ts'));return require(name);}};
  cache.set(file,box.exports);vm.runInNewContext(output,box,{filename:file});return box.exports;
 }
 const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 async function main(){
  const pg=new PGlite();
  let testNow='2026-11-05T12:00:00+03:00';
- const db={async query(sql,args=[]){const result=await pg.query(sql.replace(/now\(\)/g,`timestamptz '${testNow}'`),args);return {rows:result.rows,rowCount:Math.max(result.affectedRows??0,result.rows.length)};},async transaction(work){await pg.exec('BEGIN');try{const result=await work(db);await pg.exec('COMMIT');return result;}catch(e){await pg.exec('ROLLBACK');throw e;}}};
+ const db={async query(sql,args=[]){const parameters=args.map(arg=>Array.isArray(arg)?'{'+arg.join(',')+'}':arg);const result=await pg.query(sql.replace(/now\(\)/g,`timestamptz '${testNow}'`),parameters);return {rows:result.rows,rowCount:Math.max(result.affectedRows??0,result.rows.length)};},async transaction(work){await pg.exec('BEGIN');try{const result=await work(db);await pg.exec('COMMIT');return result;}catch(e){await pg.exec('ROLLBACK');throw e;}}};
  const {dealerWallet}=load(path.join(root,'apps/api/src/commissions/dealer-wallet.ts'));
  const {DealerPayoutsService}=load(path.join(root,'apps/api/src/dealers/dealer-payouts.service.ts'));
  const {CommissionsService}=load(path.join(root,'apps/api/src/commissions/commissions.service.ts'));
@@ -31,7 +31,7 @@ async function main(){
  CREATE TABLE return_items(id uuid PRIMARY KEY,return_id uuid REFERENCES returns(id),order_item_id uuid REFERENCES order_items(id),quantity integer);
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,name text,currency char(3),is_active boolean);
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),account_id uuid REFERENCES finance_accounts(id),order_id uuid REFERENCES orders(id),kind text,amount numeric(12,2),payment_status text,counterparty_name text,reference_number text,description text,created_by uuid REFERENCES users(id));
- CREATE TABLE return_refunds(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),return_id uuid REFERENCES returns(id),amount numeric(12,2),finance_transaction_id uuid NOT NULL UNIQUE REFERENCES finance_transactions(id));
+ CREATE TABLE return_refunds(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),return_id uuid REFERENCES returns(id),amount numeric(12,2),currency char(3),finance_transaction_id uuid NOT NULL UNIQUE REFERENCES finance_transactions(id));
  CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),actor_user_id uuid,action text,entity_type text,entity_id text,metadata jsonb,created_at timestamptz DEFAULT now());
  CREATE TABLE commission_entries(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),dealer_id uuid REFERENCES dealers(id),recipient_user_id uuid,recipient_kind text DEFAULT 'DEALER',order_id uuid REFERENCES orders(id),order_item_id uuid REFERENCES order_items(id),rule_id uuid,amount numeric(12,2),currency char(3) DEFAULT 'TRY',status text DEFAULT 'PENDING',entry_kind text DEFAULT 'EARN',available_at timestamptz,created_at timestamptz DEFAULT now(),source_entry_id uuid REFERENCES commission_entries(id),reversed_at timestamptz,note text);
  CREATE UNIQUE INDEX commission_entries_reversal_source_unique ON commission_entries(source_entry_id) WHERE entry_kind='REVERSAL';
@@ -118,7 +118,7 @@ async function main(){
  assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions WHERE order_id=$1',[sale.id])).rows[0].count,0);
  // A wallet refund restores credit and cannot create a cash refund transaction.
  const sale2=await adminOrders.create(validBody,uuid(46),actor,dealer);await db.query("UPDATE orders SET status='DELIVERED' WHERE id=$1",[sale2.id]);
- await pg.exec('ALTER TABLE returns ADD COLUMN completed_at timestamptz;ALTER TABLE return_refunds ADD COLUMN payment_id uuid,ADD COLUMN currency char(3),ADD COLUMN created_by uuid;');
+ await pg.exec('ALTER TABLE returns ADD COLUMN completed_at timestamptz;ALTER TABLE return_refunds ADD COLUMN payment_id uuid,ADD COLUMN created_by uuid;');
  const rid=uuid(47),line=(await db.query('SELECT id FROM order_items WHERE order_id=$1',[sale2.id])).rows[0];
  await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'INSPECTED')",[rid,sale2.id]);await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[uuid(48),rid,line.id]);
  const {ReturnsService}=load(path.join(root,'apps/api/src/returns/returns.service.ts'));
@@ -142,7 +142,7 @@ async function main(){
  await pg.exec(`ALTER TABLE users ADD COLUMN is_active boolean DEFAULT true,ADD COLUMN role text DEFAULT 'ADMIN';
  CREATE TABLE commission_rules(id uuid PRIMARY KEY,product_id uuid,recipient_user_id uuid,recipient_kind text,amount_per_unit numeric(12,2),is_active boolean,sales_channel_group text);
  CREATE TYPE shipment_status AS ENUM ('PENDING','CREATED','IN_TRANSIT','DELIVERED','FAILED','CANCELLED');
- CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status shipment_status,provider text DEFAULT 'mock',provider_reference text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
+ CREATE TABLE shipments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),order_id uuid,status shipment_status,provider text DEFAULT 'mock',provider_reference text,tracking_direction_code text,dispatched_at timestamptz,delivered_at timestamptz,failure_reason text,updated_at timestamptz);
  CREATE TABLE shipment_events(shipment_id uuid,status text,provider_event_id text,description text,UNIQUE(shipment_id,provider_event_id));`);
  const sale3=await adminOrders.create({...validBody,items:[{productId:product,quantity:1,unitAmount:550}]},uuid(50),actor,dealer);
  assert.equal((await dealerWallet(db,dealer)).available,'0.00');
@@ -176,9 +176,28 @@ async function main(){
  await db.query("INSERT INTO finance_transactions(order_id,account_id,kind,amount,payment_status,approved_at) VALUES($1,$2,'COLLECTION',600,'PAID',now())",[partial.id,account]);
  await returnService.refund(uuid(64),{amount:300,accountId:account},user);
  assert.equal(Number((await returnService.listAdmin()).find(row=>row.id===uuid(66)).available_refund_amount),300);
+ await pg.exec('ALTER TABLE order_status_history ADD COLUMN created_at timestamptz DEFAULT now()');
+ const {DealerPortalController}=load(path.join(root,'apps/api/src/dealers/dealer-portal.controller.ts'));
+ const dealerPortal=new DealerPortalController(db,orderService,adminOrders);
+ const listed=(await dealerPortal.listOrders({user:{id:user}})).find(row=>row.id===partial.id);
+ assert.equal(listed.refunded_amount,'300.00');
+ assert.equal(listed.net_amount,'700.00');
  await assert.rejects(()=>returnService.refund(uuid(66),{amount:300.01,accountId:account},user),/kalan tahsilat/);
  await returnService.refund(uuid(66),{amount:300,accountId:account},user);
  assert.equal((await db.query("SELECT SUM(amount)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='REFUND'",[partial.id])).rows[0].total,'600.00');
+ await pg.exec(`CREATE TYPE return_status AS ENUM ('REQUESTED','APPROVED','RECEIVED','INSPECTED','REFUNDED','REJECTED','CANCELLED');
+   ALTER TABLE returns ALTER COLUMN status TYPE return_status USING status::return_status,
+     ADD COLUMN approved_by uuid, ADD COLUMN rejected_by uuid, ADD COLUMN rejection_reason text;`);
+ const reviewId=uuid(68);
+ await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REQUESTED')",[reviewId,partial.id]);
+ await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[partial.id]);
+ await assert.rejects(()=>returnService.approve(reviewId,undefined,user),/uygun durumda değil/);
+ await db.query("UPDATE orders SET archived_at=NULL WHERE id=$1",[partial.id]);
+ await returnService.approve(reviewId,'Review test',user);
+ await returnService.receive(reviewId,undefined,user);
+ assert.deepEqual((await db.query('SELECT status,approved_by FROM returns WHERE id=$1',[reviewId])).rows[0],{status:'RECEIVED',approved_by:user});
+ await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[partial.id]);
+ await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/önce onaylanıp/);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

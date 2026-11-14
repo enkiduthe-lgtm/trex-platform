@@ -13,3 +13,10 @@ export const reportOrderStatus = `CASE
     ) THEN 'REFUNDED'
   ELSE o.status::text
 END`;
+
+export const completedRefundAmount = `COALESCE((
+  SELECT SUM(rr.amount) FROM return_refunds rr JOIN returns r ON r.id=rr.return_id
+  WHERE r.order_id=o.id AND r.status='REFUNDED' AND rr.currency=o.currency
+),0)`;
+
+export const netOrderAmount = `GREATEST(o.total_amount-${completedRefundAmount},0)`;

@@ -23,6 +23,14 @@ const walletRefundBalance = `
 export class ReturnsService {
   constructor(private readonly db: DatabaseService, private readonly commissions?: CommissionsService) {}
 
+  async refundAccounts() {
+    return (await this.db.query('SELECT id,name,currency FROM finance_accounts WHERE is_active ORDER BY name,id')).rows;
+  }
+
+  async inspectionWarehouses() {
+    return (await this.db.query('SELECT id,name,code FROM warehouses WHERE is_active ORDER BY name,id')).rows;
+  }
+
   async request(dto: RequestReturnDto) {
     if (!dto.items.length || new Set(dto.items.map(item=>item.orderItemId.toLowerCase())).size!==dto.items.length || !dto.reason.trim()) {
       throw new ConflictException('İade nedeni ve en az bir farklı ürün satırı gerekli');
@@ -61,7 +69,12 @@ export class ReturnsService {
 
   private async transition(returnId:string, from:string[], to:string, actorId:string, note:string|undefined, action:string) {
     return this.db.transaction(async client=>{
-      const row=await client.query<{order_id:string}>(`UPDATE returns SET status=$1::return_status,approved_by=CASE WHEN $1::return_status='APPROVED' THEN $2 ELSE approved_by END,approved_at=CASE WHEN $1::return_status='APPROVED' THEN now() ELSE approved_at END,rejected_by=CASE WHEN $1::return_status='REJECTED' THEN $2 ELSE rejected_by END,rejected_at=CASE WHEN $1::return_status='REJECTED' THEN now() ELSE rejected_at END,rejection_reason=CASE WHEN $1::return_status='REJECTED' THEN $3 ELSE rejection_reason END,received_at=CASE WHEN $1::return_status='RECEIVED' THEN now() ELSE received_at END WHERE id=$4 AND status=ANY($5::return_status[]) RETURNING order_id`,[to,actorId,note?.trim()||null,returnId,from]);
+      const row=await client.query<{order_id:string}>(`WITH active_return AS (
+        SELECT r.id FROM returns r JOIN orders o ON o.id=r.order_id
+        WHERE r.id=$4 AND r.status=ANY($5::return_status[]) AND o.archived_at IS NULL AND o.status<>'CANCELLED'
+        FOR UPDATE OF r,o
+      )
+      UPDATE returns SET status=$1::return_status,approved_by=CASE WHEN $1::return_status='APPROVED' THEN $2 ELSE approved_by END,approved_at=CASE WHEN $1::return_status='APPROVED' THEN now() ELSE approved_at END,rejected_by=CASE WHEN $1::return_status='REJECTED' THEN $2 ELSE rejected_by END,rejected_at=CASE WHEN $1::return_status='REJECTED' THEN now() ELSE rejected_at END,rejection_reason=CASE WHEN $1::return_status='REJECTED' THEN $3 ELSE rejection_reason END,received_at=CASE WHEN $1::return_status='RECEIVED' THEN now() ELSE received_at END WHERE id IN (SELECT id FROM active_return) RETURNING order_id`,[to,actorId,note?.trim()||null,returnId,from]);
       if(!row.rowCount) throw new ConflictException('İade bu işlem için uygun durumda değil');
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actorId,action,'return',returnId,JSON.stringify({from,to,note:note?.trim()||null,orderId:row.rows[0].order_id})]);
       return {returnId,status:to};
@@ -73,12 +86,19 @@ export class ReturnsService {
 
   async inspect(returnId:string,dto:InspectReturnDto,actorId:string) {
     return this.db.transaction(async client=>{
-      const returned=await client.query<{order_id:string}>(`UPDATE returns SET status='INSPECTED' WHERE id=$1 AND status='RECEIVED' RETURNING order_id`,[returnId]);
+      const returned=await client.query<{order_id:string}>(`WITH active_return AS (
+        SELECT r.id FROM returns r JOIN orders o ON o.id=r.order_id
+        WHERE r.id=$1 AND r.status='RECEIVED' AND o.archived_at IS NULL AND o.status<>'CANCELLED'
+        FOR UPDATE OF r,o
+      )
+      UPDATE returns SET status='INSPECTED' WHERE id IN (SELECT id FROM active_return) RETURNING order_id`,[returnId]);
       if(!returned.rowCount) throw new ConflictException('İade önce onaylanıp depoda teslim alınmalıdır');
       const warehouse=await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR UPDATE',[dto.warehouseId]);
       if(!warehouse.rowCount) throw new ConflictException('Aktif bir depo seçin');
-      const items=await client.query<{return_item_id:string;product_id:string;quantity:number}>(`SELECT ri.id AS return_item_id,oi.product_id,ri.quantity FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1 ORDER BY ri.id FOR UPDATE`,[returnId]);
-      const specified = new Map((dto.items ?? []).map(item => [item.returnItemId, item.disposition]));
+      const items=await client.query<{return_item_id:string;product_id:string;quantity:number}>(`SELECT ri.id AS return_item_id,oi.product_id,ri.quantity FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1 AND oi.order_id=$2 ORDER BY oi.product_id,ri.id FOR UPDATE`,[returnId,returned.rows[0].order_id]);
+      if (!items.rows.length) throw new ConflictException('İncelenecek iade ürünü bulunamadı');
+      const specified = new Map((dto.items ?? []).map(item => [item.returnItemId.toLowerCase(), item.disposition]));
+      if (specified.size !== (dto.items?.length ?? 0)) throw new ConflictException('Aynı iade kalemi birden fazla kez seçilemez');
       if (specified.size && (specified.size !== items.rows.length || items.rows.some(item => !specified.has(item.return_item_id)))) throw new ConflictException('Her iade kalemi için stok durumu seçin');
       const defaultDisposition = dto.disposition;
       if (!specified.size && !defaultDisposition) throw new ConflictException('İade stok durumu zorunludur');

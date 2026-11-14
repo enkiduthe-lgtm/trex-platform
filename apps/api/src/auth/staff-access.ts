@@ -16,6 +16,7 @@ export function requestAccess(path:string,method:string):string|null {
   resource=({orders:'ORDERS',products:'PRODUCTS',assets:'PRODUCTS',catalog:'PRODUCTS',prices:'PRICES','product-costs':'PRICES','product-profitability':'REPORTS',warehouse:'STOCK',finance:'FINANCE',dealers:'DEALERS',customers:'CUSTOMERS','current-accounts':'CURRENT',commissions:'COMMISSIONS','dealer-payouts':'COMMISSIONS',campaigns:'CAMPAIGNS',marketplace:'MARKETPLACE',content:'CONTENT',contents:'CONTENT',pages:'CONTENT','legal-documents':'CONTENT',notifications:'NOTIFICATIONS','support-tickets':'SUPPORT'} as Record<string,string>)[section];
  }
  if(!resource)return null;
+ if(method==='GET'&&/^\/returns\/admin\/(refund-accounts|inspection-warehouses)$/.test(p))return 'RETURNS.APPROVE';
  let action='VIEW';
  if(method==='DELETE')action='DELETE';
  else if(!['GET','HEAD','OPTIONS'].includes(method)) {

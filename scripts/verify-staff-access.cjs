@@ -24,6 +24,13 @@ async function main(){
  await assert.rejects(()=>guard.canActivate(context('ADMIN','/v1/admin/orders/123/status','PATCH',{status:'DELIVERED'})));
  await db.query('UPDATE staff_access_profiles SET grants=grants || $1::text[] WHERE user_id=$2',[['SHIPPING.VIEW','SHIPPING.APPROVE'],uuid(2)]);
  assert.equal(await guard.canActivate(context('ADMIN','/v1/admin/orders/123/status','PATCH',{status:'DELIVERED'})),true);
+ await db.query('UPDATE staff_access_profiles SET grants=$1 WHERE user_id=$2',[['RETURNS.VIEW'],uuid(2)]);
+ assert.equal(await guard.canActivate(context('ADMIN','/v1/returns/admin')),true);
+ await assert.rejects(()=>guard.canActivate(context('ADMIN','/v1/returns/admin/refund-accounts')));
+ await db.query('UPDATE staff_access_profiles SET grants=grants || $1::text[] WHERE user_id=$2',[['RETURNS.APPROVE'],uuid(2)]);
+ assert.equal(await guard.canActivate(context('ADMIN','/v1/returns/admin/refund-accounts')),true);
+ assert.equal(await guard.canActivate(context('ADMIN','/v1/returns/admin/inspection-warehouses')),true);
+ await assert.rejects(()=>guard.canActivate(context('ADMIN','/v1/admin/finance/accounts')));
  await db.query('UPDATE staff_access_profiles SET grants=$1 WHERE user_id=$2',[[],uuid(2)]);await assert.rejects(()=>guard.canActivate(context('ADMIN','/v1/admin/orders/123/prepare','POST')));
  assert.equal(await guard.canActivate(context('SUPER_ADMIN','/v1/admin/staff')),true);assert.equal(await guard.canActivate(context('SUPER_ADMIN','/v1/returns/123/refund','POST')),true);
  await pg.close();console.log('Staff-access checks passed: exact owner promotion, other users unchanged, three active levels with historical fourth preserved, checked actions enforced, ungranted approvals/deletes/role changes denied, revocation immediate and director unrestricted.');

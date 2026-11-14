@@ -1,8 +1,10 @@
 "use client";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { downloadXlsx } from '../lib/xlsx';
+import { createActionLock, createRequestGate } from '../lib/async-controls';
+import { financeDateTime } from '../lib/finance-report';
 type Item = { id: string; product_name: string; sku: string; quantity: number };
 type ReturnRow = {
   payment_provider: string;
@@ -23,12 +25,11 @@ type ReturnRow = {
   last_action_at: string | null;
   last_action_actor_email: string | null;
 };
-type Warehouse = { id: string; name: string; code: string; is_active: boolean };
+type Warehouse = { id: string; name: string; code: string };
 type Account = {
   id: string;
   name: string;
   currency: string;
-  is_active: boolean;
 };
 const labels: Record<string, string> = {
   REQUESTED: "Talep alındı",
@@ -41,6 +42,8 @@ const labels: Record<string, string> = {
 };
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
+const noActions = { review: false, warehouse: false, refund: false };
+type Access = typeof noActions;
 export default function Returns() {
   const [rows, setRows] = useState<ReturnRow[]>([]),
     [warehouses, setWarehouses] = useState<Warehouse[]>([]),
@@ -55,27 +58,63 @@ export default function Returns() {
     [busy, setBusy] = useState<string | null>(null),
     [query, setQuery] = useState(""),
     [status, setStatus] = useState("ALL");
-  const load = () =>
-    Promise.all([
-      api<ReturnRow[]>("/returns/admin"),
-      api<Warehouse[]>("/admin/warehouse/locations"),
-      api<Account[]>("/admin/finance/accounts"),
-    ])
-      .then(([returns, locations, finance]) => {
-        setRows(returns);
-        setWarehouses(locations.filter((x) => x.is_active));
-        setAccounts(finance.filter((x) => x.is_active));
-      })
-      .catch((e) => setMessage(e.message));
+  const [access, setAccess] = useState<Access>(noActions);
+  const [loading, setLoading] = useState(true);
+  const [listReady, setListReady] = useState(false);
+  const actionLock = useRef(createActionLock());
+  const requestGate = useRef(createRequestGate());
+  async function load(confirmation = '') {
+    const ticket = requestGate.current.begin();
+    setLoading(true);
+    setListReady(false);
+    try {
+      const [me, list] = await Promise.allSettled([
+        api<{user: {role: string}}>('/auth/me'),
+        api<ReturnRow[]>('/returns/admin'),
+      ]);
+      if (!requestGate.current.isCurrent(ticket)) return;
+      if (list.status === 'rejected') throw list.reason;
+      setRows(list.value);
+      setListReady(true);
+      if (me.status === 'rejected') throw me.reason;
+      const role = me.value.user.role;
+      const profile = role === 'ADMIN'
+        ? await api<{configured: boolean; grants: string[] | null}>('/admin/access/me')
+        : undefined;
+      const mayApprove = role === 'SUPER_ADMIN' || (role === 'ADMIN' &&
+        (!profile?.configured || Boolean(profile.grants?.includes('RETURNS.VIEW') && profile.grants.includes('RETURNS.APPROVE'))));
+      const canInspect = mayApprove || role === 'WAREHOUSE';
+      const canRefund = mayApprove || role === 'FINANCE';
+      const [locations, finance] = await Promise.allSettled([
+        canInspect ? api<Warehouse[]>('/returns/admin/inspection-warehouses') : Promise.resolve([]),
+        canRefund ? api<Account[]>('/returns/admin/refund-accounts') : Promise.resolve([]),
+      ]);
+      if (!requestGate.current.isCurrent(ticket)) return;
+      setAccess({review: mayApprove, warehouse: canInspect, refund: canRefund});
+      setWarehouses(locations.status === 'fulfilled' ? locations.value : []);
+      setAccounts(finance.status === 'fulfilled' ? finance.value : []);
+      setMessage([confirmation, locations.status === 'rejected' ? 'Depolar yüklenemedi.' : '', finance.status === 'rejected' ? 'Finans hesapları yüklenemedi.' : ''].filter(Boolean).join(' '));
+    } catch (error) {
+      if (!requestGate.current.isCurrent(ticket)) return;
+      setAccess(noActions);
+      setWarehouses([]);
+      setAccounts([]);
+      setMessage([confirmation, error instanceof Error ? error.message : 'İade bilgileri yüklenemedi.'].filter(Boolean).join(' '));
+    } finally {
+      if (requestGate.current.isCurrent(ticket)) setLoading(false);
+    }
+  }
   useEffect(() => {
     void load();
+    const gate = requestGate.current;
+    return () => gate.invalidate();
   }, []);
   const requiresAttention = (row: ReturnRow) =>
     !["REFUNDED", "REJECTED", "CANCELLED"].includes(row.status) &&
     Date.now() - new Date(row.requested_at).getTime() >= 24 * 60 * 60 * 1000;
   const shown = useMemo(
     () =>
-      rows.filter(
+      (listReady ? rows : []).filter(
         (row) =>
           (status === "ALL" || (status === "ATTENTION" && requiresAttention(row)) || row.status === status) &&
           [row.order_number, row.reason, labels[row.status]]
@@ -83,7 +122,7 @@ export default function Returns() {
             .toLocaleLowerCase("tr-TR")
             .includes(query.toLocaleLowerCase("tr-TR")),
       ),
-    [rows, query, status],
+    [rows, query, status, listReady],
   );
   const total = shown
     .filter((row) => row.status === "REFUNDED" && row.currency === "TRY")
@@ -104,12 +143,16 @@ export default function Returns() {
         row.currency,
         row.refund_amount ?? '',
         row.refund_account_name ?? '',
-        new Date(row.requested_at).toLocaleString('tr-TR'),
+        financeDateTime(row.requested_at),
       ]),
     ];
     downloadXlsx('trex-iadeler.xlsx', 'İadeler', rows);
   }
   async function act(id: string, action: string, body: unknown = {}) {
+    const permitted = action === 'approve' || action === 'reject' ? access.review
+      : action === 'refund' ? access.refund : access.warehouse;
+    if (!permitted) return;
+    if (loading || !listReady || !actionLock.current.acquire()) return;
     setBusy(`${id}:${action}`);
     setMessage("");
     try {
@@ -117,12 +160,12 @@ export default function Returns() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setMessage("İade işlemi kaydedildi.");
-      await load();
+      await load("İade işlemi kaydedildi.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "İşlem yapılamadı");
     } finally {
       setBusy(null);
+      actionLock.current.release();
     }
   }
   const submit = (
@@ -145,6 +188,7 @@ export default function Returns() {
           iadesi. Her işlem kayıt altına alınır.
         </p>
         {message && <p role="status">{message}</p>}
+        <button type="button" className="secondary" disabled={loading || busy !== null} onClick={() => void load()}>İade listesini yenile</button>
         <div className="cards">
           <article>
             <p>AÇIK İADE</p>
@@ -210,7 +254,7 @@ export default function Returns() {
                 <article key={row.id}>
                   <p>
                     {labels[row.status] ?? row.status} ·{" "}
-                    {new Date(row.requested_at).toLocaleString("tr-TR")}
+                    {financeDateTime(row.requested_at)}
                   </p>
                   <h2>{row.order_number}</h2>
                   <p>
@@ -219,8 +263,8 @@ export default function Returns() {
                       .join(", ") || `${row.item_count} ürün`}
                   </p>
                   <p>Neden: {row.reason}</p>
-                  {row.last_action && <p>Son işlem: {row.last_action} · {row.last_action_actor_email ?? "Sistem"} · {row.last_action_at ? new Date(row.last_action_at).toLocaleString("tr-TR") : "—"}</p>}
-                  {row.status === "REQUESTED" && (
+                  {row.last_action && <p>Son işlem: {row.last_action} · {row.last_action_actor_email ?? "Sistem"} · {row.last_action_at ? financeDateTime(row.last_action_at) : "—"}</p>}
+                  {row.status === "REQUESTED" && access.review && (
                     <form
                       onSubmit={(event) =>
                         submit(event, row.id, "approve", {
@@ -254,7 +298,7 @@ export default function Returns() {
                       </div>
                     </form>
                   )}
-                  {row.status === "APPROVED" && (
+                  {row.status === "APPROVED" && access.warehouse && (
                     <button
                       disabled={busy !== null}
                       onClick={() =>
@@ -266,7 +310,7 @@ export default function Returns() {
                       Depoya teslim al
                     </button>
                   )}
-                  {row.status === "RECEIVED" && (
+                  {row.status === "RECEIVED" && access.warehouse && (
                     <form
                       onSubmit={(event) =>
                         submit(event, row.id, "inspection", {
@@ -326,7 +370,7 @@ export default function Returns() {
                           }
                         />
                       </label>
-                      <button disabled={busy !== null}>
+                      <button disabled={busy !== null || !warehouseId}>
                         İncelemeyi tamamla
                       </button>
                     </form>
@@ -334,7 +378,7 @@ export default function Returns() {
                   {row.status === "INSPECTED" && Number(availableRefund) <= 0 && (
                     <p role="status">İade edilebilir ödeme bakiyesi bulunamadı.</p>
                   )}
-                  {row.status === "INSPECTED" && Number(availableRefund) > 0 && (
+                  {row.status === "INSPECTED" && access.refund && Number(availableRefund) > 0 && (
                     <form
                       onSubmit={(event) =>
                         submit(event, row.id, "refund", {
@@ -396,7 +440,7 @@ export default function Returns() {
                           }
                         />
                       </label>
-                      <button disabled={busy !== null}>
+                      <button disabled={busy !== null || (!walletRefund && !accountId)}>
                         {walletRefund ? "Prim Bakiyesine Geri Ver" : "Finans İadesini Kaydet"}
                       </button>
                     </form>
@@ -418,7 +462,7 @@ export default function Returns() {
             })
           ) : (
             <article>
-              <p>Bu filtrelerde iade bulunamadı.</p>
+              <p>{loading ? 'İade listesi yükleniyor…' : listReady ? 'Bu filtrelerde iade bulunamadı.' : 'İade listesi yüklenemedi.'}</p>
             </article>
           )}
         </div>
