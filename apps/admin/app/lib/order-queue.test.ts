@@ -42,6 +42,7 @@ test('preparation proceeds in sequence and never restarts a registered or termin
 
 test('only pending bank transfers offer transfer matching',()=>{
   assert.equal(needsTransferMatching({status:'PENDING_PAYMENT',payment_method:'bank_transfer'}),true);
+  assert.equal(needsTransferMatching({status:'PENDING_PAYMENT',payment_method:'bank_transfer',payment_status:'FAILED'}),false);
   for(const payment_method of ['cash','cash_on_delivery_cash','cash_on_delivery_card','paytr','dealer_commission',null,undefined]) {
     assert.equal(needsTransferMatching({status:'PENDING_PAYMENT',payment_method}),false);
   }

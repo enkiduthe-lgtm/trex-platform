@@ -187,7 +187,7 @@ export class AdminOrderService {
       if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Sipariş Düzenlenemez');
       if(!editableAdminChannels.includes(order.sales_channel)||order.status==='CANCELLED') throw new ConflictException('İptal edilmemiş yönetici siparişleri düzenlenebilir');
       const contact=(await client.query<{contact_name:string|null;contact_email:string|null}>('SELECT contact_name,contact_email FROM checkout_sessions WHERE id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
-      const payments=(await client.query<{id:string;status:string;provider:string}>('SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
+      const payments=(await client.query<{id:string;status:string;provider:string;provider_reference:string}>('SELECT id,status,provider,provider_reference FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows;
       if(payments.length!==1) throw new ConflictException('Ödeme kaydı doğrulanamadı');
       const collected=(await client.query('SELECT id FROM finance_transactions WHERE order_id=$1 AND approved_at IS NOT NULL LIMIT 1',[id])).rowCount;
       const picks=(await client.query<{id:string;status:string}>('SELECT id,status FROM picking_sessions WHERE order_id=$1 FOR UPDATE',[id])).rows;
@@ -195,7 +195,7 @@ export class AdminOrderService {
       const address=(await client.query<{recipient_name:string;phone:string;city:string;district:string;address_line:string;postal_code:string|null}>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1 FOR UPDATE',[id])).rows[0];
       const lines=(await client.query<{id:string;product_id:string;quantity:number;unit_amount:string}>('SELECT id,product_id,quantity,unit_amount FROM order_items WHERE order_id=$1 ORDER BY product_id,id FOR UPDATE',[id])).rows;
       if(!address||!contact) throw new ConflictException('Sipariş bilgileri eksik');
-      if(editVersion(contact,address,lines)!==dto.version) throw new ConflictException('Sipariş başka bir işlemle değişmiş; ekranı yenileyin');
+      if(editVersion(contact,address,lines,payments[0].provider_reference)!==dto.version) throw new ConflictException('Sipariş başka bir işlemle değişmiş; ekranı yenileyin');
       if(lines.length!==dto.items.length||lines.some(line=>!dto.items.some(item=>item.itemId===line.id))) throw new BadRequestException('Siparişin bütün ürün satırları gerekli');
       const changes=lines.map(line=>({...line,next:dto.items.find(item=>item.itemId===line.id)!}));
       const financialChanged=changes.some(line=>line.quantity!==line.next.quantity||line.unit_amount!==line.next.unitAmount.toFixed(2));
@@ -237,7 +237,18 @@ export class AdminOrderService {
         await client.query('UPDATE orders SET total_amount=$1 WHERE id=$2',[total,id]);
         await client.query('UPDATE payments SET amount=$1 WHERE id=$2',[total,payments[0].id]);
       }
-      if(paymentChanged) await client.query('UPDATE payments SET provider=$1,provider_reference=$2 WHERE id=$3',[requestedProvider,`${requestedProvider}_${randomUUID()}`,payments[0].id]);
+      if(paymentChanged && requestedProvider) {
+        const reference = `${requestedProvider}_${randomUUID()}`;
+        const paymentId = payments[0].id;
+        await client.query('UPDATE payments SET provider=$1,provider_reference=$2 WHERE id=$3',[requestedProvider,reference,paymentId]);
+        await client.query("UPDATE payment_attempts SET status='FAILED' WHERE payment_id=$1 AND status='PENDING'",[paymentId]);
+        await client.query('INSERT INTO payment_attempts(payment_id,provider_request_id) VALUES ($1,$2)',[paymentId,reference]);
+        const nextStatus = requestedProvider.startsWith('cash_on_delivery') ? 'PROCESSING' : 'PENDING_PAYMENT';
+        if(nextStatus !== order.status) {
+          await client.query('UPDATE orders SET status=$1 WHERE id=$2',[nextStatus,id]);
+          await client.query('INSERT INTO order_status_history(order_id,status,actor_user_id) VALUES ($1,$2,$3)',[id,nextStatus,actor.id]);
+        }
+      }
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[actor.id,'order.admin.updated','order',id,JSON.stringify({reason:dto.reason.trim(),currency:order.currency,previous:{contact,address,items:lines,total:order.total_amount,paymentProvider:payments[0].provider},current:{delivery,email:dto.contactEmail.trim().toLowerCase(),items:dto.items,total,paymentProvider:requestedProvider??payments[0].provider}})]);
       return {id,total_amount:total,currency:order.currency};
     });

@@ -9,7 +9,7 @@ import { api } from "../../lib/api";
 import { financeDateTime } from "../../lib/finance-report";
 import { createActionLock } from "../../lib/async-controls";
 import { orderPermissions } from '../../lib/order-permissions';
-import { nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
+import { needsTransferMatching, nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
 const preparationAction = (order:Detail) => nextPreparationAction({status:order.status,sales_status:order.sales_status,shipment_status:order.fulfillment?.shipment_status,tracking_direction_code:order.fulfillment?.tracking_direction_code,preparation_status:order.fulfillment?.picking_status,packed_at:order.fulfillment?.packed_at});
@@ -174,7 +174,7 @@ export default function OrderDetail() {
   const [permissions, setPermissions] = useState(() => orderPermissions(''));
   const [permissionsReady, setPermissionsReady] = useState(false);
   const { edit: canEdit, prepare: canPrepare, ship: canShip, verify: canVerify,
-    updateShipment: canUpdateShipment, viewCustomer: canViewCustomer, viewDealer: canViewDealer } = permissions;
+    updateShipment: canUpdateShipment, viewCustomer: canViewCustomer, viewDealer: canViewDealer, transfers: canViewTransfers } = permissions;
   const [role, setRole] = useState('');
   const [automaticTracking, setAutomaticTracking] = useState<boolean | null>(null);
   useEffect(() => {
@@ -443,7 +443,11 @@ export default function OrderDetail() {
             <div className={styles.detailLayout}>
             <section className={`${styles.detailCard} ${styles.detailWide}`}>
               <div className={styles.cardHeader}><h2>Sipariş Akışı</h2><span>Hazırla → Paketle → Aras Kaydı ve Parça Barkodu → Kargo Takibi</span></div>
-              {data.status==='PENDING_PAYMENT'&&<p className={styles.notice}>Önce Ödeme Kontrolünü Tamamlayın. <Link href={`/siparisler/havaleler?order=${encodeURIComponent(data.order_number)}`}>Havale Eşleştirme Ekranını Aç</Link></p>}
+              {displayStatus === 'PENDING_PAYMENT' && <p className={styles.notice}>
+                Hazırlamaya geçmek için ödeme onayı bekleniyor.{' '}
+                {canViewTransfers && needsTransferMatching({status:displayStatus, payment_method:data.payments[0]?.provider, payment_status:data.payments[0]?.status}) &&
+                  <Link href={`/siparisler/havaleler?order=${encodeURIComponent(data.order_number)}`}>Havale eşleştirme ekranını aç</Link>}
+              </p>}
               {operationMessage && <p role="status">{operationMessage}</p>}
               <ol className={styles.flowGrid}>
                 <li className={data.fulfillment?.picking_status === 'COMPLETED' ? styles.flowDone : styles.flowCard}>

@@ -244,6 +244,32 @@ async function main(){
  assert.equal(await priceEditable(),true);
  await db.query('UPDATE packing_sessions SET packed_at=now() WHERE picking_session_id=$1',[editPick]);
  assert.equal(await priceEditable(),false);
+ await db.query("INSERT INTO product_prices(product_id,scope,amount,currency,starts_at) VALUES($1,'GLOBAL',500,'TRY',now())",[product]);
+ const paymentEditOrder=await adminOrders.create({...validBody,salesChannel:'RETAIL',paymentMethod:'TRANSFER',items:[{productId:product,quantity:1}]},uuid(72),staffActor);
+ const {editVersion}=load(path.join(root,'apps/api/src/orders/edit-version.ts'));
+ const paymentEdit=async()=>{
+   const row=(await db.query(`SELECT o.status,c.contact_name,c.contact_email,p.provider,p.provider_reference,a.*
+     FROM orders o JOIN checkout_sessions c ON c.id=o.checkout_id JOIN payments p ON p.checkout_id=c.id
+     JOIN order_addresses a ON a.order_id=o.id WHERE o.id=$1`,[paymentEditOrder.id])).rows[0];
+   const items=(await db.query('SELECT id,quantity,unit_amount FROM order_items WHERE order_id=$1',[paymentEditOrder.id])).rows;
+   return {row,items,version:editVersion(row,row,items,row.provider_reference)};
+ };
+ const initialEdit=await paymentEdit();
+ const editBody={...validBody,postalCode:'',reason:'Ödeme yöntemi düzeltmesi',version:initialEdit.version,
+   items:initialEdit.items.map(item=>({itemId:item.id,quantity:item.quantity,unitAmount:Number(item.unit_amount)}))};
+ await adminOrders.update(paymentEditOrder.id,{...editBody,paymentMethod:'COD_CARD'},staffActor);
+ const codEdit=await paymentEdit();
+ assert.equal(codEdit.row.status,'PROCESSING');
+ assert.equal(codEdit.row.provider,'cash_on_delivery_card');
+ await assert.rejects(()=>adminOrders.update(paymentEditOrder.id,{...editBody,paymentMethod:'HAND_CASH'},staffActor),/ekranı yenileyin/);
+ await adminOrders.update(paymentEditOrder.id,{...editBody,version:codEdit.version,paymentMethod:'HAND_CASH'},staffActor);
+ const cashEdit=await paymentEdit();
+ assert.equal(cashEdit.row.status,'PENDING_PAYMENT');
+ assert.equal(cashEdit.row.provider,'cash');
+ const attempts=(await db.query(`SELECT a.status,a.provider_request_id FROM payment_attempts a
+   JOIN payments p ON p.id=a.payment_id JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1`,[paymentEditOrder.id])).rows;
+ assert.equal(attempts.filter(row=>row.status==='FAILED').length,2);
+ assert.deepEqual(attempts.filter(row=>row.status==='PENDING'),[{status:'PENDING',provider_request_id:cashEdit.row.provider_reference}]);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

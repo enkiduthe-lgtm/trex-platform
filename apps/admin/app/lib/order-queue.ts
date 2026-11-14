@@ -20,6 +20,7 @@ export function nextPreparationAction(order: QueueOrder & {preparation_status?:s
   return order.preparation_status==='COMPLETED'?'pack':'prepare';
 }
 
-export function needsTransferMatching(order: QueueOrder & {payment_method?:string|null}) {
-  return orderQueueStatus(order) === "PENDING_PAYMENT" && order.payment_method === "bank_transfer";
+export function needsTransferMatching(order: QueueOrder & {payment_method?:string|null;payment_status?:string|null}) {
+  return orderQueueStatus(order) === "PENDING_PAYMENT" && order.payment_method === "bank_transfer" &&
+    (order.payment_status === undefined || order.payment_status === "PENDING");
 }

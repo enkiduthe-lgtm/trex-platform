@@ -216,7 +216,7 @@ export class OrdersService {
     const [address,items,payments,supportTickets,shipments,returns,activity,fulfillment]=await Promise.all([
       this.db.query<{recipient_name:string;phone:string;city:string;district:string;address_line:string;postal_code:string|null}>('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1',[id]),
       this.db.query<{id:string;quantity:number;unit_amount:string}>('SELECT id,product_name,sku,quantity,unit_amount,currency FROM order_items WHERE order_id=$1 ORDER BY id',[id]),
-      this.db.query('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
+      this.db.query<{provider_reference:string}&Record<string,unknown>>('SELECT p.id,p.provider,p.status,p.amount,p.currency,p.created_at,p.verified_at,p.provider_reference FROM payments p JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1 ORDER BY p.created_at DESC',[id]),
       this.db.query('SELECT id,ticket_number,subject,status,priority,created_at FROM support_tickets WHERE order_id=$1 ORDER BY created_at DESC',[id]),
       this.db.query(`SELECT s.id,s.status,s.tracking_number,s.provider,s.created_at,pk.package_barcode,
         se.description AS last_event_description,se.occurred_at AS last_event_at
@@ -243,7 +243,8 @@ export class OrdersService {
         LEFT JOIN shipments s ON s.order_id=ps.order_id
         WHERE ps.order_id=$1 ORDER BY ps.created_at DESC,s.created_at DESC LIMIT 1`,[id]),
     ]);
-    return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows,supportTickets:supportTickets.rows,shipments:shipments.rows,returns:returns.rows,activity:activity.rows,fulfillment:fulfillment.rows[0]??null,edit_version:editVersion(result.rows[0],address.rows[0]??null,items.rows)};
+    const edit_version=editVersion(result.rows[0],address.rows[0]??null,items.rows,payments.rows[0]?.provider_reference);
+    return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows.map(({provider_reference,...payment})=>payment),supportTickets:supportTickets.rows,shipments:shipments.rows,returns:returns.rows,activity:activity.rows,fulfillment:fulfillment.rows[0]??null,edit_version};
   }
   async track(number:string,email:string) { const result=await this.db.query<{order_number:string;status:string;total_amount:string;currency:string;created_at:string;shipment_status:string|null;tracking_number:string|null}>(`SELECT o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,s.status AS shipment_status,s.tracking_number FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN shipments s ON s.order_id=o.id WHERE o.order_number=$1 AND lower(cs.contact_email)=lower($2)`,[number.trim(),email.trim()]); if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı'); return result.rows[0]; }
   async cancel(id:string,actor:RequestUser) {
