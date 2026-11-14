@@ -55,6 +55,13 @@ async function main(){
  await db.query("UPDATE orders SET archived_at=NULL WHERE id=$1",[id(20)]);
  assert.equal((await service.salesReport(30)).totals.revenue,'45.00');
  assert.equal((await service.salesReportDetail(today,today)).length,5);
+ await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED')",[id(501),id(20)]);
+ await db.query('INSERT INTO return_items VALUES($1,$2,1)',[id(501),id(220)]);
+ await db.query("INSERT INTO return_refunds VALUES($1,7,'TRY')",[id(501)]);
+ assert.equal((await service.salesReport(30)).totals.revenue,'38.00');
+ const netDetails=await service.salesReportDetail(today,today,id(10));
+ assert.equal(netDetails.find(row=>row.item_id===id(220)).net_quantity,1);
+ assert.equal(groupDealerSales(netDetails,'dealer').find(row=>row.currency==='TRY'&&row.status==='PAID').netAmount,'20.00');
  const before=new Date(Date.parse(today+'T00:00:00+03:00')-1000).toISOString();await db.query('UPDATE orders SET created_at=$1 WHERE id=$2',[before,id(23)]);assert.equal((await service.salesReportDetail(today,today)).length,4);
  await assert.rejects(()=>service.salesReportDetail(today,today,'not-a-uuid'));await assert.rejects(()=>service.salesReportDetail('2026-02-30',today));await assert.rejects(()=>service.salesReportDetail(today,today,undefined,undefined,'INVALID'));
  await pg.exec(`ALTER TABLE dealers ADD COLUMN contact_name text,ADD COLUMN contact_email text,ADD COLUMN contact_phone text,ADD COLUMN city text,ADD COLUMN region text,ADD COLUMN company_address text,ADD COLUMN tax_number text,ADD COLUMN tax_office text,ADD COLUMN monthly_sales_target numeric,ADD COLUMN sales_channels text,ADD COLUMN social_media text,ADD COLUMN created_at timestamptz DEFAULT now(),ADD COLUMN price_group_id uuid;
@@ -75,7 +82,7 @@ async function main(){
   await db.query('INSERT INTO dealer_commission_spends VALUES($1,$2,$3,8,now())',[id(840+dealer),id(dealer),id(dealer===10?20:23)]);
   await db.query('INSERT INTO dealer_prim_refunds VALUES($1,$2,$3,3,now())',[id(860+dealer),id(dealer),id(dealer===10?20:23)]);
  }
- const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,2);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');assert.equal(detail.requests.length,1);assert.equal(detail.requests[0].reference_number,'REF');assert.equal(detail.deductions.length,1);assert.equal(detail.spends.length,2);assert.equal(detail.spends.filter(x=>x.kind==='REFUND').length,1);await assert.rejects(()=>service.detail(id(999)));
+ const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,3);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');assert.equal(detail.requests.length,1);assert.equal(detail.requests[0].reference_number,'REF');assert.equal(detail.deductions.length,1);assert.equal(detail.spends.length,2);assert.equal(detail.spends.filter(x=>x.kind==='REFUND').length,1);await assert.rejects(()=>service.detail(id(999)));
  await pg.exec(`ALTER TABLE dealers ADD COLUMN archived_at timestamptz;
    ALTER TABLE audit_logs ADD COLUMN actor_user_id uuid;
    ALTER TABLE orders ADD COLUMN sales_channel text DEFAULT 'DEALER_PORTAL';

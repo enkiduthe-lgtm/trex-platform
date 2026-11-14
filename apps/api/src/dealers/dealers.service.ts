@@ -1,4 +1,4 @@
-import { completedRefundAmount, netOrderAmount, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from '../orders/report-order-status';
+import { completedRefundAmount, netItemQuantity, netOrderAmount, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from '../orders/report-order-status';
 import { reportPeriod } from '../orders/report-period';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
@@ -73,8 +73,8 @@ export class DealersService {
   async salesReport(days=30) {
     const period=reportPeriod(days),args=[period.dateFrom,period.dateTo],where="o.archived_at IS NULL AND o.created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND o.created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')";
     const [totals,rows]=await Promise.all([
-      this.db.query<{currency:string;order_count:number;revenue:string}>(`${this.dealerOrderSource()} SELECT o.currency,count(*)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text revenue FROM orders o JOIN dealer_orders a ON a.entity_id=o.id::text JOIN dealers d ON d.id=a.dealer_id CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) report WHERE ${where} GROUP BY o.currency ORDER BY o.currency`,args),
-      this.db.query(`${this.dealerOrderSource()} SELECT d.id,d.code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.currency,count(*)::int order_count,COALESCE(SUM(o.total_amount) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text revenue,COALESCE(AVG(o.total_amount) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text average_order,COALESCE(SUM(oi.quantity) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::int item_count FROM dealer_orders a JOIN orders o ON o.id::text=a.entity_id JOIN dealers d ON d.id=a.dealer_id LEFT JOIN dealer_levels l ON l.id=a.level_id LEFT JOIN LATERAL(SELECT SUM(quantity) AS quantity FROM order_items WHERE order_id=o.id) oi ON true CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) report WHERE ${where} GROUP BY d.id,a.level_id,l.name,o.currency ORDER BY COALESCE(SUM(o.total_amount) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0) DESC,d.company_name`,args)
+      this.db.query<{currency:string;order_count:number;revenue:string}>(`${this.dealerOrderSource()} SELECT o.currency,count(*)::int order_count,COALESCE(SUM(${netOrderAmount}) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text revenue FROM orders o JOIN dealer_orders a ON a.entity_id=o.id::text JOIN dealers d ON d.id=a.dealer_id CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) report WHERE ${where} GROUP BY o.currency ORDER BY o.currency`,args),
+      this.db.query(`${this.dealerOrderSource()} SELECT d.id,d.code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.currency,count(*)::int order_count,COALESCE(SUM(${netOrderAmount}) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text revenue,COALESCE(AVG(${netOrderAmount}) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::text average_order,COALESCE(SUM(oi.quantity) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0)::int item_count FROM dealer_orders a JOIN orders o ON o.id::text=a.entity_id JOIN dealers d ON d.id=a.dealer_id LEFT JOIN dealer_levels l ON l.id=a.level_id LEFT JOIN LATERAL(SELECT SUM(${netItemQuantity}) AS quantity FROM order_items oi WHERE oi.order_id=o.id) oi ON true CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) report WHERE ${where} GROUP BY d.id,a.level_id,l.name,o.currency ORDER BY COALESCE(SUM(${netOrderAmount}) FILTER(WHERE report.status NOT IN ('CANCELLED','REFUNDED')),0) DESC,d.company_name`,args)
     ]);
     return {...period,totals:totals.rows.find(row=>row.currency.trim()==='TRY')??{currency:'TRY',order_count:0,revenue:'0'},totalsByCurrency:totals.rows,dealers:rows.rows};
   }
@@ -84,10 +84,12 @@ export class DealersService {
     if(status&&!orderQueueStages.includes(status))throw new BadRequestException('Geçerli Bir Sipariş Durumu Seçin.');
     const search=product?.trim().replace(/[\\%_]/g,'\\$&')||null;
     return (await this.db.query(`${this.dealerOrderSource()} SELECT d.id AS dealer_id,d.code AS dealer_code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.id AS order_id,o.order_number,o.created_at,report.status,o.total_amount,o.currency,
-      oi.id AS item_id,oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,COALESCE(payment.status::text,'') AS payment_status
+      oi.id AS item_id,oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
+      units.net_quantity::int,(units.net_quantity*oi.unit_amount)::text AS net_line_total,COALESCE(payment.status::text,'') AS payment_status
       FROM dealer_orders a JOIN orders o ON o.id::text=a.entity_id JOIN dealers d ON d.id=a.dealer_id JOIN order_items oi ON oi.order_id=o.id LEFT JOIN dealer_levels l ON l.id=a.level_id
       LEFT JOIN shipments s ON s.order_id=o.id
       CROSS JOIN LATERAL (SELECT ${orderQueueStatusSql} AS status) report
+      CROSS JOIN LATERAL (SELECT CASE WHEN report.status IN ('CANCELLED','REFUNDED') THEN 0 ELSE ${netItemQuantity} END AS net_quantity) units
       LEFT JOIN LATERAL(SELECT status FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) payment ON true
       WHERE o.archived_at IS NULL AND o.created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND o.created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')
         AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%' OR oi.sku ILIKE '%'||$4||'%') AND ($5::text IS NULL OR report.status=$5)
