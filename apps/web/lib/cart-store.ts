@@ -32,4 +32,12 @@ export function setCartQuantity(slug: string, quantity: number) { const cart = r
 
 export function removeLegacyCartItems() { saveCart(readCart().filter((item) => Boolean(item.productId))); }
 
+export function removePurchasedItems(purchased: CartItem[]) {
+  const quantities = new Map(purchased.map(item => [item.slug, item.quantity]));
+  saveCart(readCart().flatMap(item => {
+    const quantity = item.quantity - (quantities.get(item.slug) ?? 0);
+    return quantity > 0 ? [{ ...item, quantity }] : [];
+  }));
+}
+
 export function subscribeToCart(listener: () => void) { window.addEventListener(changeEvent, listener); return () => window.removeEventListener(changeEvent, listener); }

@@ -19,11 +19,18 @@ export class CheckoutService {
     if (!idempotencyKey || idempotencyKey.length > 200) throw new ConflictException('Idempotency-Key header required');
     const requestHash = createHash('sha256').update(JSON.stringify(dto)).digest('hex');
     return this.db.transaction(async (client: PoolClient) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [idempotencyKey]);
+      const prior = await client.query<{ request_hash: string; resource_id: string | null; resource_type: string; expired: boolean }>(
+        'SELECT request_hash,resource_id,resource_type,expires_at<=now() AS expired FROM idempotency_records WHERE key=$1 FOR UPDATE', [idempotencyKey]);
+      if (prior.rows[0]) {
+        const record = prior.rows[0];
+        if (record.resource_type !== 'checkout' || record.request_hash !== requestHash) throw new ConflictException('Bu işlem anahtarı farklı bir sepet için kullanılmış.');
+        if (record.expired || !record.resource_id) throw new ConflictException('Bu sepet işleminin süresi doldu. Yeni bir sepet işlemi başlatın.');
+        return { checkoutId: record.resource_id, replayed: true };
+      }
       const settingRow = await client.query<{ settings: Record<string, unknown> }>('SELECT settings FROM admin_settings WHERE singleton=true FOR SHARE');
       const settings = settingRow.rows[0]?.settings ?? {};
       if (settings.maintenanceMode === true) throw new ConflictException(typeof settings.maintenanceMessage === 'string' && settings.maintenanceMessage ? settings.maintenanceMessage : 'Mağaza kısa süreli bakımda. Lütfen daha sonra tekrar deneyin.');
-      const prior = await client.query<{ request_hash: string; resource_id: string | null }>('SELECT request_hash, resource_id FROM idempotency_records WHERE key=$1 AND expires_at > now() FOR UPDATE', [idempotencyKey]);
-      if (prior.rows[0]) { if (prior.rows[0].request_hash !== requestHash) throw new ConflictException('Idempotency key reused with different data'); return { checkoutId: prior.rows[0].resource_id, replayed: true }; }
       const cart = await client.query('SELECT id FROM carts WHERE id=$1 AND session_key_hash=$2 AND expires_at > now() FOR UPDATE', [dto.cartId, createHash('sha256').update(dto.guestKey).digest('hex')]);
       if (!cart.rowCount) throw new NotFoundException('Cart not found');
       const items = (await client.query<CartItem>("SELECT ci.product_id, ci.quantity, p.name, p.sku, p.status FROM cart_items ci JOIN products p ON p.id=ci.product_id WHERE ci.cart_id=$1 ORDER BY ci.product_id FOR SHARE OF p", [dto.cartId])).rows;

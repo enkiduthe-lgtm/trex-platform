@@ -27,11 +27,16 @@ function message(data: unknown, fallback: string) {
 export async function POST(request: Request) {
   const api = process.env.TREX_API_URL?.replace(/\/$/, '');
   if (!api) return NextResponse.json({ message: 'Sipariş servisi henüz hazır değil.' }, { status: 503 });
-  const body = await request.json() as CheckoutRequest;
-  const items = Array.isArray(body.items) ? body.items.filter((item) => typeof item?.productId === 'string' && Number.isInteger(item.quantity) && item.quantity > 0) : [];
-  if (!items.length) return NextResponse.json({ message: 'Sepette geçerli ürün bulunamadı.' }, { status: 400 });
+  const body = await request.json().catch(() => null) as CheckoutRequest | null;
+  if (!body || typeof body !== 'object') return NextResponse.json({ message: 'Sipariş bilgileri okunamadı.' }, { status: 400 });
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length || items.some(item => typeof item?.productId !== 'string' || !Number.isSafeInteger(item.quantity) || item.quantity < 1)) {
+    return NextResponse.json({ message: 'Sepette geçersiz ürün veya adet var.' }, { status: 400 });
+  }
   const required = ['recipientName', 'contactEmail', 'phone', 'city', 'district', 'addressLine'] as const;
-  if (required.some((key) => !body[key]?.trim())) return NextResponse.json({ message: 'Teslimat bilgilerini eksiksiz doldur.' }, { status: 400 });
+  if (required.some((key) => typeof body[key] !== 'string' || !body[key]?.trim())) return NextResponse.json({ message: 'Teslimat bilgilerini eksiksiz doldur.' }, { status: 400 });
+  const paymentMethod = body.paymentMethod ?? 'CARD';
+  if (!['CARD','TRANSFER','COD','CASH'].includes(paymentMethod)) return NextResponse.json({ message: 'Geçerli bir ödeme yöntemi seç.' }, { status: 400 });
 
   try {
     const guestResponse = await fetch(`${api}/v1/carts/guest`, { method: 'POST', cache: 'no-store' });
@@ -49,7 +54,6 @@ export async function POST(request: Request) {
     const checkout = await fetch(`${api}/v1/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ cartId: guest.id, guestKey: guest.guestKey, warehouseId: fulfillment.id, recipientName: body.recipientName, contactEmail: body.contactEmail, phone: body.phone, city: body.city, district: body.district, addressLine: body.addressLine, couponCode: couponCode || undefined, legalAcceptances, reservationMinutes: 20 }), cache: 'no-store' });
     const checkoutData = await checkout.json() as { checkoutId?: string };
     if (!checkout.ok || !checkoutData.checkoutId) return NextResponse.json({ message: message(checkoutData, 'Stok veya sipariş bilgisi doğrulanamadı.') }, { status: checkout.status });
-    const paymentMethod = body.paymentMethod ?? 'CARD';
     const payment = await fetch(`${api}/v1/payments/${paymentMethod === 'CARD' ? 'initialize' : 'manual'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paymentMethod === 'CARD' ? { checkoutId: checkoutData.checkoutId, guestKey: guest.guestKey } : { checkoutId: checkoutData.checkoutId, guestKey: guest.guestKey, method: paymentMethod }), cache: 'no-store' });
     const paymentData = await payment.json() as { redirectUrl?: string; orderNumber?: string; method?: string };
     if (!payment.ok) return NextResponse.json({ message: message(paymentData, 'Ödeme başlatılamadı.') }, { status: payment.status });

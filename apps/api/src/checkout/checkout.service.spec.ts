@@ -24,7 +24,7 @@ describe('CheckoutService', () => {
     const {service,query,pricing}=checkoutSetup([activeItem,{...activeItem,product_id:'inactive',status}]);
     await expect(service.create(dto,'key')).rejects.toThrow('satışa kapalı ürün');
     expect(pricing.resolve).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledTimes(3);
+    expect(query).toHaveBeenCalledTimes(5);
   });
   it('rejects an inactive warehouse before reserving inventory',async()=>{
     const {service,query}=checkoutSetup([activeItem],false);
@@ -72,25 +72,33 @@ describe('CheckoutService', () => {
     await expect(service.create(dto, 'missing-legal-key')).rejects.toThrow('güncel yasal metinleri');
   });
   it.each(['EUR','USD',null])('rejects unavailable or %s pricing before stock and payment writes', async currency => {
-    const query = jest.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{product_id:'p',quantity:1,name:'Tea',sku:'tea',status:'ACTIVE'}]});
+    const query = jest.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rowCount:1}).mockResolvedValueOnce({rows:[{product_id:'p',quantity:1,name:'Tea',sku:'tea',status:'ACTIVE'}]});
     const db = {transaction:async (work:(client:unknown)=>unknown)=>work({query})};
     const pricing = {resolve:jest.fn().mockResolvedValue(currency ? {amount:'20.00',currency} : null)};
     await expect(new CheckoutService(db as never,pricing as never).create(dto,'new-key')).rejects.toBeInstanceOf(ConflictException);
-    expect(query).toHaveBeenCalledTimes(3);
+    expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls.every(call => call[0].startsWith('SELECT'))).toBe(true);
   });
   it('rejects a repeated idempotency key when its request changes', async () => {
-    const client = { query: jest.fn().mockResolvedValueOnce({ rows: [{ request_hash: 'different', resource_id: 'existing' }] }) };
+    const client = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ request_hash: 'different', resource_id: 'existing', resource_type: 'checkout' }] }) };
     const db = { transaction: async (work: (client: unknown) => unknown) => work(client) };
     const service = new CheckoutService(db as never, {} as never);
     await expect(service.create(dto, 'repeat-key')).rejects.toBeInstanceOf(ConflictException);
   });
   it('replays the original checkout without a second stock reservation', async () => {
     const requestHash = createHash('sha256').update(JSON.stringify(dto)).digest('hex');
-    const client = { query: jest.fn().mockResolvedValueOnce({ rows: [{ request_hash: requestHash, resource_id: 'existing' }] }) };
+    const client = { query: jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ request_hash: requestHash, resource_id: 'existing', resource_type: 'checkout', expired: false }] }) };
     const db = { transaction: async (work: (client: unknown) => unknown) => work(client) };
     const service = new CheckoutService(db as never, {} as never);
     await expect(service.create(dto, 'repeat-key')).resolves.toEqual({ checkoutId: 'existing', replayed: true });
-    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.query).toHaveBeenCalledTimes(2);
+    expect(client.query.mock.calls[0][0]).toContain('pg_advisory_xact_lock');
+  });
+  it('rejects expired keys without touching inventory or attempting to insert them again', async () => {
+    const requestHash = createHash('sha256').update(JSON.stringify(dto)).digest('hex');
+    const query = jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ request_hash: requestHash, resource_id: 'existing', resource_type: 'checkout', expired: true }] });
+    const service = new CheckoutService({ transaction: async (work: (client: unknown) => unknown) => work({ query }) } as never, {} as never);
+    await expect(service.create(dto, 'repeat-key')).rejects.toThrow('süresi doldu');
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });

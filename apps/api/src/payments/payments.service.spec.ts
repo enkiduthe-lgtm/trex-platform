@@ -86,8 +86,24 @@ describe('PaymentsService', () => {
   it('does not create a second manual-payment order for the same checkout', async () => {
     const query = jest.fn()
       .mockResolvedValueOnce({ rows: [{ id: 'checkout', total_amount: '125.00', currency: 'TRY' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'payment', provider_reference: 'bank_transfer_ref', status: 'PENDING' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'payment', provider:'bank_transfer', provider_reference: 'bank_transfer_ref', status: 'PENDING', order_id: 'order', order_number: '20261005-000001' }] });
     const service = new PaymentsService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never, {} as never);
-    await expect(service.initializeManual('checkout', 'guest-key', 'TRANSFER')).resolves.toEqual({ paymentId: 'payment', providerReference: 'bank_transfer_ref', status: 'PENDING', replayed: true });
+    await expect(service.initializeManual('checkout', 'guest-key', 'TRANSFER')).resolves.toEqual({ paymentId: 'payment', providerReference: 'bank_transfer_ref', status: 'PENDING', orderId: 'order', orderNumber: '20261005-000001', method: 'TRANSFER', replayed: true });
+  });
+
+  it('charges the COD fee once and creates a picking record while payment stays pending', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'checkout', total_amount: '125.01', currency: 'TRY', payable: true }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'payment' }] })
+      .mockResolvedValue({ rows: [] });
+    const service = new PaymentsService({ transaction: async (work: (client: unknown) => Promise<unknown>) => work({ query }) } as never, {} as never);
+    const complete = jest.spyOn(service as any, 'completeSuccessfulPayment').mockResolvedValue({ status: 'PENDING', orderId: 'order', orderNumber: '20261106-000001' });
+    await expect(service.initializeManual('checkout', 'guest-key', 'COD')).resolves.toMatchObject({ status:'PENDING', orderNumber:'20261106-000001' });
+    expect(query.mock.calls[2][1]).toEqual(['checkout','200.01']);
+    expect(query.mock.calls[3][1]).toEqual(['checkout','cash_on_delivery_cash',expect.any(String),'200.01','TRY']);
+    expect(complete).toHaveBeenCalledWith(expect.anything(),'payment','checkout',{orderStatus:'PROCESSING',createPick:true,markPaymentSucceeded:false});
+    expect(query.mock.calls.at(-1)?.[1]).toEqual(['order','75.00']);
   });
 });

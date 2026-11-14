@@ -7,6 +7,7 @@ import { assertMockIntegrationAllowed } from '../config/mock-integration-policy'
 import { PaytrCallbackDto } from './dto/paytr-callback.dto';
 import { PaytrPaymentProvider } from './paytr-payment.provider';
 import { nextOrderNumber } from '../orders/order-number';
+import { cents, codFee, formatCents } from '../orders/order-pricing';
 
 @Injectable()
 export class PaymentsService {
@@ -30,17 +31,29 @@ export class PaymentsService {
     });
   }
   async initializeManual(checkoutId: string, guestKey: string, method: 'TRANSFER' | 'COD' | 'CASH') {
-    const provider = method === 'TRANSFER' ? 'bank_transfer' : method === 'COD' ? 'cash_on_delivery' : 'cash';
+    const provider = method === 'TRANSFER' ? 'bank_transfer' : method === 'COD' ? 'cash_on_delivery_cash' : 'cash';
     return this.db.transaction(async (client: PoolClient) => {
-      const checkout = await client.query<{ id: string; total_amount: string; currency: string; payable: boolean }>("SELECT s.id,s.total_amount,s.currency,(s.status='OPEN' AND s.expires_at>now()) AS payable FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND c.session_key_hash=$2 FOR UPDATE", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
+      const checkout = await client.query<{ id: string; total_amount: string; currency: string; payable: boolean }>("SELECT s.id,s.total_amount,s.currency,(s.status='OPEN' AND s.expires_at>now()) AS payable FROM checkout_sessions s JOIN carts c ON c.id=s.cart_id WHERE s.id=$1 AND c.session_key_hash=$2 FOR UPDATE OF s", [checkoutId,createHash('sha256').update(guestKey).digest('hex')]);
       if (!checkout.rows[0]) throw new NotFoundException('Open checkout not found');
-      const existing = await client.query<{ id: string; provider_reference: string; status: string }>('SELECT id,provider_reference,status FROM payments WHERE checkout_id=$1 FOR UPDATE', [checkoutId]);
-      if (existing.rows[0]) return { paymentId: existing.rows[0].id, providerReference: existing.rows[0].provider_reference, status: existing.rows[0].status, replayed: true };
-      if (!checkout.rows[0].payable) throw new ConflictException('Checkout is no longer payable');
+      const existing = await client.query<{ id: string; provider: string; provider_reference: string; status: string; order_id: string | null; order_number: string | null }>(
+        'SELECT p.id,p.provider,p.provider_reference,p.status,o.id AS order_id,o.order_number FROM payments p LEFT JOIN orders o ON o.checkout_id=p.checkout_id WHERE p.checkout_id=$1', [checkoutId]);
+      if (existing.rows[0]) {
+        const payment = existing.rows[0];
+        if (payment.provider !== provider && !(method === 'COD' && payment.provider === 'cash_on_delivery')) throw new ConflictException('Bu sipariş için farklı bir ödeme yöntemi seçilmiş.');
+        return { paymentId: payment.id, providerReference: payment.provider_reference, status: payment.status, orderId: payment.order_id, orderNumber: payment.order_number, method, replayed: true };
+      }
+      if (!checkout.rows[0].payable) throw new ConflictException('Sepetin ödeme süresi doldu. Yeni bir sepet işlemi başlatın.');
+      const isCod = method === 'COD';
+      if (isCod && checkout.rows[0].currency !== 'TRY') throw new ConflictException('Kapıda ödeme yalnız TL olabilir');
+      const codServiceFee = codFee(isCod ? 'COD_CASH' : method);
+      const total = cents(checkout.rows[0].total_amount) + codServiceFee;
+      if (total > 999999999999n) throw new ConflictException('Sipariş Tutarı Kayıt Sınırını Aşıyor');
+      if(isCod) await client.query('UPDATE checkout_sessions SET total_amount=$2 WHERE id=$1',[checkoutId,formatCents(total)]);
       const reference = `${provider}_${randomUUID()}`;
-      const payment = await client.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId,provider,reference,checkout.rows[0].total_amount,checkout.rows[0].currency]);
+      const payment = await client.query<{ id: string }>('INSERT INTO payments (checkout_id,provider,provider_reference,amount,currency) VALUES ($1,$2,$3,$4,$5) RETURNING id', [checkoutId,provider,reference,formatCents(total),checkout.rows[0].currency]);
       await client.query('INSERT INTO payment_attempts (payment_id,provider_request_id) VALUES ($1,$2)', [payment.rows[0].id,reference]);
-      const order = await this.completeSuccessfulPayment(client,payment.rows[0].id,checkoutId,{ orderStatus: 'PENDING_PAYMENT', createPick: false, markPaymentSucceeded: false });
+      const order = await this.completeSuccessfulPayment(client,payment.rows[0].id,checkoutId,{ orderStatus: isCod ? 'PROCESSING' : 'PENDING_PAYMENT', createPick: isCod, markPaymentSucceeded: false });
+      if (isCod) await client.query('UPDATE orders SET cod_service_fee=$2 WHERE id=$1',[order.orderId,formatCents(codServiceFee)]);
       return { paymentId: payment.rows[0].id, providerReference: reference, status: 'PENDING', orderId: order.orderId, orderNumber: order.orderNumber, method, replayed: false };
     });
   }
@@ -77,7 +90,7 @@ export class PaymentsService {
       return this.completeSuccessfulPayment(client, payment.rows[0].id, payment.rows[0].checkout_id);
     });
   }
-  private async completeSuccessfulPayment(client: PoolClient, paymentId: string, knownCheckoutId?: string, options: { orderStatus?: 'PAID' | 'PENDING_PAYMENT'; createPick?: boolean; markPaymentSucceeded?: boolean; allowExpiredCheckout?: boolean } = {}) {
+  private async completeSuccessfulPayment(client: PoolClient, paymentId: string, knownCheckoutId?: string, options: { orderStatus?: 'PAID' | 'PENDING_PAYMENT' | 'PROCESSING'; createPick?: boolean; markPaymentSucceeded?: boolean; allowExpiredCheckout?: boolean } = {}) {
       const payment = knownCheckoutId ? { checkout_id: knownCheckoutId } : (await client.query<{ checkout_id: string }>('SELECT checkout_id FROM payments WHERE id=$1 FOR UPDATE', [paymentId])).rows[0];
       if (!payment) throw new NotFoundException('Payment not found');
       const checkout = await client.query<{ total_amount: string; currency: string; cart_id: string; coupon_id:string|null; discount_amount:string }>("SELECT total_amount,currency,cart_id,coupon_id,discount_amount FROM checkout_sessions WHERE id=$1 AND status='OPEN' AND (expires_at > now() OR $2::boolean) FOR UPDATE", [payment.checkout_id, options.allowExpiredCheckout === true]);

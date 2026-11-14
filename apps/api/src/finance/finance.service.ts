@@ -10,7 +10,7 @@ import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 import { StaffChannelService } from '../commissions/staff-channel.service';
 import { pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
-import { reportOrderStatus } from '../orders/report-order-status';
+import { manualPaymentProviders, reportOrderStatus } from '../orders/report-order-status';
 import { cents } from '../orders/order-pricing';
 @Injectable()
 export class FinanceService {
@@ -267,7 +267,7 @@ export class FinanceService {
       const payment = (await client.query<{id:string;provider:string;status:string;currency:string}>(
         'SELECT id,provider,status,currency FROM payments WHERE checkout_id=$1 FOR UPDATE', [order.rows[0].checkout_id],
       )).rows[0];
-      if (!payment || !['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'].includes(payment.provider)) {
+      if (!payment || !(manualPaymentProviders.includes(payment.provider) || payment.provider==='cash_on_delivery')) {
         throw new BadRequestException('Siparişin ödeme yöntemi manuel tahsilata uygun değil');
       }
       if (payment.status !== 'PENDING') throw new BadRequestException('Bu siparişin bekleyen ödemesi yok');
