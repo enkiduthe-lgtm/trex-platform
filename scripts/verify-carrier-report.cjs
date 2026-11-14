@@ -17,6 +17,8 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  await pg.exec('ALTER TABLE orders ADD COLUMN archived_at timestamptz,ADD COLUMN marketplace_name text,ADD COLUMN cod_service_fee numeric DEFAULT 0');
  const {OrdersService}=load(path.join(root,'apps/api/src/orders/orders.service.ts')),{groupSales}=load(path.join(root,'apps/admin/app/lib/sales-groups.ts'));
  const rows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');assert.equal(rows.length,4);assert.equal(rows.find(r=>r.id==='00000000-0000-4000-8000-000000000001').payment_method,'cash');
+ const usdRows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31',undefined,undefined,undefined,undefined,undefined,'USD');
+ assert.equal(usdRows.length,1);assert.equal(usdRows[0].currency,'USD');
  await pg.exec("UPDATE shipments SET tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001'");
  const {orderQueueStatus,nextPreparationAction}=load(path.join(root,'apps/admin/app/lib/order-queue.ts'));
  const returnRows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');

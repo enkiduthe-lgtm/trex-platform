@@ -21,13 +21,14 @@ describe('Detailed Sales Report', () => {
   });
 
   it('binds every filter and uses Istanbul date boundaries', async () => {
-    await service.salesReport('2026-10-01', '2026-10-29', 'wholesale', ' Coffee ', 'PAID', " O'Neil ");
+    await service.salesReport('2026-10-01', '2026-10-29', 'wholesale', ' Coffee ', 'PAID', " O'Neil ", undefined, 'USD');
     expect(query).toHaveBeenCalledWith(expect.stringContaining("AT TIME ZONE 'Europe/Istanbul'"),
-      ['2026-10-01', '2026-10-29', 'WHOLESALE', 'Coffee', 'PAID', "O'Neil", null]);
+      ['2026-10-01', '2026-10-29', 'WHOLESALE', 'Coffee', 'PAID', "O'Neil", null, 'USD']);
     const sql = query.mock.calls[0][0] as string;
     expect(sql).toContain('WHERE o.archived_at IS NULL');
     expect(sql).toContain('oi.id AS item_id');
     expect(sql).toContain('report.status=$5');
+    expect(sql).toContain('o.currency=$8');
     expect(sql).toContain("oi.sku ILIKE '%'||$4||'%'");
     expect(sql).not.toContain("O'Neil");
     expect(sql).not.toContain('LIMIT 100');

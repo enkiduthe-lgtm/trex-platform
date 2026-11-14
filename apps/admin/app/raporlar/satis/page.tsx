@@ -10,7 +10,7 @@ import { countsTowardSales, currencyTotals } from '../../lib/report-totals';
 import { groupSales, salesGroups, SalesGroup } from '../../lib/sales-groups';
 
 type Row = { item_id: string; id: string; order_number: string; status: string; sales_channel: string; currency: string; created_at: string; customer_name: string; customer_id: string | null; customer_email: string | null; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; net_quantity?: number; net_line_total?: string; payment_method: string; shipping_provider: string | null; shipment_status: string | null };
-type Filters = { dateFrom: string; dateTo: string; channel: string; product: string; customer: string; status: string };
+type Filters = { dateFrom: string; dateTo: string; channel: string; product: string; customer: string; status: string; currency: string };
 const channels: Record<string, string> = { PUBLIC_WEB: 'Site', ADMIN_ORDER: 'Yönetici Siparişi', RETAIL: 'Perakende', WHOLESALE: 'Toptan', INSTAGRAM: 'Instagram', DEALER_PORTAL: 'Sistem Bayi', MARKETPLACE: 'Pazaryeri' };
 const statuses: Record<string, string> = { PENDING_PAYMENT: 'Ödeme Bekliyor', PAID: 'Onaylandı', PROCESSING: 'Hazırlanıyor', SHIPPED: 'Kargoda', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal Edildi', REFUNDED: 'İade Edildi' };
 const paymentNames: Record<string, string> = { bank_transfer: 'Havale / EFT', cash: 'Elden Tahsilat', cash_on_delivery_card: 'Kapıda Kart', cash_on_delivery_cash: 'Kapıda Nakit', paytr: 'PayTR' };
@@ -20,7 +20,7 @@ const displayDate = (value: string) => new Date(value).toLocaleString('tr-TR', {
 
 export default function SalesReport() {
   const [group, setGroup] = useState<SalesGroup | ''>('');
-  const [filters, setFilters] = useState<Filters>({ dateFrom: date(30), dateTo: date(), channel: '', product: '', customer: '', status: '' });
+  const [filters, setFilters] = useState<Filters>({ dateFrom: date(30), dateTo: date(), channel: '', product: '', customer: '', status: '', currency: '' });
   const [loadedFilters, setLoadedFilters] = useState<Filters | null>(null);
   const [items, setItems] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
@@ -45,9 +45,12 @@ export default function SalesReport() {
     } finally { if (id === requestId.current) setBusy(false); }
   }
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('group');
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('group');
     if (requested && Object.hasOwn(salesGroups, requested)) setGroup(requested as SalesGroup);
-    const initial={...filters,...reportPeriod(window.location.search)};setFilters(initial);
+    const requestedCurrency = params.get('currency') ?? '';
+    const currency = ['TRY','USD','EUR'].includes(requestedCurrency) ? requestedCurrency : '';
+    const initial={...filters,...reportPeriod(window.location.search),currency};setFilters(initial);
     void load(initial); return () => { requestId.current++; };
   }, []);
   const reportItems = useMemo(() => group === 'customer' ? items.filter(row => row.customer_id) : items, [items, group]);
@@ -63,7 +66,7 @@ export default function SalesReport() {
     downloadXlsx('trex-satis-raporu.xlsx', 'Satış Raporu', [
       ['Başlangıç', loadedFilters.dateFrom], ['Bitiş', loadedFilters.dateTo],
       ['Satış Kanalı', (channels[loadedFilters.channel] ?? loadedFilters.channel) || 'Tüm Kanallar'],
-      ['Ürün / SKU', loadedFilters.product], ['Müşteri', loadedFilters.customer], ['Durum', statuses[loadedFilters.status] ?? 'Tüm Durumlar'], [],
+      ['Para Birimi', loadedFilters.currency || 'Tüm Para Birimleri'], ['Ürün / SKU', loadedFilters.product], ['Müşteri', loadedFilters.customer], ['Durum', statuses[loadedFilters.status] ?? 'Tüm Durumlar'], [],
       ...(group ? [[salesGroups[group]], ['Grup', 'Durum', 'Sipariş Sayısı', 'Brüt Adet', 'Brüt Ürün Tutarı', 'Net Adet', 'Net Ürün Tutarı', 'Para Birimi'], ...grouped.map(row => [groupLabel(row.label), statuses[row.status] ?? row.status, row.orderCount, row.quantity, Number(row.amount), hasNetLines ? row.netQuantity : '', hasNetLines ? Number(row.netAmount) : '', row.currency]), []] : []),
       ['Sipariş Tarihi', 'Sipariş No', 'Satış Kanalı', 'Müşteri', 'Ürün', 'SKU', 'Brüt Adet', 'Birim Fiyat', 'Brüt Ürün Tutarı', 'Net Adet', 'Net Ürün Tutarı', 'Para Birimi', 'Ödeme Yöntemi', 'Sipariş Durumu', 'Kargo Firması'],
       ...reportItems.map(row => [displayDate(row.created_at), row.order_number, channels[row.sales_channel] ?? row.sales_channel, row.customer_name, row.product_name, row.sku, row.quantity, Number(row.unit_amount), Number(row.line_total), row.net_quantity ?? '', row.net_line_total === undefined ? '' : Number(row.net_line_total), row.currency, paymentNames[row.payment_method] ?? row.payment_method, statuses[row.status] ?? row.status, row.shipping_provider || 'Kargo Kaydı Yok']),
@@ -83,6 +86,7 @@ export default function SalesReport() {
       <label>Başlangıç Tarihi<input type="date" value={filters.dateFrom} onChange={event => change('dateFrom', event.target.value)} /></label>
       <label>Bitiş Tarihi<input type="date" value={filters.dateTo} onChange={event => change('dateTo', event.target.value)} /></label>
       <label>Satış Kanalı<select value={filters.channel} onChange={event => change('channel', event.target.value)}><option value="">Tüm Kanallar</option>{Object.entries(channels).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
+      <label>Para Birimi<select value={filters.currency} onChange={event => change('currency', event.target.value)}><option value="">Tüm Para Birimleri</option><option value="TRY">TL</option><option value="USD">Dolar</option><option value="EUR">Euro</option></select></label>
       <label>Ürün / SKU<input value={filters.product} onChange={event => change('product', event.target.value)} placeholder="Ürün Adı Veya SKU" /></label>
       <label>Müşteri<input value={filters.customer} onChange={event => change('customer', event.target.value)} placeholder="Ad Veya E-Posta" /></label>
       <label>Sipariş Durumu<select value={filters.status} onChange={event => change('status', event.target.value)}><option value="">Tüm Durumlar</option>{Object.entries(statuses).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>

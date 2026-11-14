@@ -42,7 +42,7 @@ export class OrdersController {
   @Get('report-operations') @RequireRoles(Roles.SUPER_ADMIN)
   reportOperations(@Query('days') days?:string,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string) { return this.orders.operationalSummary(Number(days ?? 30),dateFrom,dateTo); }
   @Get('sales-report') @RequireRoles(Roles.SUPER_ADMIN)
-  salesReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('channel') channel?:string,@Query('product') product?:string,@Query('status') status?:string,@Query('customer') customer?:string) { return this.orders.salesReport(dateFrom,dateTo,channel,product,status,customer); }
+  salesReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('channel') channel?:string,@Query('product') product?:string,@Query('status') status?:string,@Query('customer') customer?:string,@Query('currency') currency?:string) { return this.orders.salesReport(dateFrom,dateTo,channel,product,status,customer,undefined,currency); }
   @Get('special-report') @RequireRoles(Roles.SUPER_ADMIN)
   async specialReport(@Req() req:UserRequest,@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string,@Query('currency') currency?:string) { if(!(await new StaffChannelService(this.db).access(req.user)).canSeeAll)throw new ForbiddenException('Bu Rapor Özel Prim Bilgileri İçerir. Kendi Hakedişlerinizi Prim Panelinizden Görebilirsiniz.');return this.orders.specialReport(dateFrom,dateTo,currency??'TRY'); }
   @Get('creation-options') @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN)

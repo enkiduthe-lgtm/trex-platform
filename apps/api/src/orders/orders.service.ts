@@ -150,9 +150,10 @@ export class OrdersService {
     }
     return this.salesReport(undefined, undefined, undefined, undefined, undefined, undefined, [...new Set(orderIds)]);
   }
-  async salesReport(dateFrom?:string,dateTo?:string,channel?:string,product?:string,status?:string,customer?:string,orderIds?:string[]) {
+  async salesReport(dateFrom?:string,dateTo?:string,channel?:string,product?:string,status?:string,customer?:string,orderIds?:string[],currency?:string) {
     const normalized=channel?.trim().toUpperCase()||null; const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'];
     if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı');
+    if(currency&&!['TRY','USD','EUR'].includes(currency)) throw new BadRequestException('Geçerli Bir Para Birimi Seçin.');
     for (const value of [dateFrom,dateTo]) if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0,10)!==value)) throw new BadRequestException('Geçerli Bir Tarih Seçin');
     if (dateFrom && dateTo && dateFrom > dateTo) throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz');
     if (status && !['PENDING_PAYMENT','PAID','PROCESSING','SHIPPED','DELIVERED','CANCELLED','REFUNDED'].includes(status)) throw new BadRequestException('Geçersiz Sipariş Durumu');
@@ -174,7 +175,8 @@ export class OrdersService {
         AND ($5::text IS NULL OR report.status=$5)
         AND ($6::text IS NULL OR concat_ws(' ',c.first_name,c.last_name,cs.contact_name,oa.recipient_name,c.email,cs.contact_email) ILIKE '%'||$6||'%')
         AND ($7::uuid[] IS NULL OR o.id=ANY($7::uuid[]))
-      ORDER BY o.created_at DESC,o.order_number,oi.id`,[dateFrom||null,dateTo||null,normalized,product?.trim()||null,status||null,customer?.trim()||null,orderIds??null])).rows;
+        AND ($8::text IS NULL OR o.currency=$8)
+      ORDER BY o.created_at DESC,o.order_number,oi.id`,[dateFrom||null,dateTo||null,normalized,product?.trim()||null,status||null,customer?.trim()||null,orderIds??null,currency||null])).rows;
   }
   async specialReport(dateFrom?:string,dateTo?:string,currency='TRY') {
     const period=reportPeriod(30,dateFrom,dateTo,currency),range=[period.dateFrom,period.dateTo,period.currency];
