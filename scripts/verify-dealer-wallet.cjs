@@ -196,8 +196,9 @@ async function main(){
  await returnService.approve(reviewId,'Review test',user);
  await returnService.receive(reviewId,undefined,user);
  assert.deepEqual((await db.query('SELECT status,approved_by FROM returns WHERE id=$1',[reviewId])).rows[0],{status:'RECEIVED',approved_by:user});
+ await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/gönderim ve depoya teslim/);
  await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[partial.id]);
- await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/önce onaylanıp/);
+ await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/gönderim ve depoya teslim/);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

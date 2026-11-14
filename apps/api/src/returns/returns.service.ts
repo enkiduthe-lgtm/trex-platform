@@ -19,6 +19,13 @@ const walletRefundBalance = `
     COALESCE((SELECT SUM(f.amount) FROM dealer_prim_refunds f WHERE f.order_id=o.id),0) AS refunded
 `;
 
+const stockLeftWarehouse = `(
+  o.status IN ('SHIPPED','DELIVERED')
+  OR EXISTS (
+    SELECT 1 FROM shipments s WHERE s.order_id=o.id AND s.provider='aras' AND s.tracking_direction_code='3'
+  )
+)`;
+
 @Injectable()
 export class ReturnsService {
   constructor(private readonly db: DatabaseService, private readonly commissions?: CommissionsService) {}
@@ -36,7 +43,9 @@ export class ReturnsService {
       throw new ConflictException('İade nedeni ve en az bir farklı ürün satırı gerekli');
     }
     return this.db.transaction(async client => {
-      const order = await client.query(`SELECT o.id FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id WHERE o.id=$1 AND o.archived_at IS NULL AND lower(cs.contact_email)=lower($2) AND o.status IN ('PAID','PROCESSING','SHIPPED','DELIVERED') FOR UPDATE OF o`, [dto.orderId,dto.contactEmail.trim()]);
+      const order = await client.query(`SELECT o.id FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id
+        WHERE o.id=$1 AND o.archived_at IS NULL AND lower(cs.contact_email)=lower($2)
+          AND o.status IN ('PAID','PROCESSING','SHIPPED','DELIVERED') FOR UPDATE OF o`, [dto.orderId,dto.contactEmail.trim()]);
       if (!order.rowCount) throw new NotFoundException('İade edilebilir sipariş bulunamadı');
       for (const item of dto.items) {
         const orderItem = await client.query<{ quantity: number }>('SELECT quantity FROM order_items WHERE id=$1 AND order_id=$2', [item.orderItemId, dto.orderId]);
@@ -60,12 +69,14 @@ export class ReturnsService {
     LEFT JOIN LATERAL (${cashRefundBalance}) cash ON r.status='INSPECTED' AND p.provider IS DISTINCT FROM 'dealer_commission'
     LEFT JOIN LATERAL (${walletRefundBalance}) wallet ON r.status='INSPECTED' AND p.provider='dealer_commission'
     CROSS JOIN LATERAL (SELECT CASE
-      WHEN o.archived_at IS NOT NULL OR o.status='CANCELLED' OR p.status='REFUNDED' OR p.currency<>o.currency THEN 0
+      WHEN o.status='CANCELLED' OR p.status='REFUNDED' OR p.currency<>o.currency THEN 0
       WHEN p.provider='dealer_commission' THEN CASE WHEN p.status='SUCCEEDED' THEN wallet.spent-wallet.refunded ELSE 0 END
       ELSE LEAST(o.total_amount,CASE WHEN p.status='SUCCEEDED' THEN p.amount ELSE cash.collected END)-cash.refunded
     END AS amount) available
     LEFT JOIN LATERAL (SELECT a.action,a.created_at,u.email AS actor_email FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.entity_type='return' AND a.entity_id=r.id::text ORDER BY a.created_at DESC LIMIT 1) last_action ON true
-    GROUP BY r.id,o.id,p.provider,available.amount,rr.amount,rr.currency,fa.name,last_action.action,last_action.created_at,last_action.actor_email ORDER BY r.requested_at DESC LIMIT 100`)).rows; }
+    WHERE o.archived_at IS NULL
+    GROUP BY r.id,o.id,p.provider,available.amount,rr.amount,rr.currency,fa.name,last_action.action,last_action.created_at,last_action.actor_email
+    ORDER BY (r.status NOT IN ('REFUNDED','REJECTED','CANCELLED')) DESC,r.requested_at DESC,r.id LIMIT 100`)).rows; }
 
   private async transition(returnId:string, from:string[], to:string, actorId:string, note:string|undefined, action:string) {
     return this.db.transaction(async client=>{
@@ -88,11 +99,11 @@ export class ReturnsService {
     return this.db.transaction(async client=>{
       const returned=await client.query<{order_id:string}>(`WITH active_return AS (
         SELECT r.id FROM returns r JOIN orders o ON o.id=r.order_id
-        WHERE r.id=$1 AND r.status='RECEIVED' AND o.archived_at IS NULL AND o.status<>'CANCELLED'
+        WHERE r.id=$1 AND r.status='RECEIVED' AND o.archived_at IS NULL AND o.status<>'CANCELLED' AND ${stockLeftWarehouse}
         FOR UPDATE OF r,o
       )
       UPDATE returns SET status='INSPECTED' WHERE id IN (SELECT id FROM active_return) RETURNING order_id`,[returnId]);
-      if(!returned.rowCount) throw new ConflictException('İade önce onaylanıp depoda teslim alınmalıdır');
+      if(!returned.rowCount) throw new ConflictException('İade incelemesi için gönderim ve depoya teslim adımları tamamlanmalıdır');
       const warehouse=await client.query('SELECT id FROM warehouses WHERE id=$1 AND is_active=true FOR UPDATE',[dto.warehouseId]);
       if(!warehouse.rowCount) throw new ConflictException('Aktif bir depo seçin');
       const items=await client.query<{return_item_id:string;product_id:string;quantity:number}>(`SELECT ri.id AS return_item_id,oi.product_id,ri.quantity FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1 AND oi.order_id=$2 ORDER BY oi.product_id,ri.id FOR UPDATE`,[returnId,returned.rows[0].order_id]);

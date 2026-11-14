@@ -40,6 +40,15 @@ const labels: Record<string, string> = {
   REJECTED: "Reddedildi",
   CANCELLED: "İptal",
 };
+const actionLabels: Record<string, string> = {
+  'return.requested': 'Talep alındı',
+  'return.approved': 'Onaylandı',
+  'return.rejected': 'Reddedildi',
+  'return.received': 'Depoya teslim alındı',
+  'return.inspected': 'Stok incelemesi tamamlandı',
+  'return.refunded': 'İade kaydedildi',
+  'return.shipping_fee.deducted': 'Kargo ücreti primden kesildi',
+};
 const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
 const noActions = { review: false, warehouse: false, refund: false };
@@ -263,7 +272,7 @@ export default function Returns() {
                       .join(", ") || `${row.item_count} ürün`}
                   </p>
                   <p>Neden: {row.reason}</p>
-                  {row.last_action && <p>Son işlem: {row.last_action} · {row.last_action_actor_email ?? "Sistem"} · {row.last_action_at ? financeDateTime(row.last_action_at) : "—"}</p>}
+                  {row.last_action && <p>Son işlem: {actionLabels[row.last_action] ?? 'İade kaydı güncellendi'} · {row.last_action_actor_email ?? "Sistem"} · {row.last_action_at ? financeDateTime(row.last_action_at) : "—"}</p>}
                   {row.status === "REQUESTED" && access.review && (
                     <form
                       onSubmit={(event) =>
