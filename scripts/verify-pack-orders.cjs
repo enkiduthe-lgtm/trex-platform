@@ -57,6 +57,11 @@ async function main(){const pg=new PGlite();try{
  const triple=await service.create({...input,paymentMethod:'TRANSFER',items:[{productId:pid,quantity:3,packSize:3}]},randomUUID(),actor,did);
  assert.equal(triple.total_amount,'1000.00');assert.equal((await query('SELECT SUM(quantity*unit_amount)::text total,SUM(quantity)::int qty FROM order_items WHERE order_id=$1',[triple.id])).rows[0].total,'1000.00');
  const options=await service.options(did);assert.equal(options.products.find(p=>p.id===pid).amount,'600.00');assert.equal(options.products.find(p=>p.id===pid).packs.length,3);
+ await query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency,starts_at) VALUES($1,'DEALER_LEVEL',$2,1,'USD',now())",[pid,level]);
+ const optionsAfterForeignPrice=await service.options(did);
+ assert.equal(optionsAfterForeignPrice.products.find(row=>row.id===pid).amount,'600.00');
+ const single=await service.create({...input,paymentMethod:'TRANSFER',items:[{productId:pid,quantity:1}]},randomUUID(),actor,did);
+ assert.equal(single.total_amount,'600.00');
  // Manager/director rates remain based on actual units, not the number of packs or allocated price rows.
  const staff=load(path.join(root,'apps/api/src/commissions/staff-channel.service.ts')).StaffChannelService;
  await pg.exec(`CREATE TABLE commission_entries(id uuid DEFAULT gen_random_uuid(),recipient_user_id uuid,recipient_kind text,order_id uuid,order_item_id uuid,amount numeric(12,2),currency text,status text,entry_kind text,available_at timestamptz,finalized_at timestamptz,calculation_source text,staff_settings_id uuid,staff_rate_id uuid,staff_role text,staff_channel_group text,staff_unit_amount numeric,staff_pool_amount numeric,staff_share_count int,note text,UNIQUE(recipient_user_id,order_item_id));`);

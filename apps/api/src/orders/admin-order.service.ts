@@ -17,6 +17,8 @@ const effectivePrice = `SELECT amount,currency FROM product_prices
   WHERE product_id=$1 AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
     AND (scope='GLOBAL' OR (scope='CHANNEL' AND channel=$2::sales_channel_code) OR ($2='RETAIL' AND scope='CHANNEL' AND channel='ADMIN_ORDER'))
   ORDER BY CASE WHEN scope='CHANNEL' AND channel=$2::sales_channel_code THEN 0 WHEN scope='CHANNEL' AND channel='ADMIN_ORDER' THEN 1 ELSE 2 END,starts_at DESC,id DESC LIMIT 1`;
+const activeDealerPrice = (levelParameter: '$1' | '$2') => `scope='DEALER_LEVEL' AND dealer_level_id=${levelParameter}
+  AND currency='TRY' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())`;
 
 @Injectable()
 export class AdminOrderService {
@@ -30,10 +32,9 @@ export class AdminOrderService {
     const context = dealerContext?.rows[0];
     const productQuery = dealerId
       ? this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency,
-          COALESCE((SELECT jsonb_agg(jsonb_build_object('size',q.pack_size,'amount',q.amount)) FROM (SELECT DISTINCT ON (pack_size) pack_size,amount FROM product_prices WHERE product_id=p.id AND scope='DEALER_LEVEL' AND dealer_level_id=$1 AND pack_size>1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY pack_size,starts_at DESC,id DESC) q),'[]'::jsonb) AS packs FROM products p
-          LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
-            AND scope='DEALER_LEVEL' AND dealer_level_id=$1
-            ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1) price ON true
+          COALESCE((SELECT jsonb_agg(jsonb_build_object('size',q.pack_size,'amount',q.amount) ORDER BY q.pack_size) FROM (SELECT DISTINCT ON (pack_size) pack_size,amount FROM product_prices WHERE product_id=p.id AND pack_size>1 AND ${activeDealerPrice('$1')} ORDER BY pack_size,starts_at DESC,id DESC) q),'[]'::jsonb) AS packs FROM products p
+          LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND ${activeDealerPrice('$1')}
+            ORDER BY starts_at DESC,id DESC LIMIT 1) price ON true
           WHERE p.status='ACTIVE' ORDER BY p.name`, [context!.dealer_level_id])
       : this.db.query(`SELECT p.id,p.name,p.sku,price.amount,price.currency FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())
@@ -46,7 +47,7 @@ export class AdminOrderService {
       dealerId ? Promise.resolve({ rows: [] }) : this.db.query('SELECT id,email,first_name,last_name,phone FROM customers WHERE is_active=true ORDER BY first_name,last_name'),
     ]);
     const rate = dealerId ? await this.dealerRate(currency) : 1;
-    const converted = dealerId ? products.rows.map(row=>({...row,currency,amount:row.amount===null?null:this.convertFloor(row.amount,rate),packs:(row.packs??[]).map((pack:{size:number;amount:string})=>({...pack,amount:this.convertFloor(pack.amount,rate)}))})) : products.rows;
+    const converted = dealerId ? products.rows.map(row=>({...row,currency,amount:row.amount===null?null:this.convertFloor(row.amount,rate),packs:row.amount===null?[]:(row.packs??[]).map((pack:{size:number;amount:string})=>({...pack,amount:this.convertFloor(pack.amount,rate)}))})) : products.rows;
     return { exchangeRate:rate, products: converted, warehouses: warehouses.rows, customers: customers.rows };
   }
   private async dealerRate(currency:string) {
@@ -110,14 +111,14 @@ export class AdminOrderService {
         const product = await client.query<{ name: string; sku: string }>("SELECT name,sku FROM products WHERE id=$1 AND status='ACTIVE' FOR SHARE", [item.productId]);
         if (!product.rows[0]) throw new NotFoundException('Aktif ürün bulunamadı');
         const price = dealerId
-          ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND pack_size=1 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND scope='DEALER_LEVEL' AND dealer_level_id=$2 ORDER BY CASE scope WHEN 'DEALER' THEN 1 WHEN 'DEALER_PRICE_GROUP' THEN 2 WHEN 'DEALER_LEVEL' THEN 3 WHEN 'CHANNEL' THEN 4 ELSE 5 END,starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].dealer_level_id])).rows[0]
+          ? (await client.query<{ amount: string; currency: string }>(`SELECT amount,currency FROM product_prices WHERE product_id=$1 AND pack_size=1 AND ${activeDealerPrice('$2')} ORDER BY starts_at DESC,id DESC LIMIT 1`, [item.productId,dealer!.rows[0].dealer_level_id])).rows[0]
           : (await client.query<{ amount: string; currency: string }>(effectivePrice, [item.productId, salesChannel])).rows[0];
         if (!price || price.currency.trim() !== 'TRY') throw new ConflictException(`${product.rows[0].name} için geçerli TL fiyatı gerekli`);
         if(dealerId)price.amount=this.convertFloor(price.amount,exchangeRate);
         let allocations: {quantity:number;amount:string;originalAmount:string}[];
         if (item.packSize) {
           if(item.quantity % item.packSize !== 0 || item.unitAmount !== undefined) throw new BadRequestException('Paket İçin Toplam Paket Fiyatı Ve Paket Katı Adet Girin');
-          const pack=(await client.query<{amount:string}>("SELECT amount FROM product_prices WHERE product_id=$1 AND scope='DEALER_LEVEL' AND dealer_level_id=$2 AND pack_size=$3 AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY starts_at DESC,id DESC LIMIT 1",[item.productId,dealer!.rows[0].dealer_level_id,item.packSize])).rows[0];
+          const pack=(await client.query<{amount:string}>(`SELECT amount FROM product_prices WHERE product_id=$1 AND pack_size=$3 AND ${activeDealerPrice('$2')} ORDER BY starts_at DESC,id DESC LIMIT 1`,[item.productId,dealer!.rows[0].dealer_level_id,item.packSize])).rows[0];
           if(!pack)throw new BadRequestException('Bu Bayi Seviyesinde Paket Fiyatı Tanımlı Değil');
           pack.amount=this.convertFloor(pack.amount,exchangeRate);
           allocations=allocatePack(cents(pack.amount),cents(item.packAmount??pack.amount),item.packSize,item.quantity/item.packSize);
