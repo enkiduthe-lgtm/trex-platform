@@ -32,6 +32,7 @@ export class OrdersController {
     return this.orders.list(channel,before,stage,{query,from,to});
   }
   @Get('queue-counts') queueCounts() { return this.orders.queueCounts(); }
+  @Get('dashboard-summary') dashboardSummary() { return this.orders.dashboardSummary(); }
   @Get('export-lines')
   exportLines(@Query('orders') orders?: string) { return this.orders.exportLines(typeof orders === 'string' ? orders.split(',') : []); }
   @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN)

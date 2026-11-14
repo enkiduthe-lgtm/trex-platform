@@ -1,5 +1,5 @@
 import { realizedCash } from '../finance/finance-cash-sql';
-import { canCancelOrder, manualCancellationChannels, manualCancellationStatuses, manualPaymentProviders, orderPriceEditable, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from './report-order-status';
+import { canCancelOrder, manualCancellationChannels, manualCancellationStatuses, manualPaymentProviders, netOrderAmount, orderPriceEditable, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from './report-order-status';
 import { reportPeriod } from './report-period';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
@@ -64,6 +64,54 @@ export class OrdersService {
     return (await this.db.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
       WHERE o.archived_at IS NULL GROUP BY 1`)).rows;
+  }
+  async dashboardSummary() {
+    const periodBounds = `WITH today AS (SELECT (now() AT TIME ZONE 'Europe/Istanbul')::date AS day),
+        periods AS (
+          SELECT bounds.* FROM today CROSS JOIN LATERAL (VALUES
+            ('today',day,day),('yesterday',day-1,day-1),('week',day-6,day),
+            ('month',date_trunc('month',day::timestamp)::date,day),
+            ('year',date_trunc('year',day::timestamp)::date,day),('all',NULL::date,NULL::date)
+          ) bounds(period,date_from,date_to)
+        )`;
+    const withinPeriod = `(p.date_from IS NULL OR o.created_at>=p.date_from::timestamp AT TIME ZONE 'Europe/Istanbul')
+      AND (p.date_to IS NULL OR o.created_at<(p.date_to+1)::timestamp AT TIME ZONE 'Europe/Istanbul')`;
+    const [periods, trend, stages, carriers, recent] = await Promise.all([
+      this.db.query(`${periodBounds}, history AS (
+          SELECT o.currency,o.created_at,${reportOrderStatus} AS status,${netOrderAmount} AS amount
+          FROM orders o WHERE o.archived_at IS NULL
+        )
+        SELECT p.period,o.currency,count(*)::int AS total_count,
+          count(*) FILTER (WHERE o.status NOT IN ('CANCELLED','REFUNDED'))::int AS sales_count,
+          COALESCE(SUM(o.amount) FILTER (WHERE o.status NOT IN ('CANCELLED','REFUNDED')),0)::text AS amount
+        FROM periods p JOIN history o ON ${withinPeriod}
+        GROUP BY p.period,o.currency`),
+      this.db.query(`SELECT date_trunc('day',o.created_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul' AS created_at,
+          o.currency,SUM(${netOrderAmount})::text AS amount
+        FROM orders o WHERE o.archived_at IS NULL AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED')
+          AND o.created_at>=(((now() AT TIME ZONE 'Europe/Istanbul')::date-6)::timestamp AT TIME ZONE 'Europe/Istanbul')
+          AND o.created_at<(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')
+        GROUP BY 1,2 ORDER BY 1,2`),
+      this.queueCounts(),
+      this.db.query(`SELECT s.provider,count(*)::int AS count FROM shipments s JOIN orders o ON o.id=s.order_id
+        WHERE o.archived_at IS NULL GROUP BY s.provider ORDER BY count DESC,s.provider LIMIT 4`),
+      this.db.query(`${periodBounds}
+        SELECT p.period,o.id,o.order_number,o.total_amount,o.currency,o.created_at,
+          ${orderQueueStatusSql} AS status,
+          COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,
+          COALESCE(c.email,cs.contact_email) AS customer_email,
+          (SELECT COALESCE(SUM(oi.quantity),0)::text FROM order_items oi WHERE oi.order_id=o.id) AS item_count
+        FROM periods p CROSS JOIN LATERAL (
+          SELECT o.* FROM orders o WHERE o.archived_at IS NULL AND ${withinPeriod}
+          ORDER BY o.created_at DESC,o.id DESC LIMIT 5
+        ) o
+        LEFT JOIN customers c ON c.id=o.customer_id
+        LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id
+        LEFT JOIN order_addresses oa ON oa.order_id=o.id
+        LEFT JOIN shipments s ON s.order_id=o.id
+        ORDER BY p.period,o.created_at DESC,o.id DESC`),
+    ]);
+    return { periods:periods.rows, trend:trend.rows, stages, carriers:carriers.rows, recent:recent.rows };
   }
   async deletionCandidates(actor:RequestUser) {
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');

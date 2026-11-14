@@ -11,7 +11,8 @@ async function main(){
  CREATE TABLE finance_accounts(id uuid PRIMARY KEY,currency text);
  CREATE TABLE finance_transactions(id uuid PRIMARY KEY,account_id uuid,kind text,amount numeric(12,2),occurred_at timestamptz,payment_status text);
  CREATE TABLE commission_entries(finance_transaction_id uuid,staff_role text,recipient_user_id uuid);
- CREATE TABLE returns(id uuid,order_id uuid,status text,requested_at timestamptz,completed_at timestamptz);CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(order_id uuid,status text,created_at timestamptz,updated_at timestamptz,tracking_direction_code text,tracking_checked_at timestamptz);CREATE TABLE support_tickets(order_id uuid,status text,due_at timestamptz);`);
+ CREATE TABLE returns(id uuid,order_id uuid,status text,requested_at timestamptz,completed_at timestamptz);CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(order_id uuid,status text,created_at timestamptz,updated_at timestamptz,tracking_direction_code text,tracking_checked_at timestamptz);CREATE TABLE support_tickets(order_id uuid,status text,due_at timestamptz);
+ CREATE TABLE return_refunds(return_id uuid,amount numeric(12,2),currency text);`);
  async function order(n,currency,amount,time,status='PAID'){await db.query('INSERT INTO orders(id,status,total_amount,currency,created_at,sales_channel) VALUES($1,$2,$3,$4,$5,\'RETAIL\')',[id(n),status,amount,currency,time]);await db.query("INSERT INTO order_items VALUES($1,$2,'Aynı Ürün','SKU-A',1,$3)",[id(n+100),id(n),amount]);}
  await order(1,'TRY',10,'2026-09-30T21:00:00Z');await order(2,'TRY',20,'2026-10-31T20:59:59Z');await order(3,'TRY',999,'2026-10-31T21:00:00Z');await order(4,'USD',500,'2026-10-15T12:00:00Z');await order(5,'TRY',100,'2026-10-15T12:00:00Z','CANCELLED');
  await pg.exec(`INSERT INTO finance_accounts VALUES('${id(10)}','TRY'),('${id(11)}','USD');
@@ -27,7 +28,24 @@ async function main(){
  const manager=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY',{id:id(91),role:'ADMIN'});assert.equal(manager.financial.expense,'2.10');assert.equal(manager.financial.net,'10.00');
  const operations=await service.operationalSummary(30,'2026-10-01','2026-10-31');assert.equal(operations.shipments_active,1);
  assert.equal(operations.shipments_failed,0);assert.equal(operations.shipments_returned,1);
- await pg.exec(`ALTER TABLE orders ADD checkout_id uuid;UPDATE orders SET checkout_id=id;
+ await pg.exec(`ALTER TABLE shipments ADD COLUMN provider text DEFAULT 'aras';
+ ALTER TABLE orders ADD COLUMN order_number text,ADD COLUMN customer_id uuid,ADD COLUMN checkout_id uuid;
+ CREATE TABLE customers(id uuid PRIMARY KEY,first_name text,last_name text,email text);
+ CREATE TABLE checkout_sessions(id uuid PRIMARY KEY,contact_name text,contact_email text);
+ CREATE TABLE order_addresses(order_id uuid PRIMARY KEY,recipient_name text);
+ INSERT INTO orders(id,status,total_amount,currency,created_at,sales_channel)
+ SELECT gen_random_uuid(),'PAID',1,'TRY','2025-01-01','RETAIL' FROM generate_series(1,120);
+ INSERT INTO returns(id,order_id,status) VALUES('${id(97)}','${id(2)}','REFUNDED');
+ INSERT INTO return_refunds VALUES('${id(97)}',5,'TRY'),('${id(97)}',9,'USD');`);
+ const summary=await service.dashboardSummary();
+ const all=summary.periods.find(row=>row.period==='all'&&row.currency==='TRY');
+ assert.equal(all.total_count,124);
+ assert.equal(all.sales_count,123);
+ assert.equal(Number(all.amount),1144);
+ assert.equal(summary.stages.find(row=>row.stage==='CARRIER_RETURN').count,1);
+ assert.equal(summary.carriers.find(row=>row.provider==='aras').count,3);
+ assert.equal(summary.recent.filter(row=>row.period==='all').length,5);
+ await pg.exec(`UPDATE orders SET checkout_id=id;
  ALTER TABLE finance_accounts ADD name text;UPDATE finance_accounts SET name='Test Hesabı';
  ALTER TABLE finance_transactions ADD cost_center text,ADD expense_category text;
  ALTER TABLE commission_entries ADD recipient_kind text,ADD order_id uuid,ADD order_item_id uuid,ADD amount numeric(12,2),ADD currency text,ADD status text,ADD entry_kind text,ADD created_at timestamptz;
