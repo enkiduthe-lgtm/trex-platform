@@ -182,6 +182,16 @@ async function main(){
  const listed=(await dealerPortal.listOrders({user:{id:user}})).find(row=>row.id===partial.id);
  assert.equal(listed.refunded_amount,'300.00');
  assert.equal(listed.net_amount,'700.00');
+ assert.equal(listed.can_cancel,false);
+ const openOrder=await adminOrders.create({...validBody,paymentMethod:'TRANSFER'},uuid(69),actor,dealer);
+ const orderFlags=async()=>new Map((await dealerPortal.listOrders({user:{id:user}})).map(row=>[row.id,row.can_cancel]));
+ assert.equal((await orderFlags()).get(openOrder.id),true);
+ assert.equal((await orderFlags()).get(sale2.id),false);
+ await db.query("UPDATE orders SET status='PROCESSING' WHERE id=$1",[openOrder.id]);
+ const packedPick=(await db.query("INSERT INTO picking_sessions(order_id,status) VALUES($1,'COMPLETED') RETURNING id",[openOrder.id])).rows[0].id;
+ await db.query('INSERT INTO packing_sessions(id,picking_session_id,packed_at) VALUES($1,$2,now())',[uuid(70),packedPick]);
+ assert.equal((await orderFlags()).get(openOrder.id),false);
+ await assert.rejects(()=>orderService.cancel(openOrder.id,actor),/Paketlenmiş sipariş/);
  await assert.rejects(()=>returnService.refund(uuid(66),{amount:300.01,accountId:account},user),/kalan tahsilat/);
  await returnService.refund(uuid(66),{amount:300,accountId:account},user);
  assert.equal((await db.query("SELECT SUM(amount)::text AS total FROM finance_transactions WHERE order_id=$1 AND kind='REFUND'",[partial.id])).rows[0].total,'600.00');

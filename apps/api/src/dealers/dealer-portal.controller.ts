@@ -6,7 +6,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { RequireRoles } from '../auth/roles.decorator';
 import { Roles } from '../auth/roles';
 import { RequestUser } from '../auth/auth.types';
-import { completedRefundAmount, netOrderAmount, reportOrderStatus } from '../orders/report-order-status';
+import { canCancelOrder, completedRefundAmount, netOrderAmount, reportOrderStatus } from '../orders/report-order-status';
 import { OrdersService } from '../orders/orders.service';
 import { AdminOrderService } from '../orders/admin-order.service';
 import { CreateAdminOrderDto } from '../orders/dto/create-admin-order.dto';
@@ -30,6 +30,8 @@ export class DealerPortalController {
   @Get('orders')
   async listOrders(@Req() req: UserRequest) {
     const result = await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,
+      (${canCancelOrder} AND EXISTS (SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order'
+        AND a.actor_user_id=$1 AND a.action='order.dealer.created')) AS can_cancel,
       ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at,
       COALESCE((SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id),o.created_at) AS status_updated_at
       FROM orders o WHERE o.archived_at IS NULL AND EXISTS (SELECT 1 FROM audit_logs al WHERE al.entity_id=o.id::text AND al.actor_user_id=$1 AND al.action IN ('order.dealer.created','order.admin.created') AND al.entity_type='order')
@@ -104,8 +106,6 @@ export class DealerPortalController {
 
   @Post('orders/:id/cancel')
   async cancelOrder(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
-    const owned = await this.db.query("SELECT 1 FROM audit_logs JOIN orders o ON o.id::text=entity_id WHERE o.archived_at IS NULL AND actor_user_id=$1 AND action IN ('order.dealer.created','order.admin.created') AND entity_type='order' AND entity_id=$2", [req.user.id, id]);
-    if (!owned.rowCount) throw new NotFoundException('Sipariş bulunamadı');
     return this.orders.cancel(id, req.user);
   }
 }

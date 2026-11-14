@@ -22,6 +22,7 @@ type Detail = {
   sales_channel: string;
   status: string;
   sales_status?: string;
+  can_cancel?: boolean;
   total_amount: string; cod_service_fee?:string;
   currency: string;
   customer_email: string | null;
@@ -484,7 +485,7 @@ export default function OrderDetail() {
               </div>
               <div className={styles.cardActions}>
                 {canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING") && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
+                {canEdit && data.can_cancel && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
                 {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
               </div>
             </section>

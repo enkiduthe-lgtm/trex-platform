@@ -28,6 +28,7 @@ type Order = {
   admin_note?: string | null;
   status: string;
   sales_status?: string;
+  can_cancel?: boolean;
   total_amount: string;
   currency: string;
   created_at: string;
@@ -558,11 +559,7 @@ function OrdersContent() {
                             <OrderIcon name="edit" /><span>Düzenle</span>
                           </Link>
                         )}
-                      {canEdit &&
-                        editableAdminChannels.includes(order.sales_channel ?? "") &&
-                        ["PENDING_PAYMENT", "PROCESSING"].includes(
-                          queueStatus(order),
-                        ) && (
+                      {canEdit && order.can_cancel && (
                           <button
                             type="button"
                             className={styles.cancelAction}
