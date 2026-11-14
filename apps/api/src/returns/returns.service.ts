@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { RequestReturnDto } from './dto/request-return.dto';
 import { InspectReturnDto, RefundReturnDto } from './dto/return-operation.dto';
@@ -25,6 +25,19 @@ const stockLeftWarehouse = `(
     SELECT 1 FROM shipments s WHERE s.order_id=o.id AND s.provider='aras' AND s.tracking_direction_code='3'
   )
 )`;
+
+const pageSize = 100;
+const openReturn = "r.status NOT IN ('REFUNDED','REJECTED','CANCELLED')";
+const overdueReturn = `(${openReturn} AND r.requested_at <= now() - interval '24 hours')`;
+const returnStatuses = ['REQUESTED','APPROVED','RECEIVED','INSPECTED','REFUNDED','REJECTED','CANCELLED','ATTENTION'];
+type ReturnFilters = { query?: string; status?: string; before?: string };
+const returnFilters = `WHERE o.archived_at IS NULL
+    AND ($1::text IS NULL OR r.status::text=$1 OR ($1='ATTENTION' AND ${overdueReturn}))
+    AND ($2::text IS NULL OR strpos(lower(translate(concat_ws(' ',o.order_number,r.reason,
+      CASE r.status WHEN 'REQUESTED' THEN 'Talep alındı' WHEN 'APPROVED' THEN 'Onaylandı'
+        WHEN 'RECEIVED' THEN 'Depoya ulaştı' WHEN 'INSPECTED' THEN 'İncelendi'
+        WHEN 'REFUNDED' THEN 'İade ödendi' WHEN 'REJECTED' THEN 'Reddedildi'
+        WHEN 'CANCELLED' THEN 'İptal' END),'IİĞÜŞÖÇ','ıiğüşöç')),$2)>0)`;
 
 @Injectable()
 export class ReturnsService {
@@ -60,11 +73,54 @@ export class ReturnsService {
     });
   }
 
-  async listAdmin() { return (await this.db.query(`SELECT (SELECT metadata->>'dealerId' FROM audit_logs WHERE entity_id=o.id::text AND entity_type='order' AND action='order.dealer.created' ORDER BY created_at LIMIT 1) AS dealer_id,p.provider AS payment_provider,r.id,r.status,r.reason,r.requested_at,r.received_at,r.approved_at,r.rejected_at,r.completed_at,o.id AS order_id,o.order_number,o.total_amount,o.currency,COALESCE(SUM(ri.quantity),0) AS item_count,COALESCE(SUM(ri.quantity*oi.unit_amount),0) AS refundable_amount,
+  async listAdmin() {
+    return (await this.adminRows(null, null, null, null, pageSize)).map(({ page_open, ...row }) => row);
+  }
+
+  async pageAdmin({ query, status, before }: ReturnFilters) {
+    if (query !== undefined && (typeof query !== 'string' || query.length > 200)) {
+      throw new BadRequestException('Arama metni en fazla 200 karakter olabilir.');
+    }
+    if (status !== undefined && !returnStatuses.includes(status)) {
+      throw new BadRequestException('Geçersiz iade durumu.');
+    }
+    if (before !== undefined && (typeof before !== 'string' || !/^[01]:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(before))) {
+      throw new BadRequestException('Geçersiz iade sayfası.');
+    }
+    const search = query?.trim().toLocaleLowerCase('tr-TR') || null;
+    const [bucket, cursorId] = before?.split(':') ?? [];
+    const [matches, totals] = await Promise.all([
+      this.adminRows(status ?? null, search, cursorId ?? null, bucket === '1', pageSize + 1),
+      before ? null : this.db.query<{ count: number; open: number; overdue: number; refundedTry: string }>(
+        `SELECT count(*)::int AS count, count(*) FILTER (WHERE ${openReturn})::int AS open,
+          count(*) FILTER (WHERE ${overdueReturn})::int AS overdue,
+          COALESCE(SUM(rr.amount) FILTER (WHERE rr.currency='TRY' AND r.status='REFUNDED'),0)::text AS "refundedTry"
+          FROM returns r JOIN orders o ON o.id=r.order_id
+          LEFT JOIN return_refunds rr ON rr.return_id=r.id
+          ${returnFilters}`, [status ?? null, search]),
+    ]);
+    const last = matches.length > pageSize ? matches[pageSize - 1] : undefined;
+    return {
+      rows: matches.slice(0, pageSize).map(({ page_open, ...row }) => row),
+      next: last ? `${last.page_open ? '1' : '0'}:${last.id}` : null,
+      totals: totals?.rows[0] ?? null,
+    };
+  }
+
+  private async adminRows(status: string | null, query: string | null, before: string | null, open: boolean | null, limit: number) {
+    return (await this.db.query<{ id: string; page_open: boolean } & Record<string, unknown>>(`
+    WITH page AS (
+      SELECT r.id FROM returns r JOIN orders o ON o.id=r.order_id
+      ${returnFilters}
+        AND ($3::uuid IS NULL OR (r.id<>$3 AND (${openReturn},r.requested_at,r.id) <
+          (SELECT $4::boolean,r.requested_at,r.id FROM returns r WHERE r.id=$3)))
+      ORDER BY ${openReturn} DESC,r.requested_at DESC,r.id DESC LIMIT $5
+    )
+    SELECT (SELECT metadata->>'dealerId' FROM audit_logs WHERE entity_id=o.id::text AND entity_type='order' AND action='order.dealer.created' ORDER BY created_at LIMIT 1) AS dealer_id,p.provider AS payment_provider,r.id,r.status,r.reason,r.requested_at,r.received_at,r.approved_at,r.rejected_at,r.completed_at,o.id AS order_id,o.order_number,o.total_amount,o.currency,COALESCE(SUM(ri.quantity),0) AS item_count,COALESCE(SUM(ri.quantity*oi.unit_amount),0) AS refundable_amount,
     CASE WHEN r.status='INSPECTED' THEN GREATEST(0,LEAST(COALESCE(SUM(ri.quantity*oi.unit_amount),0),available.amount))::text END AS available_refund_amount,
     COALESCE(json_agg(json_build_object('id',ri.id,'product_name',oi.product_name,'sku',oi.sku,'quantity',ri.quantity)) FILTER (WHERE ri.id IS NOT NULL),'[]'::json) AS items,
-    rr.amount AS refund_amount,rr.currency AS refund_currency,fa.name AS refund_account_name,last_action.action AS last_action,last_action.created_at AS last_action_at,last_action.actor_email AS last_action_actor_email
-    FROM returns r JOIN orders o ON o.id=r.order_id LEFT JOIN return_items ri ON ri.return_id=r.id LEFT JOIN order_items oi ON oi.id=ri.order_item_id LEFT JOIN return_refunds rr ON rr.return_id=r.id LEFT JOIN finance_transactions ft ON ft.id=rr.finance_transaction_id LEFT JOIN finance_accounts fa ON fa.id=ft.account_id
+    rr.amount AS refund_amount,rr.currency AS refund_currency,fa.name AS refund_account_name,last_action.action AS last_action,last_action.created_at AS last_action_at,last_action.actor_email AS last_action_actor_email,${openReturn} AS page_open
+    FROM page JOIN returns r ON r.id=page.id JOIN orders o ON o.id=r.order_id LEFT JOIN return_items ri ON ri.return_id=r.id LEFT JOIN order_items oi ON oi.id=ri.order_item_id LEFT JOIN return_refunds rr ON rr.return_id=r.id LEFT JOIN finance_transactions ft ON ft.id=rr.finance_transaction_id LEFT JOIN finance_accounts fa ON fa.id=ft.account_id
     LEFT JOIN payments p ON p.checkout_id=o.checkout_id
     LEFT JOIN LATERAL (${cashRefundBalance}) cash ON r.status='INSPECTED' AND p.provider IS DISTINCT FROM 'dealer_commission'
     LEFT JOIN LATERAL (${walletRefundBalance}) wallet ON r.status='INSPECTED' AND p.provider='dealer_commission'
@@ -74,9 +130,9 @@ export class ReturnsService {
       ELSE LEAST(o.total_amount,CASE WHEN p.status='SUCCEEDED' THEN p.amount ELSE cash.collected END)-cash.refunded
     END AS amount) available
     LEFT JOIN LATERAL (SELECT a.action,a.created_at,u.email AS actor_email FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.entity_type='return' AND a.entity_id=r.id::text ORDER BY a.created_at DESC LIMIT 1) last_action ON true
-    WHERE o.archived_at IS NULL
     GROUP BY r.id,o.id,p.provider,available.amount,rr.amount,rr.currency,fa.name,last_action.action,last_action.created_at,last_action.actor_email
-    ORDER BY (r.status NOT IN ('REFUNDED','REJECTED','CANCELLED')) DESC,r.requested_at DESC,r.id LIMIT 100`)).rows; }
+    ORDER BY ${openReturn} DESC,r.requested_at DESC,r.id DESC`, [status, query, before, open, limit])).rows;
+  }
 
   private async transition(returnId:string, from:string[], to:string, actorId:string, note:string|undefined, action:string) {
     return this.db.transaction(async client=>{

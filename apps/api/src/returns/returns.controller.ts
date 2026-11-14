@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireRoles } from '../auth/roles.decorator';
@@ -12,7 +12,10 @@ type UserRequest = Request & { user: RequestUser };
 @Controller('returns')
 export class ReturnsController {
   constructor(private readonly returns: ReturnsService) {}
-  @Get('admin') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE, Roles.FINANCE) list() { return this.returns.listAdmin(); }
+  @Get('admin') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE, Roles.FINANCE)
+  list(@Query('page') page?: string, @Query('q') query?: string, @Query('status') status?: string, @Query('before') before?: string) {
+    return page === '1' ? this.returns.pageAdmin({ query, status, before }) : this.returns.listAdmin();
+  }
   @Get('admin/refund-accounts') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.FINANCE) refundAccounts() { return this.returns.refundAccounts(); }
   @Get('admin/inspection-warehouses') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE) inspectionWarehouses() { return this.returns.inspectionWarehouses(); }
   @Post() request(@Body() dto: RequestReturnDto) { return this.returns.request(dto); }

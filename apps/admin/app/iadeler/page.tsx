@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
 import { downloadXlsx } from '../lib/xlsx';
@@ -53,6 +53,17 @@ const money = (v: string, c: string) =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency: c });
 const noActions = { review: false, warehouse: false, refund: false };
 type Access = typeof noActions;
+type ReturnTotals = { count: number; open: number; overdue: number; refundedTry: string };
+type ReturnPage = { rows: ReturnRow[]; next: string | null; totals: ReturnTotals | null };
+
+function fetchReturns(query: string, status: string, before?: string) {
+  const params = new URLSearchParams({ page: "1" });
+  if (query.trim()) params.set("q", query.trim());
+  if (status !== "ALL") params.set("status", status);
+  if (before) params.set("before", before);
+  return api<ReturnPage>(`/returns/admin?${params}`);
+}
+
 export default function Returns() {
   const [rows, setRows] = useState<ReturnRow[]>([]),
     [warehouses, setWarehouses] = useState<Warehouse[]>([]),
@@ -70,23 +81,35 @@ export default function Returns() {
   const [access, setAccess] = useState<Access>(noActions);
   const [loading, setLoading] = useState(true);
   const [listReady, setListReady] = useState(false);
+  const [next, setNext] = useState<string | null>(null);
+  const [totals, setTotals] = useState<ReturnTotals | null>(null);
   const actionLock = useRef(createActionLock());
   const requestGate = useRef(createRequestGate());
-  async function load(confirmation = '') {
+  const optionsGate = useRef(createRequestGate());
+  async function load(confirmation = '', before?: string) {
     const ticket = requestGate.current.begin();
     setLoading(true);
-    setListReady(false);
+    if (!before) setListReady(false);
     try {
-      const [me, list] = await Promise.allSettled([
-        api<{user: {role: string}}>('/auth/me'),
-        api<ReturnRow[]>('/returns/admin'),
-      ]);
+      const result = await fetchReturns(query, status, before);
       if (!requestGate.current.isCurrent(ticket)) return;
-      if (list.status === 'rejected') throw list.reason;
-      setRows(list.value);
+      setRows(previous => before ? [...previous, ...result.rows.filter(row => !previous.some(item => item.id === row.id))] : result.rows);
+      setNext(result.next);
+      if (!before) setTotals(result.totals);
       setListReady(true);
-      if (me.status === 'rejected') throw me.reason;
-      const role = me.value.user.role;
+      if (confirmation) setMessage(confirmation);
+    } catch (error) {
+      if (!requestGate.current.isCurrent(ticket)) return;
+      setMessage([confirmation, error instanceof Error ? error.message : 'İade bilgileri yüklenemedi.'].filter(Boolean).join(' '));
+    } finally {
+      if (requestGate.current.isCurrent(ticket)) setLoading(false);
+    }
+  }
+
+  async function loadOptions() {
+    const ticket = optionsGate.current.begin();
+    try {
+      const { user: { role } } = await api<{user: {role: string}}>('/auth/me');
       const profile = role === 'ADMIN'
         ? await api<{configured: boolean; grants: string[] | null}>('/admin/access/me')
         : undefined;
@@ -98,64 +121,78 @@ export default function Returns() {
         canInspect ? api<Warehouse[]>('/returns/admin/inspection-warehouses') : Promise.resolve([]),
         canRefund ? api<Account[]>('/returns/admin/refund-accounts') : Promise.resolve([]),
       ]);
-      if (!requestGate.current.isCurrent(ticket)) return;
+      if (!optionsGate.current.isCurrent(ticket)) return;
       setAccess({review: mayApprove, warehouse: canInspect, refund: canRefund});
       setWarehouses(locations.status === 'fulfilled' ? locations.value : []);
       setAccounts(finance.status === 'fulfilled' ? finance.value : []);
-      setMessage([confirmation, locations.status === 'rejected' ? 'Depolar yüklenemedi.' : '', finance.status === 'rejected' ? 'Finans hesapları yüklenemedi.' : ''].filter(Boolean).join(' '));
+      const warning = [locations.status === 'rejected' ? 'Depolar yüklenemedi.' : '', finance.status === 'rejected' ? 'Finans hesapları yüklenemedi.' : ''].filter(Boolean).join(' ');
+      if (warning) setMessage(warning);
     } catch (error) {
-      if (!requestGate.current.isCurrent(ticket)) return;
+      if (!optionsGate.current.isCurrent(ticket)) return;
       setAccess(noActions);
       setWarehouses([]);
       setAccounts([]);
-      setMessage([confirmation, error instanceof Error ? error.message : 'İade bilgileri yüklenemedi.'].filter(Boolean).join(' '));
-    } finally {
-      if (requestGate.current.isCurrent(ticket)) setLoading(false);
+      setMessage(error instanceof Error ? error.message : 'İade işlem yetkileri yüklenemedi.');
     }
   }
   useEffect(() => {
-    void load();
-    const gate = requestGate.current;
+    void loadOptions();
+    const gate = optionsGate.current;
     return () => gate.invalidate();
   }, []);
-  const requiresAttention = (row: ReturnRow) =>
-    !["REFUNDED", "REJECTED", "CANCELLED"].includes(row.status) &&
-    Date.now() - new Date(row.requested_at).getTime() >= 24 * 60 * 60 * 1000;
-  const shown = useMemo(
-    () =>
-      (listReady ? rows : []).filter(
-        (row) =>
-          (status === "ALL" || (status === "ATTENTION" && requiresAttention(row)) || row.status === status) &&
-          [row.order_number, row.reason, labels[row.status]]
-            .join(" ")
-            .toLocaleLowerCase("tr-TR")
-            .includes(query.toLocaleLowerCase("tr-TR")),
-      ),
-    [rows, query, status, listReady],
-  );
-  const total = shown
-    .filter((row) => row.status === "REFUNDED" && row.currency === "TRY")
-    .reduce((sum, row) => sum + Number(row.refund_amount ?? 0), 0);
+  useEffect(() => {
+    const timer = setTimeout(() => void load(), query ? 250 : 0);
+    const gate = requestGate.current;
+    return () => {
+      clearTimeout(timer);
+      gate.invalidate();
+    };
+  }, [query, status]);
+  function changeFilter(update: () => void) {
+    requestGate.current.invalidate();
+    setLoading(true);
+    setListReady(false);
+    setMessage("");
+    update();
+  }
+  const shown = listReady ? rows : [];
+  const summary = listReady ? totals : null;
   const note = (id: string) => notes[id] ?? "";
   const setNote = (id: string, value: string) =>
     setNotes((current) => ({ ...current, [id]: value }));
-  function exportReturns() {
-    if (!shown.length) { setMessage('Dışa aktarılacak iade bulunamadı.'); return; }
-    const rows = [
-      ['Sipariş no', 'Durum', 'Neden', 'Ürünler', 'İade tutarı', 'Para birimi', 'Ödenen tutar', 'Ödeme hesabı', 'Talep tarihi'],
-      ...shown.map(row => [
-        row.order_number,
-        labels[row.status] ?? row.status,
-        row.reason,
-        row.items.map(item => `${item.product_name} × ${item.quantity}`).join(' | '),
-        row.refundable_amount,
-        row.currency,
-        row.refund_amount ?? '',
-        row.refund_account_name ?? '',
-        financeDateTime(row.requested_at),
-      ]),
-    ];
-    downloadXlsx('trex-iadeler.xlsx', 'İadeler', rows);
+  async function exportReturns() {
+    if (!shown.length || loading || !actionLock.current.acquire()) return;
+    setBusy('export');
+    setMessage("");
+    try {
+      const exportRows = new Map<string, ReturnRow>();
+      let before: string | undefined;
+      do {
+        const page = await fetchReturns(query, status, before);
+        for (const row of page.rows) exportRows.set(row.id, row);
+        before = page.next ?? undefined;
+      } while (before);
+      if (!exportRows.size) { setMessage('Dışa aktarılacak iade bulunamadı.'); return; }
+      downloadXlsx('trex-iadeler.xlsx', 'İadeler', [
+        ['Sipariş no', 'Durum', 'Neden', 'Ürünler', 'İade tutarı', 'Para birimi', 'Ödenen tutar', 'Ödeme hesabı', 'Talep tarihi'],
+        ...Array.from(exportRows.values(), row => [
+          row.order_number,
+          labels[row.status] ?? row.status,
+          row.reason,
+          row.items.map(item => `${item.product_name} × ${item.quantity}`).join(' | '),
+          Number(row.refundable_amount),
+          row.currency,
+          row.refund_amount === null ? '' : Number(row.refund_amount),
+          row.refund_account_name ?? '',
+          financeDateTime(row.requested_at),
+        ]),
+      ]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Excel dosyası hazırlanamadı.');
+    } finally {
+      setBusy(null);
+      actionLock.current.release();
+    }
   }
   async function act(id: string, action: string, body: unknown = {}) {
     const permitted = action === 'approve' || action === 'reject' ? access.review
@@ -197,42 +234,40 @@ export default function Returns() {
           iadesi. Her işlem kayıt altına alınır.
         </p>
         {message && <p role="status">{message}</p>}
-        <button type="button" className="secondary" disabled={loading || busy !== null} onClick={() => void load()}>İade listesini yenile</button>
+        <button type="button" className="secondary" disabled={loading || busy !== null} onClick={() => { setMessage(""); void load(); void loadOptions(); }}>İade listesini yenile</button>
         <div className="cards">
           <article>
             <p>AÇIK İADE</p>
-            <h2>
-              {
-                rows.filter(
-                  (row) =>
-                    !["REFUNDED", "REJECTED", "CANCELLED"].includes(row.status),
-                ).length
-              }
-            </h2>
+            <h2>{summary?.open ?? "—"}</h2>
           </article>
           <article>
-            <p>SEÇİLİ İADELER</p>
-            <h2>{shown.length}</h2>
+            <p>FİLTREYE UYAN İADELER</p>
+            <h2>{summary?.count ?? "—"}</h2>
           </article>
           <article>
             <p>ÖDENEN TL İADE</p>
-            <h2>{money(String(total), "TRY")}</h2>
+            <h2>{summary ? money(summary.refundedTry, "TRY") : "—"}</h2>
           </article>
           <article>
             <p>24 SAATİ AŞAN</p>
-            <h2>{rows.filter(requiresAttention).length}</h2>
+            <h2>{summary?.overdue ?? "—"}</h2>
             <p>Öncelikli işlem</p>
           </article>
         </div>
         <div className="period-toolbar">
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => changeFilter(() => setQuery(event.target.value))}
+            aria-label="Sipariş numarası, iade nedeni veya durum ara"
+            maxLength={200}
+            disabled={busy !== null}
             placeholder="Sipariş no veya neden ara"
           />
           <select
             value={status}
-            onChange={(event) => setStatus(event.target.value)}
+            onChange={(event) => changeFilter(() => setStatus(event.target.value))}
+            aria-label="İade durumu"
+            disabled={busy !== null}
           >
             <option value="ALL">Tüm durumlar</option>
             <option value="ATTENTION">24 saati aşan açık iadeler</option>
@@ -242,7 +277,9 @@ export default function Returns() {
               </option>
             ))}
           </select>
-          <button type="button" disabled={!shown.length} onClick={exportReturns}>Excel&apos;e Aktar</button>
+          <button type="button" disabled={!shown.length || loading || busy !== null} onClick={() => void exportReturns()}>
+            {busy === "export" ? "Excel hazırlanıyor…" : "Excel’e Aktar"}
+          </button>
         </div>
         <div className="cards">
           {shown.length ? (
@@ -475,6 +512,10 @@ export default function Returns() {
             </article>
           )}
         </div>
+        {summary && summary.count > 0 && <p>{shown.length} / {summary.count} iade gösteriliyor</p>}
+        {listReady && next && <button type="button" className="secondary" disabled={loading || busy !== null} onClick={() => void load('', next)}>
+          {loading ? 'İadeler yükleniyor…' : 'Daha fazla iade göster'}
+        </button>}
       </section>
     </main>
   );

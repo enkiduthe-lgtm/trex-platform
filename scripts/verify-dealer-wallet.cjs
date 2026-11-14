@@ -209,6 +209,28 @@ async function main(){
  await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/gönderim ve depoya teslim/);
  await db.query("UPDATE orders SET archived_at=now() WHERE id=$1",[partial.id]);
  await assert.rejects(()=>returnService.inspect(reviewId,{warehouseId:warehouse,disposition:'SELLABLE'},user),/gönderim ve depoya teslim/);
+ await db.query(`INSERT INTO returns(id,order_id,status,reason,requested_at)
+   SELECT md5('return-queue-' || i)::uuid,$1,'REQUESTED','Yeni iade',now() FROM generate_series(1,105) AS i`,[cash.id]);
+ await db.query("UPDATE returns SET reason='İÇERİK %50',requested_at=now()-interval '3 days' WHERE id=$1",[uuid(61)]);
+ const returnOrderNumber=(await db.query('SELECT order_number FROM orders WHERE id=$1',[cash.id])).rows[0].order_number;
+ const firstReturns=await returnService.pageAdmin({query:returnOrderNumber});
+ assert.equal(firstReturns.rows.length,100);
+ assert.equal(firstReturns.rows.some(row=>row.id===uuid(61)),false);
+ assert.equal(firstReturns.totals.open,105);
+ assert.equal(firstReturns.totals.count,106);
+ assert.equal(Number(firstReturns.totals.refundedTry),500);
+ const cursorId=firstReturns.next.split(':')[1];
+ await db.query("UPDATE returns SET status='REJECTED' WHERE id=$1",[cursorId]);
+ const olderReturns=await returnService.pageAdmin({query:returnOrderNumber,before:firstReturns.next});
+ assert.equal(olderReturns.rows.filter(row=>row.status==='REQUESTED').length,5);
+ assert.equal(olderReturns.rows.some(row=>row.id===uuid(61)),true);
+ assert.equal(olderReturns.next,null);
+ const matchingReturns=await returnService.pageAdmin({query:' içerik %50 ',status:'REFUNDED'});
+ assert.deepEqual(matchingReturns.rows.map(row=>row.id),[uuid(61)]);
+ assert.equal(matchingReturns.totals.count,1);
+ assert.equal((await returnService.pageAdmin({query:returnOrderNumber,status:'ATTENTION'})).totals.count,0);
+ await db.query("UPDATE returns SET status='REQUESTED',requested_at=now()-interval '2 days' WHERE id=$1",[cursorId]);
+ assert.deepEqual((await returnService.pageAdmin({query:returnOrderNumber,status:'ATTENTION'})).rows.map(row=>row.id),[cursorId]);
  await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
