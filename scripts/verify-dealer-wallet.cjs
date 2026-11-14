@@ -219,6 +219,7 @@ async function main(){
  const dealerCard=new DealersService({
    query(sql,args) {
      if(sql.includes(' AS net_amount') && sql.includes('FROM dealer_orders')) return db.query(sql,args);
+     if(sql.includes(' AS item_id') && sql.includes('FROM dealer_orders')) return db.query(sql,args);
      if(sql.startsWith('SELECT d.id,d.code,d.company_name')) return Promise.resolve({rowCount:1,rows:[{id:dealer}]});
      return Promise.resolve({rows:[]});
    },
@@ -226,6 +227,10 @@ async function main(){
  const card=(await dealerCard.detail(dealer)).orders;
  assert.equal(card.find(row=>row.id===dealerCod.id).status,'CARRIER_RETURN');
  assert.equal(card.find(row=>row.id===partial.id).net_amount,'700.00');
+ await pg.exec('CREATE TABLE dealer_levels(id uuid PRIMARY KEY,name text)');
+ const dealerReport=await dealerCard.salesReportDetail('2026-11-01','2026-11-30',dealer,undefined,'CARRIER_RETURN');
+ assert.equal(dealerReport.length,1);
+ assert.equal(dealerReport[0].order_id,dealerCod.id);
  await db.query('UPDATE orders SET archived_at=now() WHERE id=$1',[dealerCod.id]);
  assert.equal((await dealerCard.detail(dealer)).orders.some(row=>row.id===dealerCod.id),false);
  const openOrder=await adminOrders.create({...validBody,paymentMethod:'TRANSFER'},uuid(69),actor,dealer);

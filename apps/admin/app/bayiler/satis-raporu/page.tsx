@@ -10,7 +10,7 @@ import { DealerSale, groupDealerSales } from '../../lib/dealer-sales-report';
 
 type Dealer={id:string;code:string;company_name:string;status:string};
 type Filters={dateFrom:string;dateTo:string;dealerId:string;product:string;status:string};
-const statusLabels:Record<string,string>={PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',REGISTERED:'Kargo Kaydı Hazır',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'};
+const statusLabels:Record<string,string>={PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',REGISTERED:'Kargo Kaydı Hazır',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CARRIER_RETURN:'Kargo İadesi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'};
 const paymentLabels:Record<string,string>={PENDING:'Bekliyor',SUCCEEDED:'Ödendi',FAILED:'Başarısız',REFUNDED:'İade Edildi'};
 const money=(amount:string,currency:string)=>Number(amount).toLocaleString('tr-TR',{style:'currency',currency});
 const date=(days=0)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Istanbul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-days*86400000));

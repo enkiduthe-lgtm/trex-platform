@@ -1,4 +1,4 @@
-import { completedRefundAmount, netOrderAmount, orderQueueStatusSql, reportOrderStatus } from '../orders/report-order-status';
+import { completedRefundAmount, netOrderAmount, orderQueueStages, orderQueueStatusSql, reportOrderStatus } from '../orders/report-order-status';
 import { reportPeriod } from '../orders/report-period';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
@@ -81,18 +81,13 @@ export class DealersService {
   async salesReportDetail(dateFrom?:string,dateTo?:string,dealerId?:string,product?:string,status?:string) {
     const period=reportPeriod(30,dateFrom,dateTo);
     if(dealerId&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealerId))throw new BadRequestException('Geçerli Bir Bayi Seçin.');
-    if(status&&!['PENDING_PAYMENT','PAID','PROCESSING','REGISTERED','SHIPPED','DELIVERED','CANCELLED','REFUNDED'].includes(status))throw new BadRequestException('Geçerli Bir Sipariş Durumu Seçin.');
+    if(status&&!orderQueueStages.includes(status))throw new BadRequestException('Geçerli Bir Sipariş Durumu Seçin.');
     const search=product?.trim().replace(/[\\%_]/g,'\\$&')||null;
     return (await this.db.query(`${this.dealerOrderSource()} SELECT d.id AS dealer_id,d.code AS dealer_code,d.company_name,a.level_id AS dealer_level_id,l.name AS dealer_level_name,o.id AS order_id,o.order_number,o.created_at,report.status,o.total_amount,o.currency,
       oi.id AS item_id,oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,COALESCE(payment.status::text,'') AS payment_status
       FROM dealer_orders a JOIN orders o ON o.id::text=a.entity_id JOIN dealers d ON d.id=a.dealer_id JOIN order_items oi ON oi.order_id=o.id LEFT JOIN dealer_levels l ON l.id=a.level_id
       LEFT JOIN shipments s ON s.order_id=o.id
-      CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) base
-      CROSS JOIN LATERAL (SELECT CASE WHEN base.status='PROCESSING' THEN CASE s.status
-        WHEN 'CREATED' THEN 'REGISTERED'
-        WHEN 'IN_TRANSIT' THEN 'SHIPPED'
-        WHEN 'DELIVERED' THEN 'DELIVERED'
-        ELSE base.status END ELSE base.status END AS status) report
+      CROSS JOIN LATERAL (SELECT ${orderQueueStatusSql} AS status) report
       LEFT JOIN LATERAL(SELECT status FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) payment ON true
       WHERE o.archived_at IS NULL AND o.created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND o.created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')
         AND ($3::uuid IS NULL OR d.id=$3::uuid) AND ($4::text IS NULL OR oi.product_name ILIKE '%'||$4||'%' OR oi.sku ILIKE '%'||$4||'%') AND ($5::text IS NULL OR report.status=$5)
