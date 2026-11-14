@@ -10,11 +10,43 @@ import { ShippingService } from '../shipping/shipping.service';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { ParasutInvoiceProvider } from './parasut-invoice.provider';
 @Injectable()
-export class OrdersService { constructor(private readonly db: DatabaseService,private readonly shipping?: ShippingService, private readonly parasut?: ParasutInvoiceProvider) {} async list(channel?:string,before?:string,stage?:string) { if(stage!==undefined&&!orderQueueStages.includes(stage))throw new BadRequestException('Geçersiz Sipariş Durumu'); if(before&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(before))throw new BadRequestException("Geçersiz Sipariş Sayfası"); const normalized=channel?.trim().toUpperCase(); const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE']; if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı'); return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,(SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) AS payment_method,(SELECT ps.status FROM picking_sessions ps WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS preparation_status,(SELECT pk.packed_at FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS packed_at,o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
+export class OrdersService {
+  constructor(private readonly db: DatabaseService,private readonly shipping?: ShippingService, private readonly parasut?: ParasutInvoiceProvider) {}
+
+  async list(channel?:string,before?:string,stage?:string, filters: { query?: string; from?: string; to?: string } = {}) {
+    const {from,to}=filters;
+    for(const date of [from,to]) {
+      if(date!==undefined&&(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))throw new BadRequestException('Geçerli Bir Tarih Seçin');
+    }
+    if(from&&to&&from>to)throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz');
+    if(filters.query!==undefined&&(typeof filters.query!=='string'||filters.query.length>200))throw new BadRequestException('Arama Metni En Fazla 200 Karakter Olabilir');
+    const query=filters.query?.trim().toLocaleLowerCase('tr-TR')||null;
+    if(stage!==undefined&&!orderQueueStages.includes(stage))throw new BadRequestException('Geçersiz Sipariş Durumu');
+    if(before!==undefined&&(typeof before!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(before)))throw new BadRequestException("Geçersiz Sipariş Sayfası");
+    if(channel!==undefined&&typeof channel!=='string')throw new BadRequestException('Geçersiz satış kanalı');
+    const normalized=channel?.trim().toUpperCase();
+    const allowed=['PUBLIC_WEB','ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','MARKETPLACE'];
+    if(normalized&&!allowed.includes(normalized)) throw new BadRequestException('Geçersiz satış kanalı');
+    return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,(SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) AS payment_method,(SELECT ps.status FROM picking_sessions ps WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS preparation_status,(SELECT pk.packed_at FROM packing_sessions pk JOIN picking_sessions ps ON ps.id=pk.picking_session_id WHERE ps.order_id=o.id ORDER BY ps.created_at DESC LIMIT 1) AS packed_at,o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('product_name',lines.product_name,'sku',lines.sku,'quantity',lines.quantity) ORDER BY lines.product_name,lines.sku)
         FROM (SELECT product_id,product_name,sku,SUM(quantity)::int AS quantity FROM order_items
           WHERE order_id=o.id GROUP BY product_id,product_name,sku) lines),'[]'::jsonb) AS products
-      FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN shipments s ON s.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id WHERE o.archived_at IS NULL AND ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) AND ($2::uuid IS NULL OR (o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)) AND ($3::text IS NULL OR (${orderQueueStatusSql})=$3) GROUP BY o.id,c.id,cs.id,oa.id,s.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null])).rows; }
+      FROM orders o LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id LEFT JOIN shipments s ON s.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id WHERE o.archived_at IS NULL AND ($1::sales_channel_code IS NULL OR o.sales_channel=$1::sales_channel_code) AND ($2::uuid IS NULL OR (o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)) AND ($3::text IS NULL OR (${orderQueueStatusSql})=$3)
+        AND ($4::date IS NULL OR o.created_at >= ($4::date::timestamp AT TIME ZONE 'Europe/Istanbul'))
+        AND ($5::date IS NULL OR o.created_at < (($5::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul'))
+        AND ($6::text IS NULL OR
+          strpos(lower(translate(concat_ws(' ',o.order_number,
+            COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name),
+            COALESCE(c.email,cs.contact_email),o.sales_channel,o.marketplace_name,
+            CASE o.sales_channel WHEN 'RETAIL' THEN 'Perakende' WHEN 'WHOLESALE' THEN 'Toptan'
+              WHEN 'PUBLIC_WEB' THEN 'Site' WHEN 'INSTAGRAM' THEN 'Instagram' WHEN 'DEALER_PORTAL' THEN 'Sistem Bayi'
+              WHEN 'MARKETPLACE' THEN 'Pazaryeri' WHEN 'ADMIN_ORDER' THEN 'Yönetici Siparişi' END
+          ),'IİĞÜŞÖÇ','ıiğüşöç')),$6)>0
+          OR EXISTS (SELECT 1 FROM order_items item WHERE item.order_id=o.id
+            AND strpos(lower(translate(concat_ws(' ',item.product_name,item.sku),'IİĞÜŞÖÇ','ıiğüşöç')),$6)>0)
+        )
+      GROUP BY o.id,c.id,cs.id,oa.id,s.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
+  }
   async queueCounts() {
     return (await this.db.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id

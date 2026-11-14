@@ -62,5 +62,11 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const olderPaid=await service.list(undefined,firstPaid.at(-1).id,'PAID');
  assert.equal(firstPaid.length,100);
  assert.equal(new Set([...firstPaid,...olderPaid].map(order=>order.id)).size,(await service.queueCounts()).find(row=>row.stage==='PAID').count);
+ await pg.exec("UPDATE customers SET first_name='İSMAİL' WHERE id='member1'");
+ const searched=await service.list(undefined,undefined,'CARRIER_RETURN',{query:'ismail',from:'2026-10-01',to:'2026-10-01'});
+ assert.deepEqual(searched.map(order=>order.order_number),['A']);
+ assert.deepEqual((await service.list(undefined,undefined,undefined,{query:'SKU2'})).map(order=>order.order_number),['A']);
+ assert.equal((await service.list(undefined,undefined,undefined,{query:'%'})).length,0);
+ assert.ok(!(await service.list(undefined,undefined,undefined,{from:'2026-10-01',to:'2026-10-01'})).some(order=>order.order_number==='D'));
  await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});

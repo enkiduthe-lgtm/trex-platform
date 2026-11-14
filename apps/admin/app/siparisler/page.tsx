@@ -4,7 +4,6 @@ import Link from "next/link";
 import removal from '../components/removal.module.css';
 import {
   useEffect,
-  useMemo,
   useRef,
     useState,
   Suspense,
@@ -17,8 +16,6 @@ import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "
 import { paymentLabel } from "../lib/payment-label";
 import { currencyTotals } from "../lib/report-totals";
 import { mergeOrderNotes } from "../lib/order-notes";
-import { matchesOrderSearch } from "../lib/order-search";
-import { inFinancePeriod } from "../lib/finance-report";
 import { downloadXlsx } from "../lib/xlsx";
 import styles from "./orders.module.css";
 
@@ -149,9 +146,7 @@ function OrdersContent() {
   const requestedStage = searchParams.get("durum");
   const initialStage = requestedStage && tabs.some(tab => tab.value === requestedStage) ? requestedStage : "ALL";
   const [statusFilter, setStatusFilter] = useState(initialStage);
-  const currentStage = useRef(statusFilter);
-  currentStage.current = statusFilter;
-  const [loadedStage, setLoadedStage] = useState<string | null>(null);
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [stageCounts, setStageCounts] = useState<Record<string,number> | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -164,59 +159,65 @@ function OrdersContent() {
   const ordersUrl = (stage: string, before?: string) => {
     const params = new URLSearchParams();
     if (stage !== 'ALL') params.set('stage',stage);
+    if (query.trim()) params.set('q',query.trim());
+    if (dateFrom) params.set('from',dateFrom);
+    if (dateTo) params.set('to',dateTo);
     if (before) params.set('before',before);
     return '/admin/orders' + (params.size ? '?' + params : '');
   };
-  const load = (stage = currentStage.current) => {
+  const listUrl = ordersUrl(statusFilter);
+  const currentUrl = useRef(listUrl);
+  const countGeneration = useRef(0);
+  currentUrl.current = listUrl;
+  const validDates = !dateFrom || !dateTo || dateFrom <= dateTo;
+  const load = (url = currentUrl.current, refreshCounts = true) => {
     const generation = ++listGeneration.current;
     setListLoading(true);
-    void api<{stage:string;count:number}[]>('/admin/orders/queue-counts')
-      .then(rows => {
-        if (generation === listGeneration.current) setStageCounts(Object.fromEntries(rows.map(row => [row.stage,row.count])));
-      })
-      .catch(() => { if (generation === listGeneration.current) setStageCounts(null); });
-    return api<Order[]>(ordersUrl(stage))
+    if (refreshCounts) {
+      countGeneration.current = generation;
+      void api<{stage:string;count:number}[]>('/admin/orders/queue-counts')
+        .then(rows => {
+          if (generation === countGeneration.current) setStageCounts(Object.fromEntries(rows.map(row => [row.stage,row.count])));
+        })
+        .catch(() => { if (generation === countGeneration.current) setStageCounts(null); });
+    }
+    return api<Order[]>(url)
       .then((loadedOrders) => {
-        if (generation !== listGeneration.current) return false;
+        if (generation !== listGeneration.current || url !== currentUrl.current) return false;
         setListFailed(false);
-        setLoadedStage(stage);
+        setLoadedUrl(url);
         setOrders(loadedOrders);
         setHasOlder(loadedOrders.length === 100);
         setOrderNotes(current=>mergeOrderNotes(current,loadedOrders,dirtyNotes.current));
         return true;
       })
       .catch((e) => {
-        if (generation === listGeneration.current) {
-          setOrders([]); setSelected([]); setHasOlder(false); setLoadedStage(null); setListFailed(true);
+        if (generation === listGeneration.current && url === currentUrl.current) {
+          setOrders([]); setSelected([]); setHasOlder(false); setLoadedUrl(null); setListFailed(true);
           setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
         }
         return false;
       }).finally(() => { if (generation === listGeneration.current) setListLoading(false); });
   };
   useEffect(() => {
-    void load();
-  }, [statusFilter]);
+    if (!validDates) return;
+    const timer = window.setTimeout(() => void load(listUrl,countGeneration.current === 0), 250);
+    return () => window.clearTimeout(timer);
+  }, [listUrl,validDates]);
   async function loadOlder() {
-    if(olderLock.current || listLoading || loadedStage !== statusFilter || !orders.length)return;
+    if(olderLock.current || listLoading || loadedUrl !== listUrl || !orders.length)return;
     olderLock.current=true;setLoadingOlder(true);
     const generation=listGeneration.current;
     try {
       const rows=await api<Order[]>(ordersUrl(statusFilter,orders[orders.length-1].id));
-      if(generation !== listGeneration.current)return;
+      if(generation !== listGeneration.current || listUrl !== currentUrl.current)return;
       setOrders(current=>{const ids=new Set(current.map(order=>order.id));return [...current,...rows.filter(order=>!ids.has(order.id))];});
       setOrderNotes(current=>mergeOrderNotes(current,rows,dirtyNotes.current));
       setHasOlder(rows.length===100);
-    }catch(e){if(generation === listGeneration.current)setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
+    }catch(e){if(generation === listGeneration.current && listUrl === currentUrl.current)setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
     finally{olderLock.current=false;setLoadingOlder(false);}
   }
-  const filterOrders = useMemo(() => (order: Order) => {
-        return (
-          (statusFilter === "ALL" || queueStatus(order) === statusFilter) &&
-          inFinancePeriod(order.created_at, dateFrom, dateTo) &&
-          matchesOrderSearch(order, query, channelText[order.sales_channel ?? ""])
-        );
-  }, [query, statusFilter, dateFrom, dateTo]);
-  const visible = useMemo(() => loadedStage === statusFilter ? orders.filter(filterOrders) : [], [orders, filterOrders, loadedStage, statusFilter]);
+  const visible = loadedUrl === listUrl && validDates ? orders : [];
   useEffect(() => { setSelected([]); }, [query, statusFilter, dateFrom, dateTo]);
   const toggle = (id: string) =>
     setSelected((items) =>
@@ -300,7 +301,7 @@ function OrdersContent() {
   const [exporting, setExporting] = useState(false);
   const exportLock = useRef(false);
   async function exportOrders() {
-    if (exportLock.current || listLoading || listFailed || loadedStage !== statusFilter) return;
+    if (exportLock.current || listLoading || listFailed || loadedUrl !== listUrl) return;
     if (dateFrom && dateTo && dateFrom > dateTo) { setMessage("Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz."); return; }
     if (selected.some(id => !visible.some(order => order.id === id))) { setMessage('Filtre dışında kalan seçimler var. Seçimi kaldırıp rapora girecek siparişleri yeniden seçin.'); return; }
     exportLock.current = true;
@@ -316,7 +317,7 @@ function OrdersContent() {
           if (page.length && !fresh.length) throw new Error('Sipariş Geçmişi Okunamadı. Listeyi Yenileyip Tekrar Deneyin.');
           for (const order of fresh) {
             seen.add(order.id);
-            if (filterOrders(order)) source.push(order);
+            source.push(order);
           }
           if (page.length < 100) break;
           cursor = page[page.length - 1].id;
@@ -394,7 +395,7 @@ function OrdersContent() {
             {message}
           </p>
         )}
-        {listFailed && <div className={styles.cardActions}><button type="button" disabled={listLoading} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
+        {listFailed && <div className={styles.cardActions}><button type="button" disabled={listLoading || !validDates} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
         <div className={styles.toolbar}>
           <button
             type="button"
@@ -407,12 +408,13 @@ function OrdersContent() {
             <span>⌕</span>
             <input
               value={query}
+              maxLength={200}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Sipariş, müşteri, ürün, SKU veya kanal ara"
             />
           </label>
           <div className={styles.bulk}>
-            <button type="button" disabled={listLoading || listFailed || loadedStage !== statusFilter || exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
+            <button type="button" disabled={listLoading || listFailed || loadedUrl !== listUrl || exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
               {exporting ? "Rapor Hazırlanıyor…" : "Excel’e Aktar"}{selected.length ? ` (${selected.length})` : ""}
             </button>
             {selected.length > 0 && (
@@ -630,15 +632,15 @@ function OrdersContent() {
           </table>
           {visible.length === 0 && (
             <div className={styles.empty}>
-              {listLoading ? 'Siparişler yükleniyor…' : listFailed ? 'Sipariş listesi yüklenemedi. Güncel bilgiler alınana kadar işlem düğmeleri gösterilmiyor.' : 'Bu filtrelerde sipariş bulunamadı.'}
+              {!validDates ? 'Başlangıç tarihi bitiş tarihinden sonra olamaz.' : listFailed ? 'Sipariş listesi yüklenemedi.' : listLoading || loadedUrl !== listUrl ? 'Siparişler yükleniyor…' : 'Bu filtrelerde sipariş bulunamadı.'}
             </div>
           )}
         </div>
         <p className={styles.count}>
-          {visible.length} Sipariş Gösteriliyor · {loadedStage === statusFilter ? orders.length : 0} Kayıt Yüklendi. {hasOlder && "Arama ve tarih filtreleri yüklenen kayıtlara uygulanır."} Finans onayı gereken
+          {visible.length} Sipariş Gösteriliyor. Finans onayı gereken
           siparişler doğrudan ödeme onayı akışına yönlendirilir.
         </p>
-        {hasOlder && loadedStage === statusFilter && <button type="button" className={styles.approveLink} disabled={listLoading || loadingOlder || pendingAction !== null} onClick={()=>void loadOlder()}>{loadingOlder ? "Yükleniyor…" : "Daha Eski Siparişleri Yükle"}</button>}
+        {hasOlder && loadedUrl === listUrl && <button type="button" className={styles.approveLink} disabled={listLoading || loadingOlder || pendingAction !== null} onClick={()=>void loadOlder()}>{loadingOlder ? "Yükleniyor…" : "Daha Eski Siparişleri Yükle"}</button>}
       </section>
     </main>
   );
