@@ -105,7 +105,7 @@ async function main(){
  CREATE TABLE warehouses(id uuid PRIMARY KEY,code text,name text,is_active boolean);
  CREATE TABLE inventory(product_id uuid,warehouse_id uuid,physical_quantity integer,reserved_quantity integer,updated_at timestamptz,PRIMARY KEY(product_id,warehouse_id));
  CREATE TABLE carts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),customer_id uuid,session_key_hash text,currency char(3),expires_at timestamptz);
- CREATE TABLE checkout_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),cart_id uuid,status text,total_amount numeric(12,2),contact_email text,contact_name text,currency char(3),expires_at timestamptz,completed_at timestamptz);
+ CREATE TABLE checkout_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),cart_id uuid,status text,total_amount numeric(12,2),contact_email text,contact_name text,currency char(3),expires_at timestamptz,completed_at timestamptz,discount_amount numeric DEFAULT 0);
  ALTER TABLE orders ADD COLUMN checkout_id uuid,ADD COLUMN customer_id uuid,ADD COLUMN sales_channel sales_channel_code;
  ALTER TABLE orders ALTER COLUMN id SET DEFAULT gen_random_uuid();
  ALTER TABLE order_items ALTER COLUMN id SET DEFAULT gen_random_uuid();
@@ -321,7 +321,7 @@ async function main(){
  const paymentEditOrder=await adminOrders.create({...validBody,salesChannel:'RETAIL',paymentMethod:'TRANSFER',items:[{productId:product,quantity:1}]},uuid(72),staffActor);
  const {editVersion}=load(path.join(root,'apps/api/src/orders/edit-version.ts'));
  const paymentEdit=async()=>{
-   const row=(await db.query(`SELECT o.status,c.contact_name,c.contact_email,p.provider,p.provider_reference,a.*
+   const row=(await db.query(`SELECT o.status,o.total_amount,o.cod_service_fee,p.amount AS payment_amount,c.contact_name,c.contact_email,p.provider,p.provider_reference,a.*
      FROM orders o JOIN checkout_sessions c ON c.id=o.checkout_id JOIN payments p ON p.checkout_id=c.id
      JOIN order_addresses a ON a.order_id=o.id WHERE o.id=$1`,[paymentEditOrder.id])).rows[0];
    const items=(await db.query('SELECT id,quantity,unit_amount FROM order_items WHERE order_id=$1',[paymentEditOrder.id])).rows;
@@ -334,11 +334,16 @@ async function main(){
  const codEdit=await paymentEdit();
  assert.equal(codEdit.row.status,'PROCESSING');
  assert.equal(codEdit.row.provider,'cash_on_delivery_card');
+ assert.equal(codEdit.row.total_amount,'575.00');assert.equal(Number(codEdit.row.cod_service_fee),75);assert.equal(codEdit.row.payment_amount,'575.00');
  await assert.rejects(()=>adminOrders.update(paymentEditOrder.id,{...editBody,paymentMethod:'HAND_CASH'},staffActor),/ekranı yenileyin/);
  await adminOrders.update(paymentEditOrder.id,{...editBody,version:codEdit.version,paymentMethod:'HAND_CASH'},staffActor);
  const cashEdit=await paymentEdit();
  assert.equal(cashEdit.row.status,'PENDING_PAYMENT');
  assert.equal(cashEdit.row.provider,'cash');
+ assert.equal(cashEdit.row.total_amount,'500.00');assert.equal(Number(cashEdit.row.cod_service_fee),0);assert.equal(cashEdit.row.payment_amount,'500.00');
+ await db.query('UPDATE checkout_sessions SET discount_amount=10 WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[paymentEditOrder.id]);
+ await assert.rejects(()=>adminOrders.update(paymentEditOrder.id,{...editBody,version:cashEdit.version,paymentMethod:'TRANSFER'},staffActor),/Kuponlu siparişte/);
+ await db.query('UPDATE checkout_sessions SET discount_amount=0 WHERE id=(SELECT checkout_id FROM orders WHERE id=$1)',[paymentEditOrder.id]);
  const attempts=(await db.query(`SELECT a.status,a.provider_request_id FROM payment_attempts a
    JOIN payments p ON p.id=a.payment_id JOIN orders o ON o.checkout_id=p.checkout_id WHERE o.id=$1`,[paymentEditOrder.id])).rows;
  assert.equal(attempts.filter(row=>row.status==='FAILED').length,2);

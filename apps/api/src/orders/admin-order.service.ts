@@ -190,9 +190,10 @@ export class AdminOrderService {
     if([dto.reason,dto.recipientName,dto.phone,dto.city,dto.district,dto.addressLine].some(value=>!value.trim())) throw new BadRequestException('Teslimat bilgileri ve değişiklik nedeni gerekli');
     if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;currency:string;total_amount:string;cod_service_fee?:string}>(
-        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.currency,o.total_amount,o.cod_service_fee
-        FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
+      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;currency:string;total_amount:string;cod_service_fee?:string;discount_amount:string}>(
+        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.currency,o.total_amount,o.cod_service_fee,
+        cs.discount_amount FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id
+        WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       const hasInvoice=(await client.query<{locked:boolean}>(`SELECT ${hasCommittedInvoice} AS locked FROM orders o WHERE o.id=$1`,[id])).rows[0].locked;
       if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Sipariş Düzenlenemez');
@@ -217,11 +218,23 @@ export class AdminOrderService {
       const providerByMethod={TRANSFER:'bank_transfer',HAND_CASH:'cash',COD_CARD:'cash_on_delivery_card',COD_CASH:'cash_on_delivery_cash'} as const;
       const requestedProvider=dto.paymentMethod?providerByMethod[dto.paymentMethod]:undefined;
       const paymentChanged=Boolean(requestedProvider&&requestedProvider!==payments[0].provider);
-      if(paymentChanged && moneyCents(order.cod_service_fee??'0')>0n) throw new ConflictException('Hizmet Bedelli Siparişte Ödeme Yöntemi Değiştirilemez');
+      if((financialChanged||paymentChanged)&&moneyCents(order.discount_amount??'0')>0n) throw new ConflictException('Kuponlu siparişte yalnızca müşteri ve teslimat bilgileri düzenlenebilir.');
       if(paymentChanged&&!financialEditable) throw new ConflictException('Fatura, tahsilat veya depo işlemi başlamış siparişte ödeme yöntemi değiştirilemez');
       if(paymentChanged&&requestedProvider?.startsWith('cash_on_delivery')&&order.currency!=='TRY') throw new BadRequestException('Kapıda ödeme yalnız TL olabilir');
-      const cents=moneyCents(order.cod_service_fee??'0')+changes.reduce((sum,line)=>sum+BigInt(line.next.unitAmount.toFixed(2).replace('.',''))*BigInt(line.next.quantity),0n);
-      if(cents<=0n||cents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
+      const previousFee=moneyCents(order.cod_service_fee??'0');
+      const previousTotal=moneyCents(order.total_amount);
+      const previousSubtotal=lines.reduce((sum,line)=>sum+cents(line.unit_amount)*BigInt(line.quantity),0n);
+      if(financialChanged && previousTotal!==previousSubtotal+previousFee) throw new ConflictException('Siparişte ürün ve hizmet bedeli dışında tutarlar var. Ürün bilgileri korunur.');
+      let nextFee=previousFee;
+      if(paymentChanged && requestedProvider){
+        if(!requestedProvider.startsWith('cash_on_delivery')) nextFee=0n;
+        else if(!payments[0].provider.startsWith('cash_on_delivery')) nextFee=codFee('COD_CASH');
+      }
+      const amountChanged=financialChanged||nextFee!==previousFee;
+      const totalCents=financialChanged
+        ? nextFee+changes.reduce((sum,line)=>sum+cents(line.next.unitAmount)*BigInt(line.next.quantity),0n)
+        : previousTotal+nextFee-previousFee;
+      if((amountChanged&&totalCents<=0n)||totalCents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
       if(financialChanged) {
       const reservations=(await client.query<{id:string;product_id:string;warehouse_id:string;quantity:number}>("SELECT id,product_id,warehouse_id,quantity FROM stock_reservations WHERE reference_type='checkout' AND reference_id=$1 AND status='ACTIVE' ORDER BY product_id,warehouse_id,id FOR UPDATE",[order.checkout_id])).rows;
       if(reservations.length!==lines.length||lines.some(line=>reservations.filter(r=>r.product_id===line.product_id&&r.quantity===line.quantity).length!==1)) throw new ConflictException('Ayrılan stok doğrulanamadı; sipariş değiştirilmedi');
@@ -239,13 +252,13 @@ export class AdminOrderService {
         await client.query('UPDATE picking_items SET expected_quantity=$1 WHERE order_item_id=$2 AND picking_session_id IN (SELECT id FROM picking_sessions WHERE order_id=$3)',[line.next.quantity,line.id,id]);
       }
       }
-      const total=financialChanged?`${cents/100n}.${(cents%100n).toString().padStart(2,'0')}`:order.total_amount;
+      const total=amountChanged?formatCents(totalCents):order.total_amount;
       const delivery=[dto.recipientName.trim(),dto.phone.trim(),dto.city.trim(),dto.district.trim(),dto.addressLine.trim(),dto.postalCode.trim()||null];
       await client.query('UPDATE order_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE order_id=$7',[...delivery,id]);
       await client.query('UPDATE checkout_addresses SET recipient_name=$1,phone=$2,city=$3,district=$4,address_line=$5,postal_code=$6 WHERE checkout_id=$7',[...delivery,order.checkout_id]);
       await client.query('UPDATE checkout_sessions SET contact_name=$1,contact_email=$2,total_amount=$3 WHERE id=$4',[dto.recipientName.trim(),dto.contactEmail.trim().toLowerCase(),total,order.checkout_id]);
-      if(financialChanged) {
-        await client.query('UPDATE orders SET total_amount=$1 WHERE id=$2',[total,id]);
+      if(amountChanged) {
+        await client.query('UPDATE orders SET total_amount=$1,cod_service_fee=$3 WHERE id=$2',[total,id,formatCents(nextFee)]);
         await client.query('UPDATE payments SET amount=$1 WHERE id=$2',[total,payments[0].id]);
       }
       if(paymentChanged && requestedProvider) {
@@ -269,13 +282,15 @@ export class AdminOrderService {
     if(!dto.reason.trim()) throw new BadRequestException('Fiyat değişiklik nedeni gerekli');
     if(new Set(dto.items.map(item=>item.itemId)).size!==dto.items.length) throw new BadRequestException('Tekrarlanan sipariş satırı');
     return this.db.transaction(async client=>{
-      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;total_amount:string;cod_service_fee?:string}>(
-        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.total_amount,o.cod_service_fee
-        FROM orders o WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
+      const order=(await client.query<{checkout_id:string;status:string;sales_status:string;sales_channel:string;total_amount:string;cod_service_fee?:string;discount_amount:string}>(
+        `SELECT o.checkout_id,o.status,${reportOrderStatus} AS sales_status,o.sales_channel,o.total_amount,o.cod_service_fee,
+        cs.discount_amount FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id
+        WHERE o.id=$1 AND o.archived_at IS NULL FOR UPDATE OF o`,[id])).rows[0];
       if(!order) throw new NotFoundException('Sipariş bulunamadı');
       const hasInvoice=(await client.query<{locked:boolean}>(`SELECT ${hasCommittedInvoice} AS locked FROM orders o WHERE o.id=$1`,[id])).rows[0].locked;
       if(order.sales_status==='REFUNDED') throw new ConflictException('Tamamen İade Edilmiş Siparişin Fiyatı Değiştirilemez');
       if(hasInvoice) throw new ConflictException('Paraşüt gönderimi başlayan siparişin fiyatı değiştirilemez');
+      if(moneyCents(order.discount_amount??'0')>0n) throw new ConflictException('Kuponlu siparişin fiyatı değiştirilemez.');
       if(!editableAdminChannels.includes(order.sales_channel)||!financialEditStatuses.includes(order.status)) throw new ConflictException('Yalnız gönderilmemiş yönetici siparişinin fiyatı değiştirilebilir');
       const payment=(await client.query<{id:string;status:string;provider:string}>(
         'SELECT id,status,provider FROM payments WHERE checkout_id=$1 FOR UPDATE',[order.checkout_id])).rows[0];
@@ -287,9 +302,12 @@ export class AdminOrderService {
       const lines=(await client.query<{id:string;product_id:string;quantity:number;unit_amount:string}>('SELECT id,product_id,quantity,unit_amount FROM order_items WHERE order_id=$1 FOR UPDATE',[id])).rows;
       if(lines.length!==dto.items.length||lines.some(line=>!dto.items.some(item=>item.itemId===line.id))) throw new BadRequestException('Siparişin bütün ürün satırları gerekli');
       const changes=lines.map(line=>({...line,newAmount:dto.items.find(item=>item.itemId===line.id)!.unitAmount.toFixed(2)}));
-      const cents=moneyCents(order.cod_service_fee??'0')+changes.reduce((sum,line)=>sum+BigInt(line.newAmount.replace('.',''))*BigInt(line.quantity),0n);
-      if(cents<=0n||cents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
-      const total=`${cents/100n}.${(cents%100n).toString().padStart(2,'0')}`;
+      const fee=moneyCents(order.cod_service_fee??'0');
+      const previousSubtotal=lines.reduce((sum,line)=>sum+cents(line.unit_amount)*BigInt(line.quantity),0n);
+      if(moneyCents(order.total_amount)!==previousSubtotal+fee) throw new ConflictException('Siparişte ürün ve hizmet bedeli dışında tutarlar var. Ürün fiyatları korunur.');
+      const totalCents=fee+changes.reduce((sum,line)=>sum+cents(line.newAmount)*BigInt(line.quantity),0n);
+      if(totalCents<=0n||totalCents>999999999999n) throw new BadRequestException('Geçersiz sipariş toplamı');
+      const total=formatCents(totalCents);
       for(const line of changes) {
         await client.query('UPDATE order_items SET unit_amount=$1 WHERE id=$2',[line.newAmount,line.id]);
         await client.query('UPDATE checkout_items SET unit_amount=$1 WHERE checkout_id=$2 AND product_id=$3',[line.newAmount,order.checkout_id,line.product_id]);

@@ -9,6 +9,8 @@ import { api } from '../../../lib/api';
 import styles from '../../orders.module.css';
 
 type Detail = {
+  archived_at?: string | null;
+  discount_amount?: string;
   order_number: string;
   currency: string;
   cod_service_fee?: string;
@@ -50,7 +52,7 @@ export default function EditOrder() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!permissions.edit || accessLoading || lock.current || !data) return;
+    if (!permissions.edit || accessLoading || lock.current || !data || data.archived_at) return;
     lock.current = true; setBusy(true); setMessage('');
     try {
       await api(`/admin/orders/${id}`, { method: 'PATCH', body: JSON.stringify({
@@ -67,13 +69,16 @@ export default function EditOrder() {
 
   const canChangePrices = role === 'SUPER_ADMIN';
   const serviceFee = Number(data?.cod_service_fee ?? 0);
-  const canChangePayment = Boolean(data?.financial_editable && serviceFee === 0);
-  const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitAmount), serviceFee);
+  const canChangePayment = Boolean(data?.financial_editable);
+  const wasCod = data?.payments[0]?.provider.startsWith('cash_on_delivery');
+  const nextFee = canChangePayment ? (form.paymentMethod.startsWith('COD_') ? (wasCod ? serviceFee : 75) : 0) : serviceFee;
+  const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitAmount), nextFee - Number(data?.discount_amount ?? 0));
   return <main><AdminNav /><section className={styles.page}>{accessLoading ? <p role="status">İşlem Yetkileri Kontrol Ediliyor…</p> : (accessError || !permissions.edit) && <p role="alert">{accessError || 'Sipariş Düzenleme Yetkiniz Yok.'}</p>}
     <Link href={`/siparisler/${id}`}>← Sipariş detayı</Link><h1>Siparişi düzenle {data?.order_number}</h1>
     <p className={styles.notice}>Yönetici; müşteri, teslimat, adet ve ödeme yöntemini düzenleyebilir. Birim fiyatı yalnız ana yönetici değiştirir. Tahsilat, paketleme veya kargo başladıysa ödeme ve ürün bilgileri korunur.</p>
     {message && <p role="alert">{message}</p>}{!data && !message && <p>Yükleniyor…</p>}
-    {data && <form className={styles.newOrder} onSubmit={submit}>
+    {data?.archived_at && <p className={styles.notice}>Arşivlenen siparişi düzenlemek için önce sipariş listesine geri alın.</p>}
+    {data && !data.archived_at && <form className={styles.newOrder} onSubmit={submit}>
       <fieldset disabled={accessLoading || !permissions.edit || busy}><legend>Müşteri ve teslimat</legend><div className={styles.formGrid}>
         <label>Ad soyad<input required maxLength={160} value={form.recipientName} onChange={e => setForm({ ...form, recipientName: e.target.value })} /></label>
         <label>E-posta<input required type="email" maxLength={254} value={form.contactEmail} onChange={e => setForm({ ...form, contactEmail: e.target.value })} /></label>
@@ -85,7 +90,8 @@ export default function EditOrder() {
       </div></fieldset>
       {canChangePayment && <fieldset disabled={accessLoading || !permissions.edit || busy}><legend>Ödeme yöntemi</legend><label>Yöntem<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}><option value="TRANSFER">Havale / EFT</option><option value="HAND_CASH">Elden nakit</option><option value="COD_CARD">Kapıda ödeme — kart</option><option value="COD_CASH">Kapıda ödeme — nakit</option></select></label></fieldset>}
       <fieldset disabled={accessLoading || !permissions.edit || busy || !data.financial_editable}><legend>Ürün adetleri ve fiyatları ({data.currency})</legend>{items.map((item, index) => <div className={styles.formGrid} key={item.itemId}><p className={styles.fullWidth}>{data.items.find(line => line.id === item.itemId)?.product_name}</p><label>Adet<input required type="number" min={1} max={100000} step={1} value={item.quantity} onChange={e => setItems(current => current.map((line, i) => i === index ? { ...line, quantity: e.target.value } : line))} /></label>{canChangePrices ? <label>Birim fiyat<input required type="number" min={0} max={9999999999.99} step="0.01" value={item.unitAmount} onChange={e => setItems(current => current.map((line, i) => i === index ? { ...line, unitAmount: e.target.value } : line))} /></label> : <p>Birim fiyat: {Number(item.unitAmount).toLocaleString('tr-TR', { style: 'currency', currency: data.currency })}</p>}</div>)}<p>Yeni toplam: {total.toLocaleString('tr-TR', { style: 'currency', currency: data.currency })}</p></fieldset>
-      {serviceFee > 0 && <p>Kapıda ödeme hizmet bedeli {serviceFee.toLocaleString('tr-TR', { style: 'currency', currency: data.currency })}</p>}
+      {nextFee > 0 && <p>Kapıda ödeme hizmet bedeli {nextFee.toLocaleString('tr-TR', { style: 'currency', currency: data.currency })}</p>}
+      {Number(data.discount_amount ?? 0)>0 && <p>Kupon indirimi {Number(data.discount_amount).toLocaleString('tr-TR',{style:'currency',currency:data.currency})}. Bu kayıtta ürün fiyatları, adetleri ve ödeme yöntemi korunur.</p>}
       <fieldset disabled={accessLoading || !permissions.edit || busy}><legend>Kaydet</legend><label>Değişiklik nedeni<input required maxLength={500} value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} /></label><button type="submit">{busy ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button></fieldset>
     </form>}
   </section></main>;
