@@ -259,7 +259,15 @@ export class OrdersService {
     const edit_version=editVersion(result.rows[0],address.rows[0]??null,items.rows,payments.rows[0]?.provider_reference);
     return {...result.rows[0],address:address.rows[0]??null,items:items.rows,payments:payments.rows.map(({provider_reference,...payment})=>payment),supportTickets:supportTickets.rows,shipments:shipments.rows,returns:returns.rows,activity:activity.rows,fulfillment:fulfillment.rows[0]??null,edit_version};
   }
-  async track(number:string,email:string) { const result=await this.db.query<{order_number:string;status:string;total_amount:string;currency:string;created_at:string;shipment_status:string|null;tracking_number:string|null}>(`SELECT o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,s.status AS shipment_status,s.tracking_number FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN shipments s ON s.order_id=o.id WHERE o.order_number=$1 AND lower(cs.contact_email)=lower($2)`,[number.trim(),email.trim()]); if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı'); return result.rows[0]; }
+  async track(number:string,email:string) {
+    const result=await this.db.query(`SELECT o.order_number,${orderQueueStatusSql} AS status,o.total_amount,o.cod_service_fee,o.currency,o.created_at,
+      CASE WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN' ELSE s.status::text END AS shipment_status,
+      CASE WHEN s.provider='aras' THEN NULLIF(s.tracking_number,o.order_number) ELSE s.tracking_number END AS tracking_number
+      FROM orders o JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN shipments s ON s.order_id=o.id
+      WHERE o.archived_at IS NULL AND o.order_number=$1 AND lower(cs.contact_email)=lower($2)`,[number.trim(),email.trim()]);
+    if(!result.rows[0]) throw new NotFoundException('Sipariş bulunamadı');
+    return result.rows[0];
+  }
   async cancel(id:string,actor:RequestUser) {
     if(!['ADMIN','SUPER_ADMIN','DEALER'].includes(actor.role)) throw new ForbiddenException('Sipariş iptali için yönetici yetkisi gerekli');
     return this.db.transaction(async client=>{

@@ -1,7 +1,7 @@
 // Isolated PostgreSQL query and actual UI grouping; no production writes.
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
-function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
+function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,NotFoundException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args)};
  await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','PUBLIC_WEB','MARKETPLACE');
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
@@ -95,5 +95,15 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const dealerOrders=await service.list('DEALER_PORTAL',undefined,'PROCESSING',{query:'inci bayi'});
  assert.deepEqual(dealerOrders.map(row=>row.dealer_id),[dealer]);
  assert.equal(Number(dealerOrders[0].item_count),1);
+ await pg.exec("INSERT INTO checkout_sessions VALUES('prep-checkout','Test','buyer@example.test')");
+ await pg.query("INSERT INTO shipments(order_id,provider,status,tracking_number) VALUES($1,'aras','CREATED','C')",[preparationOrder]);
+ assert.equal((await service.track('C',' BUYER@example.test ')).status,'REGISTERED');
+ assert.equal((await service.track('C','buyer@example.test')).tracking_number,null);
+ await pg.query("UPDATE shipments SET status='FAILED',tracking_direction_code='3',tracking_number='6521575476166' WHERE order_id=$1",[preparationOrder]);
+ assert.equal((await service.track('C','buyer@example.test')).status,'CARRIER_RETURN');
+ assert.equal((await service.track('C','buyer@example.test')).tracking_number,'6521575476166');
+ await assert.rejects(()=>service.track('C','other@example.test'),/bulunamadı/);
+ await pg.query('UPDATE orders SET archived_at=now() WHERE id=$1',[preparationOrder]);
+ await assert.rejects(()=>service.track('C','buyer@example.test'),/bulunamadı/);
  await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});
