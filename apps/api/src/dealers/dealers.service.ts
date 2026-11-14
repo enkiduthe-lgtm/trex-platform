@@ -1,4 +1,4 @@
-import { reportOrderStatus } from '../orders/report-order-status';
+import { completedRefundAmount, netOrderAmount, orderQueueStatusSql, reportOrderStatus } from '../orders/report-order-status';
 import { reportPeriod } from '../orders/report-period';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
@@ -53,7 +53,10 @@ export class DealersService {
     if(!dealer.rowCount)throw new NotFoundException('Bayi Bulunamadı');
     const source=this.dealerOrderSource();
     const [orders,returns,commissions,requests,deductions,spends,commercial]=await Promise.all([
-      this.db.query(`${source} SELECT o.id,o.order_number,o.status,o.total_amount,o.currency,o.created_at FROM dealer_orders d JOIN orders o ON o.id::text=d.entity_id WHERE d.dealer_id=$1 ORDER BY o.created_at DESC,o.id`,[id]),
+      this.db.query(`${source} SELECT o.id,o.order_number,${orderQueueStatusSql} AS status,o.total_amount,
+        ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.currency,o.created_at
+        FROM dealer_orders d JOIN orders o ON o.id::text=d.entity_id LEFT JOIN shipments s ON s.order_id=o.id
+        WHERE d.dealer_id=$1 AND o.archived_at IS NULL ORDER BY o.created_at DESC,o.id`,[id]),
       this.db.query(`${source} SELECT r.id,r.status,r.reason,r.requested_at,r.completed_at,o.id AS order_id,o.order_number FROM dealer_orders d JOIN orders o ON o.id::text=d.entity_id JOIN returns r ON r.order_id=o.id WHERE d.dealer_id=$1 ORDER BY r.requested_at DESC,r.id`,[id]),
       this.db.query(`SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.paid_at,e.reversed_at,e.note,o.id AS order_id,o.order_number,oi.product_name,oi.quantity FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id WHERE e.dealer_id=$1 AND e.recipient_user_id IS NULL ORDER BY e.created_at DESC,e.id`,[id]),
       this.db.query('SELECT id,amount,currency,status,due_date,created_at,paid_at,reference_number,note FROM dealer_prim_requests WHERE dealer_id=$1 ORDER BY created_at DESC,id',[id]),

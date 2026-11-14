@@ -215,6 +215,19 @@ async function main(){
  assert.equal((await dealerOrders()).find(row=>row.id===dealerCod.id).status,'CARRIER_RETURN');
  assert.equal((await dealerShipments()).find(row=>row.order_number===dealerCod.order_number).status,'CARRIER_RETURN');
  assert.deepEqual(await dealerPortal.shipments({user:{id:uuid(74)}}),[]);
+ const {DealersService}=load(path.join(root,'apps/api/src/dealers/dealers.service.ts'));
+ const dealerCard=new DealersService({
+   query(sql,args) {
+     if(sql.includes(' AS net_amount') && sql.includes('FROM dealer_orders')) return db.query(sql,args);
+     if(sql.startsWith('SELECT d.id,d.code,d.company_name')) return Promise.resolve({rowCount:1,rows:[{id:dealer}]});
+     return Promise.resolve({rows:[]});
+   },
+ },{});
+ const card=(await dealerCard.detail(dealer)).orders;
+ assert.equal(card.find(row=>row.id===dealerCod.id).status,'CARRIER_RETURN');
+ assert.equal(card.find(row=>row.id===partial.id).net_amount,'700.00');
+ await db.query('UPDATE orders SET archived_at=now() WHERE id=$1',[dealerCod.id]);
+ assert.equal((await dealerCard.detail(dealer)).orders.some(row=>row.id===dealerCod.id),false);
  const openOrder=await adminOrders.create({...validBody,paymentMethod:'TRANSFER'},uuid(69),actor,dealer);
  const orderFlags=async()=>new Map((await dealerPortal.listOrders({user:{id:user}})).map(row=>[row.id,row.can_cancel]));
  assert.equal((await orderFlags()).get(openOrder.id),true);
