@@ -27,7 +27,8 @@ export class OrdersController {
   @Get('deleted') @RequireRoles(Roles.SUPER_ADMIN) deleted(@Req() req:UserRequest) {return this.orders.archivedOrders(req.user);}
   @Post(':id/delete') @RequireRoles(Roles.SUPER_ADMIN) remove(@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:ArchiveOrderDto,@Req() req:UserRequest) {return this.orders.archiveOrder(id,dto.reason,req.user,dto.testOrderNumber);}
   @Post(':id/restore') @RequireRoles(Roles.SUPER_ADMIN) restore(@Param('id',new ParseUUIDPipe()) id:string,@Req() req:UserRequest) {return this.orders.archiveOrder(id,null,req.user);}
-  @Get() list(@Query('channel') channel?:string,@Query('before') before?:string) { return this.orders.list(channel,before); }
+  @Get() list(@Query('channel') channel?:string,@Query('before') before?:string,@Query('stage') stage?:string) { return this.orders.list(channel,before,stage); }
+  @Get('queue-counts') queueCounts() { return this.orders.queueCounts(); }
   @Get('export-lines')
   exportLines(@Query('orders') orders?: string) { return this.orders.exportLines(typeof orders === 'string' ? orders.split(',') : []); }
   @Get('report-summary') @RequireRoles(Roles.SUPER_ADMIN)

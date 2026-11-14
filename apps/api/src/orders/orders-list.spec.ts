@@ -7,7 +7,7 @@ describe('Central order history',()=>{
     const rows=[{id:cursor,sales_channel:'DEALER_PORTAL',admin_note:'Önce Telefon Edin'}];
     const db={query:jest.fn().mockResolvedValue({rows})};
     expect(await new OrdersService(db as never).list()).toEqual(rows);
-    expect(db.query.mock.calls[0][1]).toEqual([null,null]);
+    expect(db.query.mock.calls[0][1]).toEqual([null,null,null]);
     expect(db.query.mock.calls[0][0]).toContain("o.admin_note");
     expect(db.query.mock.calls[0][0]).toContain("o.customer_id");
   });
@@ -15,7 +15,7 @@ describe('Central order history',()=>{
     const db={query:jest.fn().mockResolvedValue({rows:[]})};
     await new OrdersService(db as never).list('dealer_portal',cursor);
     const [sql,args]=db.query.mock.calls[0];
-    expect(args).toEqual(['DEALER_PORTAL',cursor]);
+    expect(args).toEqual(['DEALER_PORTAL',cursor,null]);
     expect(sql).toContain('(o.created_at,o.id)<(SELECT created_at,id FROM orders WHERE id=$2::uuid)');
     expect(sql).toContain('ORDER BY o.created_at DESC,o.id DESC LIMIT 100');
   });
@@ -23,6 +23,18 @@ describe('Central order history',()=>{
     const db={query:jest.fn()};
     await expect(new OrdersService(db as never).list(undefined,'invalid')).rejects.toBeInstanceOf(BadRequestException);
     expect(db.query).not.toHaveBeenCalled();
+  });
+  it('filters the complete history by stage before limiting the page', async () => {
+    const query=jest.fn().mockResolvedValue({rows:[]});
+    await new OrdersService({query} as never).list(undefined,cursor,'CARRIER_RETURN');
+    const [sql,params]=query.mock.calls[0];
+    expect(params).toEqual([null,cursor,'CARRIER_RETURN']);
+    expect(sql).toMatch(/tracking_direction_code='3' THEN 'CARRIER_RETURN'[\s\S]+END\)=\$3[\s\S]+LIMIT 100/);
+  });
+  it('rejects an invalid stage before querying', async () => {
+    const query=jest.fn();
+    await expect(new OrdersService({query} as never).list(undefined,undefined,'invalid')).rejects.toBeInstanceOf(BadRequestException);
+    expect(query).not.toHaveBeenCalled();
   });
   it('returns saved product names and combines quantity across price-split lines', async () => {
     const products = [{product_name:'Trex Tea',sku:'TEA',quantity:5}];

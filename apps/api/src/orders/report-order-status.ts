@@ -21,6 +21,18 @@ export const completedRefundAmount = `COALESCE((
 
 export const netOrderAmount = `GREATEST(o.total_amount-${completedRefundAmount},0)`;
 
+export const orderQueueStages = ['PENDING_PAYMENT','PAID','PROCESSING','REGISTERED','SHIPPED','DELIVERED','CARRIER_RETURN','REFUNDED','CANCELLED'];
+
+export const orderQueueStatusSql = `CASE
+  WHEN (${reportOrderStatus})='REFUNDED' THEN 'REFUNDED'
+  WHEN o.status='CANCELLED' THEN 'CANCELLED'
+  WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN'
+  WHEN o.status='PROCESSING' AND s.status='CREATED' THEN 'REGISTERED'
+  WHEN o.status='PROCESSING' AND s.status='IN_TRANSIT' THEN 'SHIPPED'
+  WHEN o.status='PROCESSING' AND s.status='DELIVERED' THEN 'DELIVERED'
+  ELSE o.status::text
+END`;
+
 export const manualCancellationChannels = ['ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL'];
 export const manualCancellationStatuses = ['PENDING_PAYMENT','PAID','PROCESSING'];
 export const manualPaymentProviders = ['bank_transfer','cash','cash_on_delivery_card','cash_on_delivery_cash'];

@@ -146,27 +146,40 @@ function OrdersContent() {
   const noteRevisions = useRef(new Map<string, number>());
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const requestedStage = searchParams.get("durum");
+  const initialStage = requestedStage && tabs.some(tab => tab.value === requestedStage) ? requestedStage : "ALL";
+  const [statusFilter, setStatusFilter] = useState(initialStage);
+  const currentStage = useRef(statusFilter);
+  currentStage.current = statusFilter;
+  const [loadedStage, setLoadedStage] = useState<string | null>(null);
+  const [stageCounts, setStageCounts] = useState<Record<string,number> | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => {
-    const requestedStatus = searchParams.get("durum");
-    setStatusFilter(
-      requestedStatus && tabs.some(tab => tab.value === requestedStatus)
-        ? requestedStatus
-        : "ALL",
-    );
+    setStatusFilter(initialStage);
     setSelected([]);
-  }, [searchParams]);
-  const load = () => {
+  }, [initialStage]);
+  const ordersUrl = (stage: string, before?: string) => {
+    const params = new URLSearchParams();
+    if (stage !== 'ALL') params.set('stage',stage);
+    if (before) params.set('before',before);
+    return '/admin/orders' + (params.size ? '?' + params : '');
+  };
+  const load = (stage = currentStage.current) => {
     const generation = ++listGeneration.current;
     setListLoading(true);
-    return api<Order[]>("/admin/orders")
+    void api<{stage:string;count:number}[]>('/admin/orders/queue-counts')
+      .then(rows => {
+        if (generation === listGeneration.current) setStageCounts(Object.fromEntries(rows.map(row => [row.stage,row.count])));
+      })
+      .catch(() => { if (generation === listGeneration.current) setStageCounts(null); });
+    return api<Order[]>(ordersUrl(stage))
       .then((loadedOrders) => {
         if (generation !== listGeneration.current) return false;
         setListFailed(false);
+        setLoadedStage(stage);
         setOrders(loadedOrders);
         setHasOlder(loadedOrders.length === 100);
         setOrderNotes(current=>mergeOrderNotes(current,loadedOrders,dirtyNotes.current));
@@ -174,7 +187,7 @@ function OrdersContent() {
       })
       .catch((e) => {
         if (generation === listGeneration.current) {
-          setOrders([]); setSelected([]); setHasOlder(false); setListFailed(true);
+          setOrders([]); setSelected([]); setHasOlder(false); setLoadedStage(null); setListFailed(true);
           setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
         }
         return false;
@@ -182,18 +195,18 @@ function OrdersContent() {
   };
   useEffect(() => {
     void load();
-  }, []);
+  }, [statusFilter]);
   async function loadOlder() {
-    if(olderLock.current || !orders.length)return;
+    if(olderLock.current || listLoading || loadedStage !== statusFilter || !orders.length)return;
     olderLock.current=true;setLoadingOlder(true);
     const generation=listGeneration.current;
     try {
-      const rows=await api<Order[]>(`/admin/orders?before=${encodeURIComponent(orders[orders.length-1].id)}`);
+      const rows=await api<Order[]>(ordersUrl(statusFilter,orders[orders.length-1].id));
       if(generation !== listGeneration.current)return;
       setOrders(current=>{const ids=new Set(current.map(order=>order.id));return [...current,...rows.filter(order=>!ids.has(order.id))];});
       setOrderNotes(current=>mergeOrderNotes(current,rows,dirtyNotes.current));
       setHasOlder(rows.length===100);
-    }catch(e){setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
+    }catch(e){if(generation === listGeneration.current)setMessage(e instanceof Error?e.message:'Eski Siparişler Yüklenemedi');}
     finally{olderLock.current=false;setLoadingOlder(false);}
   }
   const filterOrders = useMemo(() => (order: Order) => {
@@ -203,10 +216,8 @@ function OrdersContent() {
           matchesOrderSearch(order, query, channelText[order.sales_channel ?? ""])
         );
   }, [query, statusFilter, dateFrom, dateTo]);
-  const visible = useMemo(() => orders.filter(filterOrders), [orders, filterOrders]);
+  const visible = useMemo(() => loadedStage === statusFilter ? orders.filter(filterOrders) : [], [orders, filterOrders, loadedStage, statusFilter]);
   useEffect(() => { setSelected([]); }, [query, statusFilter, dateFrom, dateTo]);
-  const countFor = (status: string) =>
-    status === "ALL" ? orders.length : orders.filter((order) => queueStatus(order) === status).length;
   const toggle = (id: string) =>
     setSelected((items) =>
       items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
@@ -289,7 +300,7 @@ function OrdersContent() {
   const [exporting, setExporting] = useState(false);
   const exportLock = useRef(false);
   async function exportOrders() {
-    if (exportLock.current || listLoading || listFailed) return;
+    if (exportLock.current || listLoading || listFailed || loadedStage !== statusFilter) return;
     if (dateFrom && dateTo && dateFrom > dateTo) { setMessage("Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz."); return; }
     if (selected.some(id => !visible.some(order => order.id === id))) { setMessage('Filtre dışında kalan seçimler var. Seçimi kaldırıp rapora girecek siparişleri yeniden seçin.'); return; }
     exportLock.current = true;
@@ -300,7 +311,7 @@ function OrdersContent() {
         const seen = new Set(orders.map(order => order.id));
         let cursor = orders[orders.length - 1]?.id;
         while (cursor) {
-          const page = await api<Order[]>('/admin/orders?before=' + encodeURIComponent(cursor));
+          const page = await api<Order[]>(ordersUrl(statusFilter,cursor));
           const fresh = page.filter(order => !seen.has(order.id));
           if (page.length && !fresh.length) throw new Error('Sipariş Geçmişi Okunamadı. Listeyi Yenileyip Tekrar Deneyin.');
           for (const order of fresh) {
@@ -358,7 +369,7 @@ function OrdersContent() {
               onClick={() => setStatusFilter(tab.value)}
             >
               {tab.label}
-              {tab.value !== "ALL" && <small>{countFor(tab.value)}</small>}
+              {tab.value !== "ALL" && stageCounts && <small>{stageCounts[tab.value] ?? 0}</small>}
             </button>
           ))}
         </nav>
@@ -401,7 +412,7 @@ function OrdersContent() {
             />
           </label>
           <div className={styles.bulk}>
-            <button type="button" disabled={listLoading || listFailed || exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
+            <button type="button" disabled={listLoading || listFailed || loadedStage !== statusFilter || exporting || (!visible.length && !hasOlder)} onClick={exportOrders}>
               {exporting ? "Rapor Hazırlanıyor…" : "Excel’e Aktar"}{selected.length ? ` (${selected.length})` : ""}
             </button>
             {selected.length > 0 && (
@@ -624,10 +635,10 @@ function OrdersContent() {
           )}
         </div>
         <p className={styles.count}>
-          {visible.length} Sipariş Gösteriliyor · {orders.length} Kayıt Yüklendi. {hasOlder && "Filtreler Yüklenen Kayıtlarda Uygulanır; Daha Eski Kayıtları Aşağıdan Yükleyebilirsiniz."} Finans onayı gereken
+          {visible.length} Sipariş Gösteriliyor · {loadedStage === statusFilter ? orders.length : 0} Kayıt Yüklendi. {hasOlder && "Arama ve tarih filtreleri yüklenen kayıtlara uygulanır."} Finans onayı gereken
           siparişler doğrudan ödeme onayı akışına yönlendirilir.
         </p>
-        {hasOlder && <button type="button" className={styles.approveLink} disabled={loadingOlder || pendingAction !== null} onClick={()=>void loadOlder()}>{loadingOlder ? "Yükleniyor…" : "Daha Eski Siparişleri Yükle"}</button>}
+        {hasOlder && loadedStage === statusFilter && <button type="button" className={styles.approveLink} disabled={listLoading || loadingOlder || pendingAction !== null} onClick={()=>void loadOlder()}>{loadingOlder ? "Yükleniyor…" : "Daha Eski Siparişleri Yükle"}</button>}
       </section>
     </main>
   );

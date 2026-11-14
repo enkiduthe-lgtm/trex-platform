@@ -3,7 +3,7 @@ const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('nod
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
 function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args)};
- await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('RETAIL');
+ await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','PUBLIC_WEB','MARKETPLACE');
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
  CREATE TABLE order_items(id text,order_id uuid,product_name text,sku text,quantity int,unit_amount numeric);
  CREATE TABLE customers(id text,first_name text,last_name text,email text);CREATE TABLE checkout_sessions(id text,contact_name text,contact_email text);CREATE TABLE order_addresses(order_id uuid,recipient_name text);
@@ -21,6 +21,9 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const {orderQueueStatus}=load(path.join(root,'apps/admin/app/lib/order-queue.ts'));
  const returnRows=await new OrdersService(db).salesReport('2026-10-01','2026-10-31');
  assert.ok(returnRows.filter(row=>row.id==='00000000-0000-4000-8000-000000000001').every(row=>orderQueueStatus(row)==='CARRIER_RETURN'));
+ const queue=await new OrdersService(db).queueCounts();
+ assert.equal(queue.find(row=>row.stage==='CARRIER_RETURN').count,1);
+ assert.equal(queue.find(row=>row.stage==='CANCELLED').count,1);
  assert.equal(orderQueueStatus(returnRows.find(row=>row.id==='00000000-0000-4000-8000-000000000002')),'CANCELLED');
  await pg.exec("UPDATE shipments SET tracking_direction_code=NULL WHERE order_id='00000000-0000-4000-8000-000000000001'");
  const groups=groupSales(rows,'carrier');assert.equal(groups.length,3);const delivered=groups.find(g=>g.status==='DELIVERED');assert.equal(delivered.orderCount,1);assert.equal(delivered.quantity,3);assert.equal(delivered.amount,'30.00');assert.equal(delivered.label,'aras');
@@ -33,5 +36,31 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const customerReport=await customers.orderReport('member1','2026-10-01','2026-10-31');assert.equal(customerReport.length,2);assert.equal(customerReport[0].payment_method,'cash');assert.equal(customerReport.reduce((sum,r)=>sum+Number(r.line_total),0),30);
  await assert.rejects(()=>customers.orderReport('member1','2026-02-30','2026-10-31'));await assert.rejects(()=>customers.orderReport('member1','2026-10-31','2026-10-01'));
  await pg.exec(`INSERT INTO orders SELECT ('00000000-0000-4000-8000-'||lpad((100+n)::text,12,'0'))::uuid,'H'||n,'PAID','RETAIL',1,'TRY','2026-10-31T20:59:59Z','member1',null FROM generate_series(1,61) n;INSERT INTO order_items SELECT 'item'||n,('00000000-0000-4000-8000-'||lpad((100+n)::text,12,'0'))::uuid,'Ürün','SKU',1,1 FROM generate_series(1,61) n;INSERT INTO orders VALUES('00000000-0000-4000-8000-000000000005','OUT','PAID','RETAIL',1,'TRY','2026-10-31T21:00:00Z','member1',null);INSERT INTO order_items VALUES('out-item','00000000-0000-4000-8000-000000000005','Ürün','SKU',1,1);`);
- assert.equal((await customers.orders('member1')).length,63);assert.equal((await customers.orderReport('member1','2026-10-01','2026-10-31')).length,63);await pg.close();console.log('Carrier report: multi-item deduplication, currency/status separation, missing shipment, Istanbul boundary, latest payment and separate registered member identities passed.');}
+ assert.equal((await customers.orders('member1')).length,63);assert.equal((await customers.orderReport('member1','2026-10-01','2026-10-31')).length,63);
+ await pg.exec(`
+   ALTER TABLE orders ADD COLUMN admin_note text,ADD COLUMN commission_amount numeric,ADD COLUMN shipping_cost_amount numeric;
+   ALTER TABLE order_items ADD COLUMN product_id text;
+   ALTER TABLE payments ADD COLUMN status text;
+   ALTER TABLE shipments ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid(),ADD COLUMN tracking_number text;
+   ALTER TABLE customers ADD PRIMARY KEY(id);
+   ALTER TABLE checkout_sessions ADD PRIMARY KEY(id);
+   ALTER TABLE order_addresses ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid();
+   CREATE TABLE finance_transactions(order_id uuid,approved_at timestamptz);
+   CREATE TABLE picking_sessions(id uuid,order_id uuid,status text,created_at timestamptz);
+   CREATE TABLE packing_sessions(picking_session_id uuid,packed_at timestamptz);
+   UPDATE shipments SET tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001';
+   INSERT INTO orders(id,order_number,status,sales_channel,total_amount,currency,created_at)
+   SELECT ('00000000-0000-4000-8000-'||lpad((200+n)::text,12,'0'))::uuid,'N'||n,'PAID','RETAIL',1,'TRY','2026-11-01'
+   FROM generate_series(1,55) n;
+ `);
+ const service=new OrdersService(db);
+ const latest=await service.list();
+ assert.equal(latest.length,100);
+ assert.ok(!latest.some(order=>order.order_number==='A'));
+ assert.deepEqual((await service.list(undefined,undefined,'CARRIER_RETURN')).map(order=>order.order_number),['A']);
+ const firstPaid=await service.list(undefined,undefined,'PAID');
+ const olderPaid=await service.list(undefined,firstPaid.at(-1).id,'PAID');
+ assert.equal(firstPaid.length,100);
+ assert.equal(new Set([...firstPaid,...olderPaid].map(order=>order.id)).size,(await service.queueCounts()).find(row=>row.stage==='PAID').count);
+ await pg.close();console.log('Carrier and queue reports: stable pages, full-history stage filtering, counts and Istanbul date boundaries passed.');}
 main().catch(e=>{console.error(e);process.exitCode=1;});
