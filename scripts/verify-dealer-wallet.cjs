@@ -22,7 +22,7 @@ async function main(){
  const {AdminOrderService}=load(path.join(root,'apps/api/src/orders/admin-order.service.ts'));
  await pg.exec(`
  CREATE TABLE users(id uuid PRIMARY KEY);
- CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,code text,status text,contact_name text);
+ CREATE TABLE dealers(id uuid PRIMARY KEY,company_name text,code text,status text,contact_name text,archived_at timestamptz);
  CREATE TABLE dealer_user_accounts(user_id uuid REFERENCES users(id),dealer_id uuid REFERENCES dealers(id));
  CREATE TABLE dealer_bank_accounts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),dealer_id uuid REFERENCES dealers(id),account_holder text,iban text,is_primary boolean);
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,total_amount numeric(12,2),currency char(3),status text,created_at timestamptz DEFAULT now(),archived_at timestamptz);
@@ -68,6 +68,11 @@ async function main(){
  await payouts.decide(request.id,'APPROVED',user);await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date+1 WHERE id=$1",[request.id]);await assert.rejects(()=>payouts.pay(request.id,account,'REF-1',user));
  await db.query("UPDATE dealer_prim_requests SET due_date=(now() AT TIME ZONE 'Europe/Istanbul')::date-1 WHERE id=$1",[request.id]);await payouts.pay(request.id,account,'REF-1',user);assert.equal((await dealerWallet(db,dealer)).available,'450.00');
  await payouts.pay(request.id,account,'REF-1',user);assert.equal((await db.query('SELECT count(*)::int AS count FROM finance_transactions')).rows[0].count,1);
+ const payoutEvents=(await db.query("SELECT action FROM audit_logs WHERE entity_type='dealer_payout' AND entity_id=$1 ORDER BY action",[request.id])).rows;
+ assert.deepEqual(payoutEvents.map(row=>row.action),['dealer.payout.approved','dealer.payout.paid','dealer.payout.requested']);
+ await db.query("UPDATE dealers SET status='SUSPENDED' WHERE id=$1",[dealer]);
+ await assert.rejects(()=>payouts.request(user,uuid(33),10),/Bayi Hesabı Bulunamadı/);
+ await db.query("UPDATE dealers SET status='ACTIVE' WHERE id=$1",[dealer]);
  const unpaid=await payouts.request(user,uuid(32),10);
  await payouts.decide(unpaid.id,'APPROVED',user);
  const listedPayout=async id=>(await payouts.list()).find(row=>row.id===id);

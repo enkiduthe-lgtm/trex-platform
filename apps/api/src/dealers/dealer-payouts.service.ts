@@ -13,7 +13,8 @@ const scheduledDate = `CASE WHEN r.status IN ('REQUESTED','APPROVED')
 export class DealerPayoutsService {
  constructor(private readonly db:DatabaseService) {}
  private async dealerForUser(userId:string,client:WalletClient=this.db) {
-  const row=(await client.query<{dealer_id:string}>('SELECT dealer_id FROM dealer_user_accounts WHERE user_id=$1',[userId])).rows[0];
+  const row=(await client.query<{dealer_id:string}>(`SELECT a.dealer_id FROM dealer_user_accounts a JOIN dealers d ON d.id=a.dealer_id
+    WHERE a.user_id=$1 AND d.status='ACTIVE' AND d.archived_at IS NULL`,[userId])).rows[0];
   if(!row)throw new NotFoundException('Bayi Hesabı Bulunamadı');return row.dealer_id;
  }
  async portal(userId:string) {
@@ -37,15 +38,19 @@ export class DealerPayoutsService {
  async request(userId:string,requestKey:string,amount:number) {
   return this.db.transaction(async client=>{
    const dealerId=await this.dealerForUser(userId,client);
-   await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[dealerId]);
+   const active=await client.query("SELECT id FROM dealers WHERE id=$1 AND status='ACTIVE' AND archived_at IS NULL FOR UPDATE",[dealerId]);
+   if(!active.rowCount)throw new NotFoundException('Aktif Bayi Hesabı Bulunamadı');
    const old=await client.query<{id:string;amount:string;dealer_id:string}>('SELECT id,amount,dealer_id FROM dealer_prim_requests WHERE request_key=$1',[requestKey]);
    if(old.rows[0]){if(old.rows[0].dealer_id!==dealerId||moneyCents(old.rows[0].amount)!==moneyCents(amount.toFixed(2)))throw new ConflictException('İşlem Anahtarı Başka Talepte Kullanılmış');return {id:old.rows[0].id};}
    const balance=await dealerWallet(client,dealerId);
    if(moneyCents(amount.toFixed(2))>moneyCents(balance.eligible))throw new ConflictException('Önceki Aylardan Talep Edilebilir Prim Yetersiz');
    const bank=(await client.query<{account_holder:string;iban:string}>('SELECT account_holder,iban FROM dealer_bank_accounts WHERE dealer_id=$1 AND is_primary=true',[dealerId])).rows[0];
    if(!bank?.iban?.trim()||!bank.account_holder?.trim())throw new ConflictException('Nakit Prim Talebi İçin Yöneticiye IBAN Ve Hesap Adınızı Kaydettirin. Ürün Siparişinde IBAN Gerekmez.');
-   return (await client.query(`INSERT INTO dealer_prim_requests(request_key,dealer_id,amount,account_holder,iban,requested_by,due_date)
+   const created=(await client.query<{id:string}>(`INSERT INTO dealer_prim_requests(request_key,dealer_id,amount,account_holder,iban,requested_by,due_date)
      VALUES($1,$2,$3,$4,$5,$6,${nextCycle}) RETURNING id`,[requestKey,dealerId,amount,bank.account_holder,bank.iban,userId])).rows[0];
+   await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',
+    [userId,'dealer.payout.requested','dealer_payout',created.id]);
+   return created;
   });
  }
  async list() {
@@ -87,7 +92,10 @@ export class DealerPayoutsService {
    const request=(await client.query<{dealer_id:string}>('SELECT dealer_id FROM dealer_prim_requests WHERE id=$1',[id])).rows[0];if(!request)throw new NotFoundException('Talep Bulunamadı');
    await client.query('SELECT id FROM dealers WHERE id=$1 FOR UPDATE',[request.dealer_id]);
    const result=await client.query("UPDATE dealer_prim_requests SET status=$1,approved_by=$2,approved_at=now(),note=$3 WHERE id=$4 AND status=ANY($5::text[]) RETURNING id",[status,actorId,note?.trim()||null,id,status==='APPROVED'?['REQUESTED']:['REQUESTED','APPROVED']]);
-   if(!result.rowCount)throw new ConflictException('Talep Bu İşlem İçin Uygun Değil');return result.rows[0];
+   if(!result.rowCount)throw new ConflictException('Talep Bu İşlem İçin Uygun Değil');
+   await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',
+    [actorId,status==='APPROVED'?'dealer.payout.approved':'dealer.payout.rejected','dealer_payout',id]);
+   return result.rows[0];
   });
  }
  async pay(id:string,accountId:string,reference:string,actorId:string) {
@@ -102,7 +110,10 @@ export class DealerPayoutsService {
    if(moneyCents(row.amount)>moneyCents(balance.available)||moneyCents(row.amount)>moneyCents(balance.eligible))throw new ConflictException('İade Veya Kesinti Sonrası Prim Yetersiz. Talebi Reddedip Uygun Tutarla Yeniden Oluşturun.');
    const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND currency=$2 AND is_active=true FOR UPDATE',[accountId,row.currency]);if(!account.rowCount)throw new ConflictException('Aynı Para Biriminde Aktif Ödeme Hesabı Seçin');
    const transaction=(await client.query<{id:string}>("INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,description,created_by) VALUES($1,'PRIME_EXPENSE',$2,'PAID',$3,$4,$5,$6) RETURNING id",[accountId,row.amount,row.account_holder,reference.trim(),'Bayi Aylık Prim Ödemesi '+id,actorId])).rows[0];
-   await client.query("UPDATE dealer_prim_requests SET status='PAID',paid_by=$1,paid_at=now(),finance_transaction_id=$2,reference_number=$3 WHERE id=$4",[actorId,transaction.id,reference.trim(),id]);return {id,financeTransactionId:transaction.id};
+   await client.query("UPDATE dealer_prim_requests SET status='PAID',paid_by=$1,paid_at=now(),finance_transaction_id=$2,reference_number=$3 WHERE id=$4",[actorId,transaction.id,reference.trim(),id]);
+   await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',
+    [actorId,'dealer.payout.paid','dealer_payout',id,JSON.stringify({financeTransactionId:transaction.id,amount:row.amount,currency:row.currency})]);
+   return {id,financeTransactionId:transaction.id};
   });
  }
 }
