@@ -10,6 +10,7 @@ describe('Selected order export lines', () => {
     expect(query.mock.calls[0][0]).toContain('WHERE o.archived_at IS NULL');
     expect(query.mock.calls[0][0]).toContain('o.id=ANY($7::uuid[])');
     expect(query.mock.calls[0][0]).toContain('oi.quantity*oi.unit_amount');
+    expect(query.mock.calls[0][0]).toContain('s.tracking_direction_code');
   });
   it.each([{ ids: [] }, { ids: ['invalid'] }, { ids: Array(101).fill(id) }])('rejects invalid or oversized selections before reading orders', async ({ ids }) => {
     const query = jest.fn();

@@ -12,12 +12,12 @@ import { orderQueueStatus } from './lib/order-queue';
 import { countsTowardSales, currencyTotals } from './lib/report-totals';
 import { useRouter } from 'next/navigation';
 type Dashboard={waiting:string;picking:string;packing:string;critical_stock:string;returns_pending:string};
-type Order={id:string;order_number:string;status:string;sales_status?:string;total_amount:string;currency:string;created_at:string;customer_email:string|null;customer_name?:string|null;item_count:string;shipping_provider?:string|null;shipment_status?:string|null};
+type Order={id:string;order_number:string;status:string;sales_status?:string;total_amount:string;currency:string;created_at:string;customer_email:string|null;customer_name?:string|null;item_count:string;shipping_provider?:string|null;shipment_status?:string|null;tracking_direction_code?:string|null};
 type Stock={id:string;name:string;warehouse_name:string;available_quantity:number};
 type SupportSummary={open_count:string;urgent_count:string;overdue_count:string};
 type Period=DashboardPeriod;
 const money=(n:number,currency='TRY')=>n.toLocaleString('tr-TR',{style:'currency',currency});
-const orderStatusLabels:Record<string,string>={"PENDING_PAYMENT":"Onay Bekliyor","PAID":"Onaylandı","PROCESSING":"Hazırlanıyor","REGISTERED":"Kargo Kaydı Hazır","SHIPPED":"Kargoya Verildi","DELIVERED":"Teslim Edildi","CANCELLED":"İptal Edildi","REFUNDED":"İade Edildi"};
+const orderStatusLabels:Record<string,string>={"PENDING_PAYMENT":"Onay Bekliyor","PAID":"Onaylandı","PROCESSING":"Hazırlanıyor","REGISTERED":"Kargo Kaydı Hazır","SHIPPED":"Kargoya Verildi","DELIVERED":"Teslim Edildi","CARRIER_RETURN":"Aras İade Bildirdi","CANCELLED":"İptal Edildi","REFUNDED":"İade Edildi"};
 const labels:Record<Period,string>={today:'Bugün',yesterday:'Dün',week:'Son 7 Gün',month:'Bu Ay',year:'Bu Yıl',all:'Tüm Zamanlar'};
 export default function Admin(){
  const router=useRouter();

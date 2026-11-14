@@ -83,3 +83,5 @@
 .detailCard .cardActions>strong{overflow-wrap:anywhere;min-width:0}
 .detailCard .tableWrap .moneyCell{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:600px){.detailCard .cardActions>*{flex:1 1 180px}.detailCard .cardHeader>span{flex-basis:100%}}
+
+.status_CARRIER_RETURN{background:#fff0d9;color:#78480a}

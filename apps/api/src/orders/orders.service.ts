@@ -53,7 +53,7 @@ export class OrdersService { constructor(private readonly db: DatabaseService,pr
     return (await this.db.query(`SELECT o.id,c.id AS customer_id,COALESCE(c.email,cs.contact_email) AS customer_email,oi.id AS item_id,o.order_number,report.status,o.sales_channel,o.marketplace_name,o.total_amount,o.cod_service_fee,o.currency,o.created_at,
       COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name,'Misafir') AS customer_name,
       oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
-      COALESCE(payment.provider,'') AS payment_method,s.provider AS shipping_provider,s.status AS shipment_status
+      COALESCE(payment.provider,'') AS payment_method,s.provider AS shipping_provider,s.status AS shipment_status,s.tracking_direction_code
       FROM orders o JOIN order_items oi ON oi.order_id=o.id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN checkout_sessions cs ON cs.id=o.checkout_id LEFT JOIN order_addresses oa ON oa.order_id=o.id
       LEFT JOIN shipments s ON s.order_id=o.id
       CROSS JOIN LATERAL (SELECT ${reportOrderStatus} AS status) report

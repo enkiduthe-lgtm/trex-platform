@@ -14,3 +14,12 @@ test('all supported stages count once and terminal orders retain their status',(
  assert.equal(rows.find(row=>row.href.endsWith('CANCELLED'))?.value,2);
  assert.equal(rows.find(row=>row.href.endsWith('PAID'))?.value,1);
 });
+test('counts carrier returns separately from shipments and completed refunds',()=>{
+ const rows=dashboardOrderSummary([
+  {status:'SHIPPED',tracking_direction_code:'3'},
+  {status:'SHIPPED',tracking_direction_code:'3',sales_status:'REFUNDED'},
+ ]);
+ assert.equal(rows.find(row=>row.href.endsWith('CARRIER_RETURN'))?.value,1);
+ assert.equal(rows.find(row=>row.href.endsWith('REFUNDED'))?.value,1);
+ assert.equal(rows.find(row=>row.href.endsWith('SHIPPED'))?.value,0);
+});

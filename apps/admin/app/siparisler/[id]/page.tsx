@@ -116,6 +116,7 @@ const orderStatus: Record<string, string> = {
   REGISTERED: "Kargo kaydı hazır",
   SHIPPED: "Kargoda",
   DELIVERED: "Teslim edildi",
+  CARRIER_RETURN: "Aras iade bildirdi",
   CANCELLED: "İptal edildi",
   REFUNDED: "İade edildi",
 };
@@ -202,7 +203,7 @@ export default function OrderDetail() {
   }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
-  const displayStatus = data ? orderQueueStatus({status:data.status,sales_status:data.sales_status, shipment_status:data.fulfillment?.shipment_status}) : '';
+  const displayStatus = data ? orderQueueStatus({status:data.status,sales_status:data.sales_status, shipment_status:data.fulfillment?.shipment_status,tracking_direction_code:data.fulfillment?.tracking_direction_code}) : '';
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const autoPrinted = useRef(false);
@@ -484,7 +485,7 @@ export default function OrderDetail() {
                 <div><small>Ödeme yöntemi</small><strong>{data.payments.map((payment) => paymentMethod[payment.provider] ?? payment.provider).join(", ") || "Belirtilmedi"}</strong></div>
               </div>
               <div className={styles.cardActions}>
-                {canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
+                {canEdit && editableAdminChannels.includes(data.sales_channel) && !["CANCELLED", "REFUNDED", "CARRIER_RETURN"].includes(displayStatus) && <Link className={styles.financeLink} href={`/siparisler/${id}/duzenle`}>Siparişi düzenle</Link>}
                 {canEdit && data.can_cancel && <button type="button" disabled={operationBusy || cancelling} onClick={() => void cancelOrder()}>{cancelling ? "İptal ediliyor…" : "Siparişi iptal et"}</button>}
                 {canEdit && editableAdminChannels.includes(data.sales_channel) && ["PENDING_PAYMENT", "PROCESSING"].includes(displayStatus) && data.payments.length > 0 && data.payments.every((payment) => payment.status === "PENDING" && ["bank_transfer", "cash", "cash_on_delivery_card", "cash_on_delivery_cash"].includes(payment.provider)) && <Link className={styles.financeLink} href={`/siparisler/${id}/fiyatlar`}>Sipariş fiyatlarını değiştir</Link>}
               </div>

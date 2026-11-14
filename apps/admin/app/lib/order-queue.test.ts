@@ -18,9 +18,16 @@ test('registration is separate from dispatch and real tracking',()=>{
 test('shipment history never reopens cancelled or refunded orders',()=>{
   for(const status of ['CANCELLED','REFUNDED']) {
     for(const shipment_status of ['CREATED','IN_TRANSIT','DELIVERED']) {
-      assert.equal(orderQueueStatus({status,shipment_status}),status);
+      assert.equal(orderQueueStatus({status,shipment_status,tracking_direction_code:'3'}),status);
     }
   }
+});
+
+test('carrier returns leave the active queues until the refund is complete', () => {
+  const returned = {status:'SHIPPED',shipment_status:'FAILED',tracking_direction_code:'3'};
+  assert.equal(orderQueueStatus(returned),'CARRIER_RETURN');
+  assert.equal(orderQueueStatus({...returned,sales_status:'REFUNDED'}),'REFUNDED');
+  assert.equal(orderQueueStatus({...returned,tracking_direction_code:null}),'SHIPPED');
 });
 
 test('preparation proceeds in sequence and never restarts a registered or terminal shipment',()=>{

@@ -2,6 +2,8 @@ type QueueOrder = {status:string;sales_status?:string;shipment_status?:string|nu
 
 export function orderQueueStatus(order: QueueOrder) {
   if (order.sales_status === 'REFUNDED') return 'REFUNDED';
+  if (['CANCELLED','REFUNDED'].includes(order.status)) return order.status;
+  if (order.tracking_direction_code === '3') return 'CARRIER_RETURN';
   if (order.status !== 'PROCESSING') return order.status;
   if (order.shipment_status === 'CREATED') return 'REGISTERED';
   if (order.shipment_status === 'IN_TRANSIT') return 'SHIPPED';

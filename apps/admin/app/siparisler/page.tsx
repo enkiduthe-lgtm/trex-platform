@@ -46,7 +46,7 @@ type Order = {
   tracking_direction_code?: string | null;
   preparation_status?: string | null; packed_at?: string | null;
 };
-type ExportLine = { id: string; order_number: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; total_amount: string; cod_service_fee: string; currency: string; payment_method: string; sales_channel: string; marketplace_name: string | null; customer_name: string; status: string; shipment_status: string | null; shipping_provider: string | null; created_at: string };
+type ExportLine = { id: string; order_number: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string; total_amount: string; cod_service_fee: string; currency: string; payment_method: string; sales_channel: string; marketplace_name: string | null; customer_name: string; status: string; shipment_status: string | null; tracking_direction_code?: string | null; shipping_provider: string | null; created_at: string };
 type OrderNote = { id: string; admin_note: string | null };
 // Carrier registration does not imply physical dispatch.
 const queueStatus = orderQueueStatus;
@@ -58,6 +58,7 @@ const statusText: Record<string, string> = {
   REGISTERED: "Kargo Kaydı Hazır",
   SHIPPED: "Kargoda",
   DELIVERED: "Teslim edildi",
+  CARRIER_RETURN: "Aras iade bildirdi",
   CANCELLED: "İptal edildi",
   REFUNDED: "İade Edildi",
 };
@@ -79,6 +80,7 @@ const tabs = [
   { value: "REGISTERED", label: "Kargo Kaydı Hazır" },
   { value: "SHIPPED", label: "Kargolananlar" },
   { value: "DELIVERED", label: "Teslim edilenler" },
+  { value: "CARRIER_RETURN", label: "Kargo İadeleri" },
   { value: "REFUNDED", label: "İade Edilenler" },
   { value: "CANCELLED", label: "İptal edilenler" },
   { value: "ALL", label: "Tüm siparişler" },
@@ -551,7 +553,7 @@ function OrdersContent() {
                       </Link>
                       {canEdit &&
                         editableAdminChannels.includes(order.sales_channel ?? "") &&
-                        !["CANCELLED", "REFUNDED"].includes(queueStatus(order)) && (
+                        !["CANCELLED", "REFUNDED", "CARRIER_RETURN"].includes(queueStatus(order)) && (
                           <Link
                             className={styles.financeLink}
                             href={`/siparisler/${order.id}/duzenle`}
