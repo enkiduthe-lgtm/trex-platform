@@ -67,13 +67,22 @@ export class CommissionsService {
           const duplicate=await client.query("SELECT id FROM commission_entries WHERE source_entry_id=$1 AND entry_kind='REVERSAL' AND return_id IS NOT DISTINCT FROM $2::uuid",[e.id,returnId??null]);
           if(duplicate.rowCount)continue;
           const previous=await client.query<{amount:string}>("SELECT COALESCE(SUM(amount),0)::text AS amount FROM commission_entries WHERE source_entry_id=$1 AND entry_kind='REVERSAL'",[e.id]);
-          const remaining=moneyCents(e.amount)+moneyCents(previous.rows[0].amount);
+          const originalCents=moneyCents(e.amount);
+          const alreadyReversed=-moneyCents(previous.rows[0].amount);
+          const remaining=originalCents-alreadyReversed;
           if(remaining<=0n)continue;
           let cents=remaining;
           if(returnId) {
-            const quantity=(await client.query<{returned:number;original:number}>('SELECT ri.quantity AS returned,oi.quantity AS original FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id WHERE ri.return_id=$1 AND oi.id=$2',[returnId,e.order_item_id])).rows[0];
+            const quantity=(await client.query<{returned:number;original:number;previously_returned:number}>(`
+              SELECT ri.quantity AS returned,oi.quantity AS original,
+                COALESCE((SELECT SUM(items.quantity)::int FROM return_items items
+                  JOIN returns r ON r.id=items.return_id
+                  WHERE items.order_item_id=oi.id AND r.order_id=oi.order_id AND r.id<>$1 AND r.status='REFUNDED'),0) AS previously_returned
+              FROM return_items ri JOIN order_items oi ON oi.id=ri.order_item_id
+              WHERE ri.return_id=$1 AND oi.id=$2`,[returnId,e.order_item_id])).rows[0];
             if(!quantity)continue;
-            cents=moneyCents(e.amount)*BigInt(quantity.returned)/BigInt(quantity.original);
+            const refundedUnits=Math.min(quantity.original,quantity.returned + quantity.previously_returned);
+            cents=originalCents*BigInt(refundedUnits)/BigInt(quantity.original)-alreadyReversed;
             if(cents>remaining)cents=remaining;
           }
           if(cents<=0n)continue;

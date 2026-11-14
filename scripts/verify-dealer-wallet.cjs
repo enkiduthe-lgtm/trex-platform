@@ -51,9 +51,11 @@ async function main(){
  const award=()=>commissions.confirmForOrderItem({dealerId:dealer,orderId:order,orderItemId:item,productId:product,quantity:2});
  assert.equal((await award()).amount,'300.00');assert.equal(await award(),null);
  assert.equal((await dealerWallet(db,dealer)).available,'1300.00');assert.equal((await dealerWallet(db,dealer)).eligible,'1000.00');
- for(const [rid,n]of [[returnA,20],[returnB,21]]){await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED')",[rid,order]);await db.query('INSERT INTO return_items VALUES($1,$2,$3,1)',[uuid(n),rid,item]);}
+ await db.query("INSERT INTO returns(id,order_id,status) VALUES($1,$2,'REFUNDED'),($3,$2,'INSPECTED')",[returnA,order,returnB]);
+ await db.query('INSERT INTO return_items VALUES($1,$2,$3,1),($4,$5,$3,1)',[uuid(20),returnA,item,uuid(21),returnB]);
  await commissions.reverseForOrder(order,user,'Partial Return',undefined,returnA);assert.equal((await dealerWallet(db,dealer)).available,'1150.00');assert.equal((await dealerWallet(db,dealer)).eligible,'1000.00');
  await commissions.reverseForOrder(order,user,'Duplicate Return',undefined,returnA);assert.equal((await dealerWallet(db,dealer)).available,'1150.00');
+ await db.query("UPDATE returns SET status='REFUNDED' WHERE id=$1",[returnB]);
  await commissions.reverseForOrder(order,user,'Second Partial Return',undefined,returnB);assert.equal((await dealerWallet(db,dealer)).available,'1000.00');
  const request=await payouts.request(user,uuid(30),200);assert.equal((await payouts.request(user,uuid(30),200)).id,request.id);assert.equal((await dealerWallet(db,dealer)).available,'800.00');
  const due=(await db.query('SELECT extract(day FROM due_date)::int AS day FROM dealer_prim_requests WHERE id=$1',[request.id])).rows[0];assert.equal(due.day,5);

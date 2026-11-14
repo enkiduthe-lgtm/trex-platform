@@ -16,6 +16,7 @@ async function main(){
  CREATE TABLE commission_entries(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid REFERENCES users(id),recipient_kind text,dealer_id uuid,order_id uuid,order_item_id uuid,rule_id uuid,amount numeric(12,2),currency text,status text,entry_kind text,available_at timestamptz,finalized_at timestamptz,created_at timestamptz DEFAULT now(),paid_at timestamptz,paid_by uuid,finance_transaction_id uuid,calculation_source text,note text,source_entry_id uuid,reversed_at timestamptz,return_id uuid);
  CREATE UNIQUE INDEX reversal_once ON commission_entries(source_entry_id,return_id) WHERE entry_kind='REVERSAL';
  CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity integer);
+ CREATE TABLE returns(id uuid PRIMARY KEY,order_id uuid,status text);
  `);
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/069_staff_channel_pools.sql'),'utf8'));
  const {StaffChannelService}=load(path.join(root,'apps/api/src/commissions/staff-channel.service.ts')),{CommissionsService}=load(path.join(root,'apps/api/src/commissions/commissions.service.ts'));
@@ -63,6 +64,19 @@ async function main(){
  assert.equal((await db.query('SELECT staff_paid_amount FROM commission_entries WHERE id=$1',[newDirector.id])).rows[0].staff_paid_amount,'200.00');
  const foreignOrder=uuid(70),foreignItem=uuid(71);await db.query("INSERT INTO orders VALUES($1,'USD-TEST','RETAIL','DELIVERED','USD',now()+interval '1 minute')",[foreignOrder]);await db.query("INSERT INTO order_items VALUES($1,$2,$3,'Tea','TEA',1,'USD')",[foreignItem,foreignOrder,product]);await commissions.awardForDeliveredOrder(foreignOrder,master.id);
  const foreignPrim=(await db.query("SELECT amount,currency FROM commission_entries WHERE order_id=$1 AND staff_role='DIRECTOR'",[foreignOrder])).rows[0];assert.equal(foreignPrim.amount,'200.00');assert.equal(foreignPrim.currency,'TRY');
+ const roundingOrder=uuid(80),roundingItem=uuid(81);
+ await service.rate({productId:product,channelGroup:'RETAIL',executiveAmount:0.01,directorAmount:0.01},master);
+ await db.query("INSERT INTO orders VALUES($1,'ROUNDING','RETAIL','DELIVERED','TRY',now()+interval '1 minute')",[roundingOrder]);
+ await db.query("INSERT INTO order_items VALUES($1,$2,$3,'Tea','TEA',3,'TRY')",[roundingItem,roundingOrder,product]);
+ await commissions.awardForDeliveredOrder(roundingOrder,master.id);
+ for(const r of [uuid(82),uuid(83),uuid(84)]) {
+  await db.query("INSERT INTO returns VALUES($1,$2,'REFUNDED')",[r,roundingOrder]);
+  await db.query('INSERT INTO return_items VALUES($1,$2,1)',[r,roundingItem]);
+  await commissions.reverseForOrder(roundingOrder,master.id,'Item returned',undefined,r);
+ }
+ const roundingNet=(await db.query("SELECT staff_role,SUM(amount)::text AS amount FROM commission_entries WHERE order_id=$1 GROUP BY staff_role",[roundingOrder])).rows;
+ assert.equal(roundingNet.length,2);
+ assert(roundingNet.every(row=>row.amount==='0.00'));
  const {FinanceService}=load(path.join(root,'apps/api/src/finance/finance.service.ts')),finance=new FinanceService(db);
  assert.equal((await finance.listTransactions(executive)).length,0);
  assert.equal((await finance.listTransactions(master)).length,1);
