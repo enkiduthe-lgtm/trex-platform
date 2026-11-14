@@ -81,10 +81,10 @@ describe('WarehouseService', () => {
       .mockResolvedValueOnce({rows:[{physical_quantity:12}]})
       .mockResolvedValue({rows:[]})};
     const db={transaction:jest.fn((work) => work(client))};
-    const result=await new WarehouseService(db as never).receiveStock({productId:'product',warehouseId:'warehouse',quantity:12,lotCode:'LOT-1'},'user');
+    const result=await new WarehouseService(db as never).receiveStock({productId:'product',warehouseId:'warehouse',quantity:12,lotCode:'LOT-1',receivedAt:'2026-11-05'},'user');
     expect(result).toEqual({physical_quantity:12,warehouseId:'warehouse'});
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inventory_lots'),['product','warehouse','LOT-1',null,12,null]);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("'RECEIPT'"),['product','warehouse',12,'stock_receipt','user',null,null]);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("AT TIME ZONE 'Europe/Istanbul'"),['product','warehouse',12,'stock_receipt','user','2026-11-05',null]);
   });
 
   it('saves a reorder level when target is not lower than minimum', async () => {

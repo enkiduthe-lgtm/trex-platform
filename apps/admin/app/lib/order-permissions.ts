@@ -12,6 +12,7 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     create: allowed('ORDERS', 'CREATE', ['ADMIN']),
     edit: allowed('ORDERS', 'EDIT', ['ADMIN']),
     prepare: allowed('STOCK', 'EDIT', ['ADMIN', 'WAREHOUSE']),
+    receiveStock: allowed('STOCK', 'CREATE', ['ADMIN', 'WAREHOUSE']),
     ship: allowed('SHIPPING', 'CREATE', ['ADMIN', 'WAREHOUSE']),
     verify: allowed('SHIPPING', 'CREATE', ['ADMIN', 'WAREHOUSE']),
     updateShipment: allowed('SHIPPING', 'APPROVE', ['ADMIN', 'WAREHOUSE']),

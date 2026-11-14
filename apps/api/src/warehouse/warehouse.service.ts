@@ -91,6 +91,9 @@ export class WarehouseService {
       GROUP BY p.id ORDER BY p.name,p.id`)).rows;
   }
   async listStock() { return (await this.db.query(`SELECT i.product_id,i.warehouse_id,p.name AS product_name,p.sku,w.name AS warehouse_name,i.physical_quantity,i.reserved_quantity,i.physical_quantity-i.reserved_quantity AS available_quantity FROM inventory i JOIN products p ON p.id=i.product_id JOIN warehouses w ON w.id=i.warehouse_id ORDER BY p.name,w.name`)).rows; }
+  async receiptProducts() {
+    return (await this.db.query("SELECT id,name,sku FROM products WHERE status='ACTIVE' ORDER BY name,id")).rows;
+  }
   async listLots() { return (await this.db.query(`SELECT l.id,l.product_id,l.warehouse_id,l.lot_code,l.expiry_date,l.available_quantity,l.location_code,l.created_at,
       p.name AS product_name,p.sku,w.name AS warehouse_name,
       CASE WHEN l.expiry_date IS NULL THEN NULL ELSE (l.expiry_date-current_date)::int END AS days_remaining
@@ -216,7 +219,10 @@ export class WarehouseService {
     const lotCode=dto.lotCode?.trim() || `GENEL-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${String(Date.now()).slice(-6)}`;
     const inventory=await client.query<{physical_quantity:number}>('INSERT INTO inventory(product_id,warehouse_id,physical_quantity) VALUES ($1,$2,$3) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET physical_quantity=inventory.physical_quantity+EXCLUDED.physical_quantity,updated_at=now() RETURNING physical_quantity',[dto.productId,warehouseId,dto.quantity]);
     await client.query('INSERT INTO inventory_lots(product_id,warehouse_id,lot_code,expiry_date,available_quantity,location_code) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(product_id,warehouse_id,lot_code) DO UPDATE SET available_quantity=inventory_lots.available_quantity+EXCLUDED.available_quantity,expiry_date=COALESCE(EXCLUDED.expiry_date,inventory_lots.expiry_date),location_code=COALESCE(EXCLUDED.location_code,inventory_lots.location_code)',[dto.productId,warehouseId,lotCode,dto.expiryDate ?? null,dto.quantity,dto.locationCode?.trim() || null]);
-    await client.query("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by,created_at,note) VALUES ($1,$2,'RECEIPT',$3,$4,$5,COALESCE($6::timestamptz,now()),$7)",[dto.productId,warehouseId,dto.quantity,'stock_receipt',userId,dto.receivedAt ?? null,dto.note?.trim()||null]);
+    await client.query(`INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity_delta,reference_type,created_by,created_at,note)
+      VALUES ($1,$2,'RECEIPT',$3,$4,$5,CASE WHEN $6::text IS NULL THEN now()
+        WHEN $6 ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN $6::date::timestamp AT TIME ZONE 'Europe/Istanbul'
+        ELSE $6::timestamptz END,$7)`,[dto.productId,warehouseId,dto.quantity,'stock_receipt',userId,dto.receivedAt ?? null,dto.note?.trim()||null]);
     await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1,$2,$3,$4,$5)',[userId,'inventory.received','inventory',`${dto.productId}:${warehouseId}`,JSON.stringify({quantity:dto.quantity,lotCode,receivedAt:dto.receivedAt ?? null,expiryDate:dto.expiryDate ?? null,locationCode:dto.locationCode ?? null,note:dto.note ?? null})]);
     return {...inventory.rows[0],warehouseId};
   }); }

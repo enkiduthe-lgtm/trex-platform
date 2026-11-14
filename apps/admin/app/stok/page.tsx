@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 import { downloadXlsx } from '../lib/xlsx';
+import { useOrderPermissions } from '../lib/use-order-permissions';
 
 type Dashboard = { waiting: string; picking: string; packing: string; critical_stock: string };
 type Product = { id: string; name: string; sku: string };
@@ -14,6 +15,7 @@ type View = 'stok' | 'raporlar';
 const movementLabel: Record<string, string> = { RECEIPT: 'Stok girişi', ADJUSTMENT: 'Stok düzeltmesi', RESERVATION: 'Sipariş rezervasyonu', RELEASE: 'Rezervasyon çözümü', FULFILLMENT: 'Sipariş çıkışı', TRANSFER_OUT: 'Depodan transfer', TRANSFER_IN: 'Depoya transfer', RETURN_QUARANTINE: 'İade girişi', RETURN_DAMAGED: 'Hasarlı iade' };
 
 export default function Inventory() {
+  const {permissions, loading: accessLoading}=useOrderPermissions();
   const receiptLock=useRef(false);
   const [view, setView] = useState<View>('stok');
   const [movementFrom, setMovementFrom] = useState('');
@@ -21,9 +23,12 @@ export default function Inventory() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [stock, setStock] = useState<Stock[]>([]);
   const [stockSearch, setStockSearch] = useState('');
+  const [warehouse, setWarehouse] = useState('');
+  const warehouses = useMemo(() => [...new Map(stock.map(item => [item.warehouse_id, item.warehouse_name])).entries()], [stock]);
   const generalStock = useMemo(() => {
     const grouped = new Map<string, Stock>();
     for (const item of stock) {
+      if (warehouse && item.warehouse_id !== warehouse) continue;
       const previous = grouped.get(item.product_id);
       grouped.set(item.product_id, {
         ...item,
@@ -34,26 +39,37 @@ export default function Inventory() {
     }
     const query = stockSearch.trim().toLocaleLowerCase('tr-TR');
     return Array.from(grouped.values()).filter(item => !query || `${item.product_name} ${item.sku}`.toLocaleLowerCase('tr-TR').includes(query)).sort((a,b) => a.product_name.localeCompare(b.product_name, 'tr'));
-  }, [stock, stockSearch]);
+  }, [stock, stockSearch, warehouse]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [receipt, setReceipt] = useState({ productId: '', quantity: '', receivedAt: new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Istanbul'}).format(new Date()), note: '' });
 
   async function load() {
-    const [dashboardData, stockData, movementData, productData] = await Promise.all([
+    setLoaded(false);
+    const [dashboardData, stockData, movementData] = await Promise.all([
       api<Dashboard>('/admin/warehouse/dashboard'),
       api<Stock[]>('/admin/warehouse/stock'),
       api<Movement[]>('/admin/warehouse/movements'),
-      api<Product[]>('/admin/products'),
     ]);
     setDashboard(dashboardData);
     setStock(stockData);
     setMovements(movementData);
-    setProducts(productData);
+    setLoaded(true);
+  }
+  async function loadProducts() {
+    if (permissions.receiveStock) setProducts(await api<Product[]>('/admin/warehouse/receipt-products'));
   }
   useEffect(() => { void load().catch(error => setMessage(error instanceof Error ? error.message : 'Stok Verileri Yüklenemedi')); }, []);
+  useEffect(() => {
+    if (!permissions.receiveStock) return;
+    let active=true;
+    void api<Product[]>('/admin/warehouse/receipt-products').then(rows=>{if(active)setProducts(rows);})
+      .catch(error=>{if(active)setMessage(error instanceof Error ? error.message : 'Stok giriş ürünleri yüklenemedi.');});
+    return ()=>{active=false;};
+  }, [permissions.receiveStock]);
   useEffect(() => {
     const productId = new URLSearchParams(window.location.search).get('productId');
     if (productId) setReceipt(current => ({ ...current, productId }));
@@ -69,7 +85,7 @@ export default function Inventory() {
   const outgoing = useMemo(() => filteredMovements.filter(item => ['FULFILLMENT', 'TRANSFER_OUT'].includes(item.movement_type)), [filteredMovements]);
 
   async function receiveStock(event: FormEvent) {
-    event.preventDefault();if(receiptLock.current)return;receiptLock.current=true;setBusy(true); setMessage('');
+    event.preventDefault();if(receiptLock.current||busy||!loaded||!permissions.receiveStock)return;receiptLock.current=true;setBusy(true); setMessage('');
     try {
       await api('/admin/warehouse/receipts', { method: 'POST', body: JSON.stringify({ ...receipt, quantity: Number(receipt.quantity), note: receipt.note || undefined }) });
       setReceipt(current => ({ ...current, quantity: '', note: '' }));
@@ -89,12 +105,12 @@ export default function Inventory() {
     <nav className="stock-local-nav" aria-label="Stok bölümleri"><button className={view === 'stok' ? 'selected' : ''} onClick={() => setView('stok')}>Stok Ve Envanter</button><button className={view === 'raporlar' ? 'selected' : ''} onClick={() => setView('raporlar')}>Gelen / Giden Raporlar</button><a href="/siparisler?durum=PROCESSING">Sipariş Hazırlama Ve Kargo →</a></nav>
     {message && <div role="status" className="form-card"><p>{message}</p><button type="button" className="secondary" disabled={busy} onClick={async () => {
       setBusy(true);
-      try { await load(); setMessage('Stok Listesi Güncellendi.'); }
+      try { await Promise.all([load(),loadProducts()]); setMessage('Stok Listesi Güncellendi.'); }
       catch (error) { setMessage(error instanceof Error ? error.message : 'Stok Verileri Yüklenemedi'); }
       finally { setBusy(false); }
     }}>Listeyi Yenile</button></div>}
     {dashboard && <div className="cards"><article><p>HAZIRLANACAK</p><h2>{dashboard.waiting}</h2></article><article><p>TOPLANIYOR</p><h2>{dashboard.picking}</h2></article><article><p>PAKETLEME</p><h2>{dashboard.packing}</h2></article><article><p>KRİTİK STOK</p><h2>{dashboard.critical_stock}</h2></article></div>}
-    {view === 'stok' && <><form className="form-card" onSubmit={receiveStock}><h2>Genel Stok Girişi</h2><div className="form-grid"><label>Ürün<select required value={receipt.productId} onChange={e => setReceipt(current => ({ ...current, productId: e.target.value }))}><option value="">Ürün Seçin</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label><label>Stok Giriş Adedi<input required type="number" min="1" step="1" value={receipt.quantity} onChange={e => setReceipt(current => ({ ...current, quantity: e.target.value }))} /></label><label>Stoğa Giriş Tarihi<input required type="date" value={receipt.receivedAt} onChange={e => setReceipt(current => ({ ...current, receivedAt: e.target.value }))} /></label><label>Açıklama <small>(İsteğe Bağlı)</small><input value={receipt.note} placeholder="Stok giriş notu" onChange={e => setReceipt(current => ({ ...current, note: e.target.value }))} /></label></div><button disabled={busy}>Stoğu Kaydet</button></form><section className="form-card"><h2>Mevcut Genel Stok</h2><label>Ürün Veya SKU Ara<input value={stockSearch} onChange={event=>setStockSearch(event.target.value)} placeholder="Ürün Adı Veya SKU" /></label><div className="table-wrap"><table><thead><tr><th>Ürün</th><th>SKU</th><th>Fiziksel Stok</th><th>Rezerve</th><th>Kalan Stok</th></tr></thead><tbody>{generalStock.map(item => <tr key={item.product_id}><td>{item.product_name}</td><td>{item.sku}</td><td>{item.physical_quantity}</td><td>{item.reserved_quantity}</td><td><strong>{item.available_quantity}</strong></td></tr>)}</tbody></table>{!generalStock.length && <p>Henüz stok kaydı yok.</p>}</div></section></>}
+    {view === 'stok' && <>{permissions.receiveStock && <form className="form-card" onSubmit={receiveStock}><h2>Genel Stok Girişi</h2><div className="form-grid"><label>Ürün<select required value={receipt.productId} onChange={e => setReceipt(current => ({ ...current, productId: e.target.value }))}><option value="">Ürün Seçin</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label><label>Stok Giriş Adedi<input required type="number" min="1" step="1" value={receipt.quantity} onChange={e => setReceipt(current => ({ ...current, quantity: e.target.value }))} /></label><label>Stoğa Giriş Tarihi<input required type="date" value={receipt.receivedAt} onChange={e => setReceipt(current => ({ ...current, receivedAt: e.target.value }))} /></label><label>Açıklama <small>(İsteğe Bağlı)</small><input value={receipt.note} placeholder="Stok giriş notu" onChange={e => setReceipt(current => ({ ...current, note: e.target.value }))} /></label></div><button disabled={busy || !loaded || accessLoading || !products.length}>Stoğu Kaydet</button></form>}<section className="form-card"><h2>Mevcut Stok</h2><label>Depo<select value={warehouse} onChange={event=>setWarehouse(event.target.value)}><option value="">Tüm depolar</option>{warehouses.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>Ürün Veya SKU Ara<input value={stockSearch} onChange={event=>setStockSearch(event.target.value)} placeholder="Ürün Adı Veya SKU" /></label><div className="table-wrap"><table><thead><tr><th>Ürün</th><th>SKU</th><th>Fiziksel Stok</th><th>Rezerve</th><th>Kalan Stok</th></tr></thead><tbody>{generalStock.map(item => <tr key={item.product_id}><td>{item.product_name}</td><td>{item.sku}</td><td>{item.physical_quantity}</td><td>{item.reserved_quantity}</td><td><strong>{item.available_quantity}</strong></td></tr>)}</tbody></table>{!generalStock.length && <p>{!loaded ? "Stok bilgileri henüz yüklenmedi." : stockSearch || warehouse ? "Bu filtreye uyan stok kaydı yok." : "Henüz stok kaydı yok."}</p>}</div></section></>}
     {view === 'raporlar' && <><section className="form-card"><div className="form-grid"><label>Başlangıç Tarihi<input type="date" value={movementFrom} max={movementTo||undefined} onChange={event=>setMovementFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={movementTo} min={movementFrom||undefined} onChange={event=>setMovementTo(event.target.value)} /></label></div><div className="button-row"><button className="secondary" type="button" onClick={()=>{setMovementFrom('');setMovementTo('');}}>Tarihleri Temizle</button><span>{filteredMovements.length} Hareket · İstanbul Saatine Göre</span></div></section><section className="form-card"><h2>Gelen Ürün Bazlı Rapor</h2><button disabled={!incoming.length} onClick={() => exportRows('trex-gelen-urun-raporu', incoming)}>Excel&apos;e Aktar</button>{table(incoming, 'Gelen ürün hareketi yok.')}</section><section className="form-card"><h2>Giden Ürün Bazlı Rapor</h2><button disabled={!outgoing.length} onClick={() => exportRows('trex-giden-urun-raporu', outgoing)}>Excel&apos;e Aktar</button>{table(outgoing, 'Giden ürün hareketi yok.')}</section><section className="form-card"><h2>Tüm Stok Hareketleri</h2><p>Stok Girişleri, Sipariş Çıkışları, Rezervasyonlar Ve Düzeltmeler.</p><button disabled={!filteredMovements.length} onClick={()=>exportRows('trex-tum-stok-hareketleri',filteredMovements)}>Excel&apos;e Aktar</button>{table(filteredMovements,'Seçilen Tarihlerde Stok Hareketi Yok.')}</section></>}
   </section></main>;
 }
