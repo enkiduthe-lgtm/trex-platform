@@ -1,7 +1,7 @@
 // Isolated PostgreSQL query and actual UI grouping; no production writes.
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'node_modules/typescript')),{PGlite}=require(path.join(process.argv[3],'node_modules/@electric-sql/pglite'));
-function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,NotFoundException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
+function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,Map,Set,BigInt,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,NotFoundException:Error,ForbiddenException:Error};if(name==='./report-totals'||name==='./finance-report'||name.endsWith('/report-order-status'))return load(path.resolve(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,args)};
  await pg.exec(`CREATE TYPE sales_channel_code AS ENUM('ADMIN_ORDER','RETAIL','WHOLESALE','INSTAGRAM','DEALER_PORTAL','PUBLIC_WEB','MARKETPLACE');
  CREATE TABLE orders(id uuid PRIMARY KEY,order_number text,status text,sales_channel sales_channel_code,total_amount numeric,currency text,created_at timestamptz,customer_id text,checkout_id text);
@@ -60,6 +60,10 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  const latest=await service.list();
  assert.equal(latest.length,100);
  assert.ok(!latest.some(order=>order.order_number==='A'));
+ assert.ok(!latest.some(order=>order.order_number==='D'));
+ assert.equal((await service.testArchiveCandidate(' D ',{role:'SUPER_ADMIN'})).order_number,'D');
+ await assert.rejects(()=>service.testArchiveCandidate('D',{role:'ADMIN'}),/Yalnız Müdür/);
+ await assert.rejects(()=>service.testArchiveCandidate('A',{role:'SUPER_ADMIN'}),/Bulunamadı/);
  assert.deepEqual((await service.list(undefined,undefined,'CARRIER_RETURN')).map(order=>order.order_number),['A']);
  const firstPaid=await service.list(undefined,undefined,'PAID');
  const olderPaid=await service.list(undefined,firstPaid.at(-1).id,'PAID');

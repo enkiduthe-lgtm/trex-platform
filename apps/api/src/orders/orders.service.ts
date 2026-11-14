@@ -117,6 +117,14 @@ export class OrdersService {
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');
     return (await this.db.query("SELECT id,order_number,status,total_amount,currency FROM orders WHERE archived_at IS NULL AND status='CANCELLED' ORDER BY created_at DESC,id")).rows;
   }
+  async testArchiveCandidate(number:string,actor:RequestUser) {
+    if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');
+    if(typeof number!=='string'||!number.trim()||number.length>64)throw new BadRequestException('Geçerli Sipariş Numarası Girin');
+    const order=(await this.db.query(`SELECT id,order_number,status,total_amount,currency FROM orders
+      WHERE order_number=$1 AND archived_at IS NULL AND status IN ('PENDING_PAYMENT','PAID','PROCESSING')`,[number.trim()])).rows[0];
+    if(!order)throw new NotFoundException('Arşivlenebilir Deneme Siparişi Bulunamadı');
+    return order;
+  }
   async archivedOrders(actor:RequestUser) {
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');
     return (await this.db.query('SELECT o.id,o.order_number,o.status,o.total_amount,o.cod_service_fee,o.currency,o.archived_at,o.archive_reason,u.email AS archived_by_email FROM orders o LEFT JOIN users u ON u.id=o.archived_by WHERE o.archived_at IS NOT NULL ORDER BY o.archived_at DESC,o.id')).rows;
