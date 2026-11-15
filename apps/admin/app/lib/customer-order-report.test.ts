@@ -9,11 +9,21 @@ test('customer export preserves product rows and translates recorded codes', () 
   assert.equal(products[0][8],'Prim Bakiyesi');
   assert.equal(products[0][9],'Teslim Edildi');
   assert.equal(products[0][10],'Sistem Bayi');
-  assert.deepEqual(rows.find(row=>row[0]==='İptal Ve İadeler Hariç'),['İptal Ve İadeler Hariç','TRY',26]);
+  assert.deepEqual(rows.find(row=>row[0]==='İptal Ve Tam İadeler Hariç'),['İptal Ve Tam İadeler Hariç','TRY',26]);
 });
 test('customer export separates cancellations, returns and currency totals', () => {
   const rows=customerOrderReportRows([line({}),line({status:'CANCELLED'}),line({status:'REFUNDED'}),line({currency:'EUR'})],'','');
-  assert.deepEqual(rows.filter(row=>row[0]==='İptal Ve İadeler Hariç'),[['İptal Ve İadeler Hariç','EUR',20.5],['İptal Ve İadeler Hariç','TRY',20.5]]);
+  assert.deepEqual(rows.filter(row=>row[0]==='İptal Ve Tam İadeler Hariç'),[['İptal Ve Tam İadeler Hariç','EUR',20.5],['İptal Ve Tam İadeler Hariç','TRY',20.5]]);
   assert.deepEqual(rows.find(row=>row[0]==='İptal Edilen Siparişlerin Ürün Tutarı'),['İptal Edilen Siparişlerin Ürün Tutarı','TRY',20.5]);
   assert.deepEqual(rows.find(row=>row[0]==='İade Durumundaki Siparişlerin Ürün Tutarı'),['İade Durumundaki Siparişlerin Ürün Tutarı','TRY',20.5]);
+});
+test('customer export counts a refund once for an order with multiple product lines', () => {
+  const amounts={order_refunded_amount:'10.25',order_net_amount:'15.75'};
+  const rows=customerOrderReportRows([
+    line({...amounts,refunded_quantity:1}),
+    line({...amounts,sku:'CAP',product_name:'Trex Cap',refunded_quantity:0}),
+  ],'','');
+  assert.equal(rows.find(row=>row[4] === 2 && row[3] === 'TEA')?.[11],1);
+  assert.deepEqual(rows.find(row=>row[0]==='Tamamlanan İadelerin Ödeme Tutarı'),['Tamamlanan İadelerin Ödeme Tutarı','TRY',10.25]);
+  assert.deepEqual(rows.find(row=>row[0]==='İadeler Düşüldükten Sonraki Net Sipariş Tutarı'),['İadeler Düşüldükten Sonraki Net Sipariş Tutarı','TRY',15.75]);
 });

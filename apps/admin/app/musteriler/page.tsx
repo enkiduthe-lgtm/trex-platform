@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { downloadXlsx } from "../lib/xlsx";
 import { customerOrderReportRows, type CustomerOrderReportLine } from '../lib/customer-order-report';
 import { financeDateTime, inFinancePeriod } from '../lib/finance-report';
+import { currencyTotals } from '../lib/report-totals';
 import { createActionLock, createRequestGate } from '../lib/async-controls';
 import styles from "./customers.module.css";
 type Customer = {
@@ -28,12 +29,19 @@ type CustomerTag = { id: string; name: string; color: string };
 type Note = { id: string; body: string; created_at: string };
 type Loyalty = { pointsBalance: number; tier: 'BRONZE' | 'SILVER' | 'GOLD'; movements: { id: string; points_delta: number; reason: string; created_at: string }[] };
 type CustomerRequest = { id: string; subject: string; body: string; priority: 'LOW'|'NORMAL'|'HIGH'|'URGENT'; status: 'OPEN'|'IN_PROGRESS'|'RESOLVED'|'CLOSED'; resolution_note: string|null; created_at: string; updated_at: string; };
-type CustomerOrder = { id: string; order_number: string; status: string; total_amount: string; currency: string; created_at: string; item_count: number };
+type CustomerOrder = {
+  id: string; order_number: string; status: string; total_amount: string; currency: string; created_at: string; item_count: number;
+  refunded_amount?: string; net_amount?: string;
+};
 type CustomerSupportTicket = { id: string; ticket_number: string; subject: string; status: string; priority: string; due_at: string; created_at: string; order_number: string | null };
 const money = (v: string, currency = 'TRY') =>
   Number(v).toLocaleString("tr-TR", { style: "currency", currency });
 function CustomerAmounts({ customer }: { customer: Customer }) {
   return <>{customer.totals_by_currency.map(total => <span style={{display:'block'}} key={total.currency}>{money(total.amount, total.currency)} <small>{total.currency}</small></span>)}{!customer.totals_by_currency.length && money('0')}</>;
+}
+function CustomerOrderAmounts({ order }: { order: CustomerOrder }) {
+  return <>{money(order.total_amount, order.currency)}{order.refunded_amount && Number(order.refunded_amount) > 0 && order.net_amount !== undefined &&
+    <small className={styles.orderRefund}>İade {money(order.refunded_amount, order.currency)} · Kalan {money(order.net_amount, order.currency)}</small>}</>;
 }
 export default function Customers() {
   const [rows, setRows] = useState<Customer[]>([]),
@@ -94,19 +102,11 @@ export default function Customers() {
       ),
     [rows, query, tagFilter, tierFilter],
   );
-  const totals = useMemo(() => {
-    const amounts = new Map<string, bigint>();
-    for (const customer of rows) for (const total of customer.totals_by_currency) {
-      const [units, fraction = ''] = total.amount.split('.');
-      const cents = BigInt(units) * 100n + BigInt(fraction.padEnd(2, '0'));
-      amounts.set(total.currency, (amounts.get(total.currency) ?? 0n) + cents);
-    }
-    return [...amounts].sort(([a], [b]) => a.localeCompare(b)).map(([currency, cents]) => ({ currency, amount: `${cents / 100n}.${String(cents % 100n).padStart(2,'0')}` }));
-  }, [rows]);
+  const totals = useMemo(() => currencyTotals(rows.flatMap(customer => customer.totals_by_currency)), [rows]);
   function exportCustomers() {
     if (!shown.length) { setMessage('Dışa aktarılacak müşteri bulunamadı.'); return; }
     const lines = [
-      ['Ad soyad', 'E-posta', 'Telefon', 'Durum', 'Sipariş sayısı', 'Trex puan', 'Seviye', 'Sipariş tutarları', 'Etiketler', 'Kayıt tarihi'],
+      ['Ad soyad', 'E-posta', 'Telefon', 'Durum', 'Sipariş sayısı', 'Trex puan', 'Seviye', 'Net sipariş tutarları', 'Etiketler', 'Kayıt tarihi'],
       ...shown.map(customer => [
         `${customer.first_name} ${customer.last_name}`,
         customer.email,
@@ -255,7 +255,7 @@ export default function Customers() {
             <p>MÜŞTERİ YÖNETİMİ</p>
             <h1>Müşteriler</h1>
             <span>
-              Sipariş tutarları para birimine göre ayrıdır; iptal edilenler hariçtir. Ödeme bekleyenler dahildir, bu tutarlar tahsilat veya ciro değildir.
+              Tamamlanan kısmi iadeler sipariş tutarından düşülür. Toplamlar, ödeme bekleyen siparişleri içerir ve para birimine göre gösterilir.
             </span>
           </div>
           <Link className={styles.action} href="/bayiler">
@@ -281,7 +281,7 @@ export default function Customers() {
             <b>{rows.reduce((n, x) => n + Number(x.order_count || 0), 0)}</b>
           </article>
           <article>
-            <small>Sipariş tutarları</small>
+            <small>Net sipariş tutarları</small>
             {totals.map(total => <b style={{display:'block'}} key={total.currency}>{money(total.amount,total.currency)} {total.currency}</b>)}
             {!totals.length && <b>{money('0')}</b>}
           </article>
@@ -319,7 +319,7 @@ export default function Customers() {
                 <th>İletişim</th>
                 <th>Sipariş</th>
                 <th>Trex puan</th>
-                <th>Sipariş tutarları</th>
+                <th>Net sipariş tutarları</th>
                 <th>Notlar</th>
                 <th>İşlem</th>
               </tr>
@@ -382,7 +382,7 @@ export default function Customers() {
                 <b>{selected.order_count}</b>Sipariş
               </span>
               <span>
-                <b><CustomerAmounts customer={selected}/></b>Sipariş tutarları
+                <b><CustomerAmounts customer={selected}/></b>Net sipariş tutarları
               </span>
               <span>
                 <b>{selected.note_count}</b>Not
@@ -399,7 +399,7 @@ export default function Customers() {
               <button type="button" disabled={notesLoading || reportLoading} onClick={() => void exportCustomerOrders()}>{reportLoading ? 'Rapor Hazırlanıyor…' : 'Siparişleri Excel’e Aktar'}</button>
             </div>
             <p>Seçilen Tarihler İstanbul Saatine Göre Tabloya Ve Excel Raporuna Uygulanır.</p>
-            <div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Tarih</th><th>Ürün Adedi</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{customerOrders.filter(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo)).map(order=><tr key={order.id}><td>{order.order_number}</td><td>{financeDateTime(order.created_at)}</td><td>{order.item_count}</td><td>{money(order.total_amount,order.currency)}</td><td>{{PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'}[order.status] ?? order.status}</td><td><Link href={`/siparisler/${order.id}`}>Siparişi Aç</Link></td></tr>)}</tbody></table>{!customerOrders.some(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo))&&<p>Seçilen Tarihlerde Sipariş Yok.</p>}</div>
+            <div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Tarih</th><th>Ürün Adedi</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{customerOrders.filter(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo)).map(order=><tr key={order.id}><td>{order.order_number}</td><td>{financeDateTime(order.created_at)}</td><td>{order.item_count}</td><td><CustomerOrderAmounts order={order}/></td><td>{{PENDING_PAYMENT:'Ödeme Bekliyor',PAID:'Onaylandı',PROCESSING:'Hazırlanıyor',SHIPPED:'Kargoda',DELIVERED:'Teslim Edildi',CANCELLED:'İptal Edildi',REFUNDED:'İade Edildi'}[order.status] ?? order.status}</td><td><Link href={`/siparisler/${order.id}`}>Siparişi Aç</Link></td></tr>)}</tbody></table>{!customerOrders.some(order=>inFinancePeriod(order.created_at,orderReportFrom,orderReportTo))&&<p>Seçilen Tarihlerde Sipariş Yok.</p>}</div>
             <h3>Destek talepleri</h3>
             <p><Link href={`/destek?customer=${selected.id}`}>Bu müşteri için yeni destek talebi aç</Link></p>
             {supportTickets.length ? <div style={{display:'grid',gap:8,marginBottom:16}}>{supportTickets.slice(0,5).map(ticket => <Link key={ticket.id} href={`/destek?ticket=${ticket.id}`} style={{display:'block',padding:'10px 12px',border:'1px solid #e5e7eb',borderRadius:8,textDecoration:'none',color:'inherit'}}><b>{ticket.ticket_number} · {ticket.subject}</b><small style={{display:'block'}}>{ticket.status} · {ticket.priority}{ticket.order_number ? ` · ${ticket.order_number}` : ''} · Yanıt hedefi: {new Date(ticket.due_at).toLocaleString('tr-TR')}</small></Link>)}</div> : <p>Bu müşteriye bağlı destek talebi bulunmuyor.</p>}

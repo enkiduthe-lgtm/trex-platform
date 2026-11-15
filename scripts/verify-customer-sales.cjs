@@ -17,6 +17,7 @@ async function main() {
       CREATE TABLE order_items(id int PRIMARY KEY,order_id int,quantity int,product_name text,sku text,unit_amount numeric(12,2));
       CREATE TABLE returns(id int PRIMARY KEY,order_id int,status text);
       CREATE TABLE return_items(return_id int,order_item_id int,quantity int);
+      CREATE TABLE return_refunds(return_id int PRIMARY KEY,amount numeric(12,2),currency text);
       CREATE TABLE payments(id int,checkout_id int,provider text,created_at timestamptz);
       INSERT INTO customers(id,email) VALUES(1,'one@example.test'),(2,'two@example.test');
       INSERT INTO orders(id,customer_id,order_number,status,total_amount,currency,archived_at) VALUES
@@ -28,26 +29,36 @@ async function main() {
       INSERT INTO order_items VALUES(1,1,2,'Tea','T',60),(2,2,1,'Cap','C',50),(3,3,1,'Gel','G',99),(4,4,1,'Tea','T',10);
       INSERT INTO returns VALUES(1,1,'REFUNDED'),(2,2,'REFUNDED');
       INSERT INTO return_items VALUES(1,1,1),(2,2,1);
+      INSERT INTO return_refunds VALUES(1,60,'TRY'),(2,50,'TRY');
     `);
     const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     const reportSql = read('apps/api/src/orders/report-order-status.ts');
     const sql = name => reportSql.match(new RegExp(`export const ${name} = \x60([^\x60]+)\x60`))[1];
     const status = sql('reportOrderStatus').replace('${netItemQuantity}', sql('netItemQuantity'));
+    const refund = sql('completedRefundAmount');
+    const net = sql('netOrderAmount').replace('${completedRefundAmount}', refund);
     const source = read('apps/api/src/customers/customers.service.ts');
     const query = method => source.slice(source.indexOf('async '+method+'(')).match(/this\.db\.query\(`([^`]+)`/)[1]
-      .replaceAll('${reportOrderStatus}',status);
+      .replaceAll('${reportOrderStatus}',status).replaceAll('${completedRefundAmount}',refund)
+      .replaceAll('${netOrderAmount}',net).replaceAll('${netItemQuantity}',sql('netItemQuantity'));
     const customers = (await pg.query(query('list'))).rows;
     const one = customers.find(row => row.id === 1);
-    assert.equal(one.total_spend,'120.00');
+    assert.equal(one.total_spend,'60.00');
     assert.equal(one.order_count,2);
     assert.equal(one.totals_by_currency.find(row=>row.currency==='EUR').amount,'10.00');
     const orders = (await pg.query(query('orders'),[1])).rows;
     assert.equal(orders.length,3);
     assert.equal(orders.find(row=>row.id===2).status,'REFUNDED');
     assert.equal(orders.find(row=>row.id===1).status,'DELIVERED');
+    assert.equal(orders.find(row=>row.id===1).net_amount,'60.00');
+    assert.equal(orders.find(row=>row.id===1).refunded_amount,'60.00');
     const lines = (await pg.query(query('orderReport'),[1,null,null])).rows;
     assert.equal(lines.length,3);
     assert.equal(lines.find(row=>row.order_number==='FULL-RETURN').status,'REFUNDED');
+    const returnedLine = lines.find(row=>row.order_number==='ACTIVE');
+    assert.equal(returnedLine.refunded_quantity,1);
+    assert.equal(returnedLine.order_refunded_amount,'60.00');
+    assert.equal(returnedLine.order_net_amount,'60.00');
     assert(!lines.some(row=>['ARCHIVED','OTHER'].includes(row.order_number)));
     console.log('Customer sales passed: full/partial returns, archived orders, currency separation and customer isolation.');
   } finally {

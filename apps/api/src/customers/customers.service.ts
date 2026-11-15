@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { reportOrderStatus } from '../orders/report-order-status';
+import { completedRefundAmount, netItemQuantity, netOrderAmount, reportOrderStatus } from '../orders/report-order-status';
 
 type LoyaltyAdjustment = { points: number; reason: string };
 type CustomerRequestInput = { subject: string; body: string; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' };
@@ -14,7 +14,7 @@ export class CustomersService {
   async list() {
     return (await this.db.query(`
       WITH currency_totals AS (
-        SELECT o.customer_id,o.currency,COUNT(*)::int AS order_count,SUM(o.total_amount) AS amount
+        SELECT o.customer_id,o.currency,COUNT(*)::int AS order_count,SUM(${netOrderAmount}) AS amount
         FROM orders o WHERE o.customer_id IS NOT NULL AND o.archived_at IS NULL
           AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED') GROUP BY o.customer_id,o.currency
       ), order_totals AS (
@@ -99,7 +99,9 @@ export class CustomersService {
   }
 
   async orders(customerId: string) {
-    return (await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,o.currency,o.created_at,COALESCE(SUM(oi.quantity),0)::int AS item_count
+    return (await this.db.query(`SELECT o.id,o.order_number,${reportOrderStatus} AS status,o.total_amount,o.currency,o.created_at,
+      ${completedRefundAmount}::text AS refunded_amount, ${netOrderAmount}::text AS net_amount,
+      COALESCE(SUM(oi.quantity),0)::int AS item_count
       FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id
       WHERE o.customer_id=$1 AND o.archived_at IS NULL GROUP BY o.id ORDER BY o.created_at DESC,o.id DESC`, [customerId])).rows;
   }
@@ -109,6 +111,8 @@ export class CustomersService {
     if(dateFrom && dateTo && dateFrom>dateTo) throw new BadRequestException('Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.');
     return (await this.db.query(`SELECT o.order_number,o.created_at,${reportOrderStatus} AS status,o.currency,o.sales_channel,
       oi.product_name,oi.sku,oi.quantity,oi.unit_amount,(oi.quantity*oi.unit_amount)::text AS line_total,
+      (oi.quantity-${netItemQuantity})::int AS refunded_quantity,
+      ${completedRefundAmount}::text AS order_refunded_amount,${netOrderAmount}::text AS order_net_amount,
       COALESCE(p.provider,'') AS payment_method
       FROM orders o JOIN order_items oi ON oi.order_id=o.id
       LEFT JOIN LATERAL (SELECT provider FROM payments WHERE checkout_id=o.checkout_id ORDER BY created_at DESC,id DESC LIMIT 1) p ON true
