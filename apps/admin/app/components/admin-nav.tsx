@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, logout } from "../lib/api";
+import { managerNavEntryAllowed } from "../lib/navigation-access";
 
 type Entry = { label: string; href: string };
 type Menu = { label: string; href: string; icon: string; groups: { title: string; entries: Entry[] }[] };
@@ -14,7 +15,7 @@ const menus: Menu[] = [
   { label: "SİPARİŞLER", href: "/siparisler", icon: "orders", groups: [{ title: "Sipariş Durumları", entries: [{ label: "Tüm Siparişler", href: "/siparisler" }, { label: "Onay Bekleyenler", href: "/siparisler?durum=PENDING_PAYMENT" }, { label: "Onaylananlar", href: "/siparisler?durum=PAID" }, { label: "Hazırlananlar", href: "/siparisler?durum=PROCESSING" }, { label: "Kargo Kaydı Hazır", href: "/siparisler?durum=REGISTERED" }, { label: "Kargolananlar", href: "/siparisler?durum=SHIPPED" }, { label: "Teslim Edilenler", href: "/siparisler?durum=DELIVERED" }, { label: "Kargo İadeleri", href: "/siparisler?durum=CARRIER_RETURN" }, { label: "İade Edilenler", href: "/siparisler?durum=REFUNDED" }, { label: "İade Talepleri", href: "/iadeler" }, { label: "İptal Edilenler", href: "/siparisler?durum=CANCELLED" }] }, { title: "Operasyon", entries: [{ label: "Hızlı Satış", href: "/siparisler/yeni" }, { label: "Bekleyen Havale Eşleştirme", href: "/siparisler/havaleler" }] }] },
   { label: "ÜRÜNLER", href: "/urunler", icon: "products", groups: [{ title: "Ürün Yönetimi", entries: [{ label: "Ürünler", href: "/urunler" }] }, { title: "Ürün İşlemleri", entries: [{ label: "Toplu Ürün Güncelleme", href: "/urunler?islem=toplu" }, { label: "İçe / Dışa Aktarma", href: "/urunler?islem=aktar" }] }] },
   { label: "PAZARYERİ", href: "/pazaryeri", icon: "marketplace", groups: [{ title: "Kanallar", entries: [{ label: "Mağazalar", href: "/pazaryeri" }] }, { title: "Senkronizasyon", entries: [{ label: "Ürün eşleştirmeleri", href: "/pazaryeri/eslestirmeler" }, { label: "Ürün gönderimleri", href: "/pazaryeri/gonderimler" }, { label: "Fiyat rekabeti analizi", href: "/pazaryeri/fiyat-rekabeti" }] }] },
-  { label: "KAMPANYALAR", href: "/kampanyalar", icon: "campaigns", groups: [{ title: "Fiyatlandırma", entries: [{ label: "Kampanya yönetimi", href: "/kampanyalar" }, { label: "Hediye çekleri", href: "/kampanyalar?tab=coupons" }, { label: "Hızlı indirimler", href: "/kampanyalar?tab=discounts" }, { label: "E-posta ve SMS bültenleri", href: "/bildirimler" }] }] },
+  { label: "KAMPANYALAR", href: "/kampanyalar", icon: "campaigns", groups: [{ title: "Fiyatlandırma", entries: [{ label: "Kampanya yönetimi", href: "/kampanyalar" }, { label: "Hediye çekleri", href: "/kampanyalar?tab=coupons" }, { label: "Hızlı indirimler", href: "/kampanyalar?tab=discounts" }] }] },
   { label: "BAYİLER", href: "/bayiler", icon: "customers", groups: [{ title: "Bayi Yönetimi", entries: [{ label: "Bayiler", href: "/bayiler" }, { label: "Bayi Başvuruları", href: "/bayiler?sekme=basvurular" }, { label: "Bayi Seviyeleri Ve Fiyatlar", href: "/bayiler?sekme=bayiler#seviyeler" }, { label: "Bayi Satış Raporu", href: "/bayiler/satis-raporu" }] }] },
   { label: "MÜŞTERİLER", href: "/musteriler", icon: "customers", groups: [{ title: "Müşteri Yönetimi", entries: [{ label: "Müşteriler", href: "/musteriler" }, { label: "Cari Ve Bakiye", href: "/cari" }] }, { title: "İletişim", entries: [{ label: "Müşteri Talepleri", href: "/destek" }, { label: "Müşteri Grupları", href: "/musteriler?tab=gruplar" }] }] },
   { label: "RAPORLAR", href: "/raporlar", icon: "reports", groups: [{ title: "Analiz", entries: [{ label: "Rapor Merkezi", href: "/raporlar" }, { label: "Özel Rapor", href: "/raporlar/ozel" }, { label: "Satış Raporu", href: "/raporlar/satis" }] }] },
@@ -63,6 +64,7 @@ function NavigationMenu({menu,current,open,onOpen,onClose}:{menu:Menu;current:bo
    closeTimer.current = setTimeout(onClose, 180);
  };
  useEffect(()=>{if(!open)return;const update=(event:Event)=>{if(event.target instanceof Node&&host.current?.querySelector('.nav-dropdown')?.contains(event.target))return;place();};const outside=(event:PointerEvent)=>{if(!host.current?.contains(event.target as Node))onClose();};window.addEventListener('resize',update);window.addEventListener('scroll',update,true);document.addEventListener('pointerdown',outside);return()=>{window.removeEventListener('resize',update);window.removeEventListener('scroll',update,true);document.removeEventListener('pointerdown',outside);};},[open,place,onClose]);
+ const popupId='nav-popup-'+menu.label;
  return <div ref={host} className={`nav-menu ${current?'active':''}`} data-open={open}
   onPointerEnter={event=>{if(event.pointerType==='mouse')show();}}
   onPointerLeave={event=>{if(event.pointerType==='mouse')leave();}}
@@ -71,10 +73,10 @@ function NavigationMenu({menu,current,open,onOpen,onClose}:{menu:Menu;current:bo
     if(event.key==='Escape'&&open){event.preventDefault();event.currentTarget.querySelector('button')?.focus();onClose();}
   }}>
   <Link href={menu.href}><i><NavIcon name={menu.icon}/></i>{menu.label}</Link>
-  <button type="button" className="nav-menu-toggle" aria-label={`${menu.label} alt menüsü`} aria-expanded={open} aria-controls={'nav-popup-'+menu.href.replaceAll('/','-')}
+  <button type="button" className="nav-menu-toggle" aria-label={`${menu.label} alt menüsü`} aria-expanded={open} aria-controls={popupId}
     onClick={()=>{if(open){cancelClose();onClose();}else show();}}
     onKeyDown={event=>{if(event.key==='ArrowDown'){event.preventDefault();show();requestAnimationFrame(()=>host.current?.querySelector<HTMLAnchorElement>('.nav-dropdown a')?.focus());}}}>⌄</button>
-  <div id={'nav-popup-'+menu.href.replaceAll('/','-')} className="nav-dropdown" style={{position:'fixed',left:position.left,top:position.top,right:'auto',width:position.width,maxHeight:position.maxHeight,transform:position.above?'translateY(-100%)':'none',gridTemplateColumns:menu.groups.length>1?'repeat(2,minmax(0,1fr))':'1fr'}}>{menu.groups.map(group=><section key={group.title}><h3>{group.title}</h3>{group.entries.map(entry=><Link href={entry.href} key={entry.label} onClick={onClose}>{entry.label}</Link>)}</section>)}</div>
+  <div id={popupId} className="nav-dropdown" style={{position:'fixed',left:position.left,top:position.top,right:'auto',width:position.width,maxHeight:position.maxHeight,transform:position.above?'translateY(-100%)':'none',gridTemplateColumns:menu.groups.length>1?'repeat(2,minmax(0,1fr))':'1fr'}}>{menu.groups.map(group=><section key={group.title}><h3>{group.title}</h3>{group.entries.map(entry=><Link href={entry.href} key={entry.label} onClick={onClose}>{entry.label}</Link>)}</section>)}</div>
  </div>;
 }
 function AdminNavContent() {
@@ -84,11 +86,31 @@ function AdminNavContent() {
  const router=useRouter(); const pathname=usePathname(); const searchParams=useSearchParams(); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [panelSearch,setPanelSearch]=useState(""); const [role,setRole]=useState(""); const [managerMenu,setManagerMenu]=useState<Record<string,boolean>>({}); const lock=useRef(false);
  useEffect(()=>{setOpenMenu(null);},[pathname,searchParams]);
  useEffect(()=>{let active=true;api<{user:{role:string}}>("/auth/me").then(async result=>{if(!active)return;setRole(result.user.role);if(result.user.role==="ADMIN"){try{const menu=await api<Record<string,boolean>>("/admin/settings/manager-menu");if(active)setManagerMenu(menu);}catch{if(active)setManagerMenu({});}}}).catch(()=>{if(active)setRole("")});return()=>{active=false};},[]);
- useEffect(()=>{if(!role||role==='ADMIN'&&accessProfile===undefined)return; if(role==='DEALER'&&pathname!=='/bayi-portal'){router.replace('/bayi-portal');return;} const current=menus.find(menu=>active(pathname,menu)); const managerCollectionScreen=pathname==='/finans/havaleler';const granted=role==='ADMIN'&&current&&accessProfile?.configured&&accessProfile.grants?.includes((navResources[current.label]??'')+'.VIEW');if(role!=='SUPER_ADMIN'&&current&&ownerOnlyMenus.has(current.label)&&!managerCollectionScreen&&!granted)router.replace('/urunler');},[role,pathname,router,accessProfile]);
- const visibleMenus=useMemo(()=>menus.filter(menu=>{if(role==='SUPER_ADMIN')return true;if(role==='ADMIN'&&accessProfile?.configured){const resource=navResources[menu.label];return !!resource&&!!accessProfile.grants?.includes(resource+'.VIEW');}if(menu.label==='PRİMLER')return ['ADMIN','FINANCE'].includes(role);if(ownerOnlyMenus.has(menu.label))return false;const key=managerMenuKey[menu.label];return role!=="ADMIN"||!key||managerMenu[key]!==false;}),[role,managerMenu,accessProfile]);
+ useEffect(()=>{
+  if(!role || role==='ADMIN' && accessProfile===undefined)return;
+  if(role==='DEALER' && pathname!=='/bayi-portal'){router.replace('/bayi-portal');return;}
+  const current=menus.find(menu=>active(pathname,menu));
+  if(role==='SUPER_ADMIN'||!current||!ownerOnlyMenus.has(current.label)||pathname==='/finans/havaleler')return;
+  if(role==='ADMIN' && accessProfile?.configured && managerNavEntryAllowed(pathname,navResources[current.label],accessProfile.grants??[]))return;
+  router.replace('/panel');
+ },[role,pathname,router,accessProfile]);
+ const visibleMenus=useMemo(()=>menus.flatMap(menu=>{
+  if(role==='SUPER_ADMIN')return [menu];
+  if(role==='ADMIN' && accessProfile?.configured){
+   const allowed=(href:string)=>managerNavEntryAllowed(href,navResources[menu.label],accessProfile.grants??[]);
+   const groups=menu.groups.map(group=>({...group,entries:group.entries.filter(entry=>allowed(entry.href))})).filter(group=>group.entries.length);
+   if(!groups.length)return [];
+   return [{...menu,href:allowed(menu.href)?menu.href:groups[0].entries[0].href,groups}];
+  }
+  if(menu.label==='PRİMLER')return ['ADMIN','FINANCE'].includes(role)?[menu]:[];
+  if(!role || ownerOnlyMenus.has(menu.label))return [];
+  const key=managerMenuKey[menu.label];
+  return role!=="ADMIN"||!key||managerMenu[key]!==false?[menu]:[];
+ }),[role,managerMenu,accessProfile]);
+ const showNotifications=role==='SUPER_ADMIN'||role==='ADMIN'&&(!accessProfile?.configured||!!accessProfile.grants?.includes('NOTIFICATIONS.VIEW'));
  const searchEntries=useMemo(()=>[{label:"Ana sayfa",href:"/panel"},...visibleMenus.flatMap(m=>[{label:m.label,href:m.href},...m.groups.flatMap(g=>g.entries)])],[visibleMenus]);
  function submit(e:FormEvent){e.preventDefault(); const q=panelSearch.trim().toLocaleLowerCase("tr-TR"); const match=searchEntries.find(x=>x.label.toLocaleLowerCase("tr-TR").includes(q)); if(!q)return; if(!match){setError("Panel aramasında eşleşen bir bölüm bulunamadı.");return;} setError("");setPanelSearch("");router.push(match.href);}
  async function signOut(){if(lock.current)return;lock.current=true;setBusy(true);try{await logout();router.replace("/giris");router.refresh();}catch{setError("Çıkış tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.");}finally{lock.current=false;setBusy(false);}}
- return <header className="admin-header"><div className="header-main"><Link className="header-brand" href="/panel"><img src="/brand/trex-tea-logo.png" alt="TREX Tea"/><span>YÖNETİM PANELİ</span></Link><form className="panel-search" onSubmit={submit}><input aria-label="Panelde ara" value={panelSearch} onChange={e=>setPanelSearch(e.target.value)} placeholder="Panelde ara"/><button type="submit" aria-label="Panelde ara"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg></button></form><div className="header-links"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Siteyi görüntüle ↗</a><Link href="/bildirimler">● Bildirimler</Link><button disabled={busy} onClick={()=>void signOut()}>{busy?"Çıkış yapılıyor…":"Çıkış"}</button></div></div>{error&&<p role="alert">{error}</p>}<nav className="header-nav" aria-label="Yönetim menüsü"><Link className={pathname==="/panel"?"active":""} href="/panel"><i><NavIcon name="home"/></i> ANA SAYFA</Link>{visibleMenus.map(menu=><NavigationMenu key={menu.label} menu={menu} current={active(pathname,menu)} open={openMenu===menu.href} onOpen={()=>setOpenMenu(menu.href)} onClose={()=>setOpenMenu(value=>value===menu.href?null:value)}/>)}</nav></header>;
+ return <header className="admin-header"><div className="header-main"><Link className="header-brand" href="/panel"><img src="/brand/trex-tea-logo.png" alt="TREX Tea"/><span>YÖNETİM PANELİ</span></Link><form className="panel-search" onSubmit={submit}><input aria-label="Panelde ara" value={panelSearch} onChange={e=>setPanelSearch(e.target.value)} placeholder="Panelde ara"/><button type="submit" aria-label="Panelde ara"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg></button></form><div className="header-links"><a href="https://www.trextea.com.tr" target="_blank" rel="noreferrer">Siteyi görüntüle ↗</a>{showNotifications&&<Link href="/bildirimler">● Bildirimler</Link>}<button disabled={busy} onClick={()=>void signOut()}>{busy?"Çıkış yapılıyor…":"Çıkış"}</button></div></div>{error&&<p role="alert">{error}</p>}<nav className="header-nav" aria-label="Yönetim menüsü"><Link className={pathname==="/panel"?"active":""} href="/panel"><i><NavIcon name="home"/></i> ANA SAYFA</Link>{visibleMenus.map(menu=><NavigationMenu key={menu.label} menu={menu} current={active(pathname,menu)} open={openMenu===menu.label} onOpen={()=>setOpenMenu(menu.label)} onClose={()=>setOpenMenu(value=>value===menu.label?null:value)}/>)}</nav></header>;
 }
 export function AdminNav(){return <Suspense fallback={<header className="admin-header" aria-label="Yönetim menüsü"/>}><AdminNavContent/></Suspense>;}
