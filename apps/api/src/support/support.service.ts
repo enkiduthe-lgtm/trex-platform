@@ -176,34 +176,43 @@ export class SupportService {
       dto,
       "assignedTo",
     );
-    const result = await this.db.query<{
-      id: string;
-      status: string;
-      priority: string;
-      assigned_to: string | null;
-    }>(
-      `UPDATE support_tickets SET status=COALESCE($2,status),priority=COALESCE($3,priority),assigned_to=CASE WHEN $5::boolean THEN $4::uuid ELSE assigned_to END,resolved_at=CASE WHEN COALESCE($2,status) IN ('RESOLVED','CLOSED') THEN COALESCE(resolved_at,now()) ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING id,status,priority,assigned_to`,
-      [
-        id,
-        dto.status ?? null,
-        dto.priority ?? null,
-        dto.assignedTo ?? null,
-        hasAssigneeChange,
-      ],
-    );
-    if (!result.rowCount)
-      throw new NotFoundException("Destek talebi bulunamadı");
-    await this.db.query(
-      "INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)",
-      [
-        actorId,
-        "support_ticket.updated",
-        "support_ticket",
-        id,
-        JSON.stringify(dto),
-      ],
-    );
-    return result.rows[0];
+    return this.db.transaction(async client => {
+      if (dto.assignedTo) {
+        const assignee = await client.query(
+          "SELECT id FROM users WHERE id=$1 AND is_active=true AND archived_at IS NULL AND role IN ('SUPER_ADMIN','ADMIN','WAREHOUSE','FINANCE') FOR SHARE",
+          [dto.assignedTo],
+        );
+        if (!assignee.rowCount) throw new BadRequestException('Destek talebi için aktif bir personel seçin.');
+      }
+      const result = await client.query<{
+        id: string;
+        status: string;
+        priority: string;
+        assigned_to: string | null;
+      }>(
+        `UPDATE support_tickets SET status=COALESCE($2,status),priority=COALESCE($3,priority),assigned_to=CASE WHEN $5::boolean THEN $4::uuid ELSE assigned_to END,resolved_at=CASE WHEN COALESCE($2,status) IN ('RESOLVED','CLOSED') THEN COALESCE(resolved_at,now()) ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING id,status,priority,assigned_to`,
+        [
+          id,
+          dto.status ?? null,
+          dto.priority ?? null,
+          dto.assignedTo ?? null,
+          hasAssigneeChange,
+        ],
+      );
+      if (!result.rowCount)
+        throw new NotFoundException("Destek talebi bulunamadı");
+      await client.query(
+        "INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)",
+        [
+          actorId,
+          "support_ticket.updated",
+          "support_ticket",
+          id,
+          JSON.stringify(dto),
+        ],
+      );
+      return result.rows[0];
+    });
   }
   async addMessage(id: string, dto: AddSupportMessageDto, actorId: string) {
     if (!dto.body.trim()) throw new BadRequestException('Mesaj boş bırakılamaz.');

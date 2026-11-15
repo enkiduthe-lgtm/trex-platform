@@ -41,9 +41,18 @@ describe('SupportService', () => {
   });
 
   it('allows an assigned ticket to return to the unassigned queue', async () => {
-    const s = setup(); s.db.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'ticket-1', assigned_to: null }] });
+    const s = setup(); s.client.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'ticket-1', assigned_to: null }] });
     await expect(s.service.update('ticket-1', { assignedTo: null }, 'staff-1')).resolves.toEqual({ id: 'ticket-1', assigned_to: null });
-    expect(s.db.query.mock.calls[0][1]).toEqual(['ticket-1', null, null, null, true]);
+    expect(s.client.query.mock.calls[0][1]).toEqual(['ticket-1', null, null, null, true]);
+    expect(s.client.query.mock.calls[1][0]).toContain('INSERT INTO audit_logs');
+  });
+
+  it('rejects assignment to inactive or archived staff before changing the ticket', async () => {
+    const s = setup();
+    s.client.query.mockResolvedValue({ rowCount: 0 });
+    await expect(s.service.update('ticket-1', { assignedTo: 'staff-2' }, 'staff-1')).rejects.toThrow('aktif bir personel');
+    expect(s.client.query).toHaveBeenCalledTimes(1);
+    expect(s.client.query.mock.calls[0][0]).toContain('archived_at IS NULL');
   });
 
   it('returns queue totals for open, priority, and overdue support work', async () => {
