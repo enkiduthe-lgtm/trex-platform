@@ -711,9 +711,9 @@ export default function OrderDetail() {
             </details>
             <details className={`${styles.detailCard} ${styles.detailWide}`}>
             <summary>Bağlı destek talepleri ({data.supportTickets.length})</summary>
-            <div className={styles.cardActions}><Link className={styles.financeLink} href={`/destek?order=${id}`}>
+            {!data.archived_at && <div className={styles.cardActions}><Link className={styles.financeLink} href={`/destek?order=${id}`}>
               Bu sipariş için destek talebi aç
-            </Link></div>
+            </Link></div>}
             {data.supportTickets.length ? (
               <div className={styles.tableWrap}>
                 <table>

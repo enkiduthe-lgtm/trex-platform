@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { CreateSupportTicketDto } from "./dto/create-support-ticket.dto";
 import {
@@ -113,7 +113,20 @@ export class SupportService {
     };
   }
   async create(dto: CreateSupportTicketDto, actorId: string) {
+    if (!dto.contactName.trim() || !dto.subject.trim() || !dto.message.trim()) {
+      throw new BadRequestException('Ad, konu ve mesaj alanları boş bırakılamaz.');
+    }
     return this.db.transaction(async (client) => {
+      if (dto.orderId) {
+        const order = await client.query<{ customer_id: string | null }>(
+          'SELECT customer_id FROM orders WHERE id=$1 AND archived_at IS NULL FOR SHARE', [dto.orderId],
+        );
+        if (!order.rows[0]) throw new NotFoundException('Aktif sipariş bulunamadı.');
+        if (dto.customerId && order.rows[0].customer_id !== dto.customerId) {
+          throw new BadRequestException('Seçilen müşteri siparişle eşleşmiyor.');
+        }
+        dto = { ...dto, customerId: order.rows[0].customer_id ?? undefined };
+      }
       const sequence = await client.query<{ value: number }>(
         "SELECT nextval('support_ticket_number_seq')::int AS value",
       );
@@ -193,6 +206,7 @@ export class SupportService {
     return result.rows[0];
   }
   async addMessage(id: string, dto: AddSupportMessageDto, actorId: string) {
+    if (!dto.body.trim()) throw new BadRequestException('Mesaj boş bırakılamaz.');
     const exists = await this.db.query(
       "SELECT 1 FROM support_tickets WHERE id=$1",
       [id],
@@ -205,8 +219,9 @@ export class SupportService {
         [id, dto.body.trim(), Boolean(dto.isInternal), actorId],
       );
       await client.query(
-        `UPDATE support_tickets SET status=CASE WHEN status IN ('RESOLVED','CLOSED') THEN 'IN_PROGRESS' ELSE status END,updated_at=now() WHERE id=$1`,
-        [id],
+        `UPDATE support_tickets SET status=CASE WHEN NOT $2::boolean AND status IN ('RESOLVED','CLOSED') THEN 'IN_PROGRESS' ELSE status END,
+          resolved_at=CASE WHEN NOT $2::boolean AND status IN ('RESOLVED','CLOSED') THEN NULL ELSE resolved_at END,updated_at=now() WHERE id=$1`,
+        [id, Boolean(dto.isInternal)],
       );
       await client.query(
         "INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)",

@@ -8,13 +8,13 @@ import { ListAuditDto } from './dto/list-audit.dto';
 import { RolesGuard } from './roles.guard';
 
 describe('Read-only audit API', () => {
-  it.each(['SUPER_ADMIN', 'ADMIN'])('permits %s', role => {
+  it.each(['SUPER_ADMIN', 'ADMIN'])('permits %s', async role => {
     const context = { getHandler: () => AuditController.prototype.list, getClass: () => AuditController, switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }) };
-    expect(new RolesGuard(new Reflector()).canActivate(context as never)).toBe(true);
+    await expect(new RolesGuard(new Reflector()).canActivate(context as never)).resolves.toBe(true);
   });
-  it.each(['WAREHOUSE', 'FINANCE', 'DEALER', 'CUSTOMER', undefined])('denies %s', role => {
+  it.each(['WAREHOUSE', 'FINANCE', 'DEALER', 'CUSTOMER', undefined])('denies %s', async role => {
     const context = { getHandler: () => AuditController.prototype.list, getClass: () => AuditController, switchToHttp: () => ({ getRequest: () => role ? { user: { role } } : {} }) };
-    expect(() => new RolesGuard(new Reflector()).canActivate(context as never)).toThrow(ForbiddenException);
+    await expect(new RolesGuard(new Reflector()).canActivate(context as never)).rejects.toBeInstanceOf(ForbiddenException);
   });
   it.each(['0', '-1', '1.5', '2001', 'oops', ''])('rejects page %s', page => {
     expect(validateSync(plainToInstance(ListAuditDto, { page })).some(error => error.property === 'page')).toBe(true);

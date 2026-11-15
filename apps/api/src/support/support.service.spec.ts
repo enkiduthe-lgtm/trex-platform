@@ -14,7 +14,7 @@ describe('SupportService', () => {
     s.client.query.mockResolvedValueOnce({ rows: [{ value: 42 }] }).mockResolvedValueOnce({ rows: [{ id: 'ticket-1', ticket_number: 'DST-2026-000042', due_at: '2026-10-15T12:00:00Z' }] }).mockResolvedValue({ rowCount: 1, rows: [] });
     await expect(s.service.create({ contactName: 'Ada', subject: 'Teslimat', message: 'Kargom nerede?' }, 'staff-1')).resolves.toEqual(expect.objectContaining({ id: 'ticket-1', ticket_number: 'DST-2026-000042' }));
     expect(s.client.query.mock.calls[1][1]).toEqual(expect.arrayContaining(['DST-2026-000042', 'Ada', 'Teslimat', 'NORMAL']));
-    expect(s.client.query.mock.calls[2][1]).toEqual(['ticket-1', 'Kargom nerede?', false, 'staff-1']);
+    expect(s.client.query.mock.calls[2]).toEqual([expect.stringContaining('VALUES($1,$2,false,$3)'), ['ticket-1', 'Kargom nerede?', 'staff-1']]);
     expect(s.client.query.mock.calls[3][1]).toEqual(['staff-1', 'support_ticket.created', 'support_ticket', 'ticket-1', JSON.stringify({ ticketNumber: 'DST-2026-000042', priority: 'NORMAL', dueAt: '2026-10-15T12:00:00Z' })]);
   });
 
@@ -22,6 +22,22 @@ describe('SupportService', () => {
     const s = setup(); s.db.query.mockResolvedValue({ rowCount: 0, rows: [] });
     await expect(s.service.addMessage('missing', { body: 'Not' }, 'staff-1')).rejects.toBeInstanceOf(NotFoundException);
     expect(s.db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a customer that does not match the linked order', async () => {
+    const s = setup();
+    s.client.query.mockResolvedValue({ rows: [{ customer_id: 'different' }] });
+    await expect(s.service.create({ contactName: 'Ada', subject: 'Teslimat', message: 'Siparişim', customerId: 'customer', orderId: 'order' }, 'staff-1')).rejects.toThrow('eşleşmiyor');
+    expect(s.client.query).toHaveBeenCalledTimes(1);
+    expect(s.client.query.mock.calls[0][0]).toContain('archived_at IS NULL FOR SHARE');
+  });
+
+  it('keeps internal notes from reopening closed tickets', async () => {
+    const s = setup();
+    s.db.query.mockResolvedValue({ rowCount: 1 });
+    s.client.query.mockResolvedValue({ rows: [{ id: 'message' }] });
+    await s.service.addMessage('ticket', { body: 'Not', isInternal: true }, 'staff-1');
+    expect(s.client.query.mock.calls[1]).toEqual([expect.stringContaining('NOT $2::boolean'), ['ticket', true]]);
   });
 
   it('allows an assigned ticket to return to the unassigned queue', async () => {
