@@ -81,11 +81,18 @@ export class DealerPortalController {
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
       WHERE o.id=$2 AND o.archived_at IS NULL AND ${dealerOwnsOrder}`, [req.user.id,id]);
     if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');
-    const [items,address] = await Promise.all([
+    const [items,address,returns] = await Promise.all([
       this.db.query('SELECT id,product_name,sku,quantity,unit_amount,(quantity*unit_amount)::text AS line_total FROM order_items WHERE order_id=$1 ORDER BY id', [id]),
       this.db.query('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [id]),
+      this.db.query(`SELECT r.id,r.status,r.requested_at,r.completed_at,rr.amount::text AS refund_amount,
+        rr.currency AS refund_currency,wallet.return_id IS NOT NULL AS refunded_to_wallet,
+        COALESCE((SELECT SUM(ri.quantity)::int FROM return_items ri WHERE ri.return_id=r.id),0) AS quantity
+        FROM returns r LEFT JOIN return_refunds rr ON rr.return_id=r.id AND r.status='REFUNDED'
+        LEFT JOIN dealer_prim_refunds wallet ON wallet.return_id=rr.return_id AND wallet.order_id=r.order_id
+        WHERE r.order_id=$1
+        ORDER BY r.requested_at DESC,r.id`, [id]),
     ]);
-    return { ...order.rows[0], items: items.rows, address: address.rows[0] ?? null };
+    return { ...order.rows[0], items: items.rows, address: address.rows[0] ?? null, returns: returns.rows };
   }
 
   @Get('ledger')

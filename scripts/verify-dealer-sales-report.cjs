@@ -13,6 +13,7 @@ async function main(){
  CREATE TABLE audit_logs(id uuid PRIMARY KEY,entity_id text,entity_type text,action text,metadata jsonb,created_at timestamptz DEFAULT now());
  CREATE TABLE returns(id uuid,order_id uuid,status text,reason text,requested_at timestamptz,completed_at timestamptz);
  CREATE TABLE return_refunds(return_id uuid,amount numeric(12,2),currency text);
+ CREATE TABLE dealer_prim_refunds(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz,return_id uuid);
  CREATE TABLE return_items(return_id uuid,order_item_id uuid,quantity int);CREATE TABLE shipments(order_id uuid PRIMARY KEY,status text,tracking_direction_code text); CREATE TABLE payments(id uuid PRIMARY KEY,checkout_id uuid,status text,created_at timestamptz);`);
  await db.query("INSERT INTO dealer_levels VALUES($1,'Eski Seviye'),($2,'Yeni Seviye')",[id(1),id(2)]);await db.query("INSERT INTO dealers VALUES($1,'D1','Bayi Bir',$2,'ACTIVE'),($3,'D2','Pasif Bayi',$2,'SUSPENDED')",[id(10),id(2),id(11)]);
  for(const [n,currency,total,status,dealer,level] of [[20,'TRY',35,'PAID',10,1],[21,'USD',50,'PAID',10,1],[22,'TRY',100,'CANCELLED',10,1],[23,'TRY',10,'PAID',11,null]]){
@@ -74,13 +75,12 @@ async function main(){
  await db.query("INSERT INTO commission_entries(id,dealer_id,order_id,order_item_id,recipient_user_id,amount,currency,status,entry_kind,created_at) VALUES($1,$2,$3,$4,NULL,10,'TRY','CONFIRMED','EARN',now()),($5,$2,$3,$4,$6,999,'TRY','CONFIRMED','EARN',now()),($7,$8,$9,$10,NULL,20,'TRY','CONFIRMED','EARN',now())",[id(700),id(10),id(20),id(220),id(701),id(900),id(702),id(11),id(23),id(223)]);
  await pg.exec(`CREATE TABLE dealer_prim_requests(id uuid,dealer_id uuid,amount numeric,currency text,status text,due_date date,created_at timestamptz,paid_at timestamptz,reference_number text,note text);
  CREATE TABLE dealer_prim_deductions(id uuid,dealer_id uuid,return_id uuid,amount numeric,currency text,note text,created_at timestamptz);
- CREATE TABLE dealer_commission_spends(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz);
- CREATE TABLE dealer_prim_refunds(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz);`);
+ CREATE TABLE dealer_commission_spends(id uuid,dealer_id uuid,order_id uuid,amount numeric,created_at timestamptz);`);
  for(const dealer of [10,11]){
   await db.query("INSERT INTO dealer_prim_requests VALUES($1,$2,5,'TRY','PAID',CURRENT_DATE,now(),now(),'REF','Not')",[id(800+dealer),id(dealer)]);
   await db.query("INSERT INTO dealer_prim_deductions VALUES($1,$2,$3,2,'TRY','Gerçek Kargo',now())",[id(820+dealer),id(dealer),id(dealer===10?600:601)]);
   await db.query('INSERT INTO dealer_commission_spends VALUES($1,$2,$3,8,now())',[id(840+dealer),id(dealer),id(dealer===10?20:23)]);
-  await db.query('INSERT INTO dealer_prim_refunds VALUES($1,$2,$3,3,now())',[id(860+dealer),id(dealer),id(dealer===10?20:23)]);
+  await db.query('INSERT INTO dealer_prim_refunds(id,dealer_id,order_id,amount,created_at) VALUES($1,$2,$3,3,now())',[id(860+dealer),id(dealer),id(dealer===10?20:23)]);
  }
  const detail=await service.detail(id(10));assert.equal(detail.orders.length,3);assert.equal(detail.returns.length,3);assert.equal(detail.commissions.length,1);assert.equal(Number(detail.commissions[0].amount),10);assert.equal(detail.dealer.code,'D1');assert.equal(detail.requests.length,1);assert.equal(detail.requests[0].reference_number,'REF');assert.equal(detail.deductions.length,1);assert.equal(detail.spends.length,2);assert.equal(detail.spends.filter(x=>x.kind==='REFUND').length,1);await assert.rejects(()=>service.detail(id(999)));
  await pg.exec(`ALTER TABLE dealers ADD COLUMN archived_at timestamptz;
@@ -108,7 +108,18 @@ async function main(){
  assert.equal(portalOrders.find(row=>row.id===id(20)).can_cancel,false);
  assert.equal((await portal.shipments(req)).length,1);
  await assert.rejects(()=>portal.orderDetail(id(23),req),/Sipariş Bulunamadı/);
- assert.equal((await portal.orderDetail(id(20),req)).items.length,2);
+ const portalDetail=await portal.orderDetail(id(20),req);
+ assert.equal(portalDetail.items.length,2);
+ assert.equal(portalDetail.returns.length,2);
+ assert.equal(Number(portalDetail.returns.find(row=>row.id===id(501)).refund_amount),7);
+ await db.query("UPDATE returns SET status='REFUNDED' WHERE id=$1",[id(600)]);
+ await db.query('INSERT INTO return_items VALUES($1,$2,1)',[id(600),id(250)]);
+ await db.query('INSERT INTO dealer_prim_refunds(id,dealer_id,order_id,amount,created_at,return_id) VALUES($1,$2,$3,3,now(),$4)',[id(990),id(10),id(20),id(600)]);
+  await db.query("INSERT INTO return_refunds VALUES($1,3,'TRY')",[id(600)]);
+ const walletDetail=await portal.orderDetail(id(20),req);
+ assert.equal(Number(walletDetail.refunded_amount),10);
+ assert.equal(Number(walletDetail.net_amount),25);
+ assert.equal(walletDetail.returns.find(row=>row.id===id(600)).refunded_to_wallet,true);
  await pg.exec(`UPDATE dealers SET archived_at=now() WHERE id='${id(10)}'`);
  assert.deepEqual(await portal.listOrders(req),[]);
  await pg.close();console.log('Dealer sales and portal ownership passed: historical levels, partial returns, account isolation, repeated audit records, and archived dealers.');

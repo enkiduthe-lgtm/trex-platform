@@ -15,11 +15,13 @@ describe('DealerPortalController', () => {
   it('returns the saved order prices and delivery address for an owned order', async () => {
     const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'order' }] })
       .mockResolvedValueOnce({ rows: [{ unit_amount: '20.00', quantity: 2 }] })
-      .mockResolvedValueOnce({ rows: [{ recipient_name: 'Recipient' }] });
+      .mockResolvedValueOnce({ rows: [{ recipient_name: 'Recipient' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'return' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
-    await expect(controller.orderDetail('order', request)).resolves.toEqual({ id: 'order', items: [{ unit_amount: '20.00', quantity: 2 }], address: { recipient_name: 'Recipient' } });
+    await expect(controller.orderDetail('order', request)).resolves.toEqual({ id: 'order', items: [{ unit_amount: '20.00', quantity: 2 }], address: { recipient_name: 'Recipient' }, returns: [{ id: 'return' }] });
     expect(query.mock.calls[1][1]).toEqual(['order']);
     expect(query.mock.calls[2][1]).toEqual(['order']);
+    expect(query.mock.calls[3][1]).toEqual(['order']);
   });
 
   it('calculates balances over all eligible movements separately per currency', async () => {
