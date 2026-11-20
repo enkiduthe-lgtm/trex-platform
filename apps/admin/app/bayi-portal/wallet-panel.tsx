@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { MetricChart } from '../components/metric-chart';
 import { monthlySeries } from '../lib/chart-data';
 import { api } from '../lib/api';
@@ -18,11 +18,15 @@ const date=(value:string)=>new Date(value).toLocaleString('tr-TR',{timeZone:'Eur
 const money=(amount:string,currency='TRY')=>Number(amount).toLocaleString('tr-TR',{style:'currency',currency});
 const earningDate=(row:Earning)=>row.period_at ?? (row.entry_kind==='REVERSAL' ? row.created_at : row.available_at ?? row.created_at);
 const status:Record<string,string>={REQUESTED:'Ödeme Talep Edildi',APPROVED:'Onaylandı · Havale Bekliyor',PAID:'Bankaya Yatırıldı',REJECTED:'Talep Reddedildi',CANCELLED:'İptal Edildi',PENDING:'Kesinleşme Bekliyor',CONFIRMED:'Teslimatla Kesinleşti',AVAILABLE:'Kullanılabilir',REVERSED:'İade / İptal İle Geri Alındı',USED:'Ürün Alımında Kullanıldı',RESERVED:'Ayrıldı'};
-export function WalletPanel({onChange,hasPrimaryIban,onOpenOrder}:{onChange:()=>void;hasPrimaryIban?:boolean;onOpenOrder?:(id:string)=>void}) {
- const [data,setData]=useState<Data|null>(null),[month,setMonth]=useState(monthOf(new Date().toISOString())),[amount,setAmount]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+export type WalletView={month:string;search:string;movementFilter:DealerCommissionFilter};
+export const createWalletView=():WalletView=>({month:monthOf(new Date().toISOString()),search:'',movementFilter:'ALL'});
+export function WalletPanel({onChange,hasPrimaryIban,onOpenOrder,view,onViewChange}:{onChange:()=>void;hasPrimaryIban?:boolean;onOpenOrder?:(id:string)=>void;view:WalletView;onViewChange:Dispatch<SetStateAction<WalletView>>}) {
+ const [data,setData]=useState<Data|null>(null),[amount,setAmount]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
  const [loading,setLoading]=useState(true);
- const [search,setSearch]=useState('');
- const [movementFilter,setMovementFilter]=useState<DealerCommissionFilter>('ALL');
+ const {month,search,movementFilter}=view;
+ const setMonth=(value:string)=>onViewChange(current=>({...current,month:value}));
+ const setSearch=(value:string)=>onViewChange(current=>({...current,search:value}));
+ const setMovementFilter=(value:DealerCommissionFilter)=>onViewChange(current=>({...current,movementFilter:value}));
  const [refreshWarning,setRefreshWarning]=useState('');
  const [updatedAt,setUpdatedAt]=useState<string|null>(null);
  const alive=useRef(false);
@@ -121,8 +125,8 @@ export function WalletPanel({onChange,hasPrimaryIban,onOpenOrder}:{onChange:()=>
   ...([['Kazanılan Prim — Bekleyenler Dahil',earned],['Prim Ters Kayıtları',reversed],['İade Kargo Kesintileri',feeTotals],['Ürün Alımında Kullanılan',spentTotals],['Ürün Alımından Geri Verilen',refundedSpendTotals],['Bankaya Yatırılan',paidTotals],['Kesinleşmiş Net Prim Hareketi — Kullanım Ve Ödemeler Hariç',netTotals]] as const).flatMap(([label,totals])=>totals.map(total=>[label,Number(total.amount),total.currency])),
   [],['Bankaya Yatırılan Prim','Tutar','Para Birimi','Havale Referansı'],...paid.map(row=>[date(row.paid_at!),Number(row.amount),row.currency,row.reference_number??'']),
  ]);}
- if (!data) return <section className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p role="status">{loading?'Prim Bilgileri Yükleniyor…':message||'Prim Bilgileri Yüklenemedi.'}</p><button type="button" disabled={loading||busy} onClick={()=>void refresh()}>Prim Bilgilerini Yenile</button></section>;
- return <section className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p>Prim Kargo Tesliminde Kesinleşir. Önceki Aylardan Kesinleşmiş Primler İçin Talep Oluşturabilirsiniz. Nakit Ödeme Günü Ayın 5’idir. Ayın 5’inden Sonraki Talepler Sonraki Ödeme Gününe Planlanır. Talep Edilmeyen Ve Ödenmeyen Bakiye Devreder.</p>{message&&<p className="notice" role="status">{message}</p>}{refreshWarning&&<p className="notice" role="alert">{refreshWarning} Son yüklenen prim kayıtları gösteriliyor.</p>}
+ if (!data) return <section id="bayi-prim-ekrani" tabIndex={-1} className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p role="status">{loading?'Prim Bilgileri Yükleniyor…':message||'Prim Bilgileri Yüklenemedi.'}</p><button type="button" disabled={loading||busy} onClick={()=>void refresh()}>Prim Bilgilerini Yenile</button></section>;
+ return <section id="bayi-prim-ekrani" tabIndex={-1} className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p>Prim Kargo Tesliminde Kesinleşir. Önceki Aylardan Kesinleşmiş Primler İçin Talep Oluşturabilirsiniz. Nakit Ödeme Günü Ayın 5’idir. Ayın 5’inden Sonraki Talepler Sonraki Ödeme Gününe Planlanır. Talep Edilmeyen Ve Ödenmeyen Bakiye Devreder.</p>{message&&<p className="notice" role="status">{message}</p>}{refreshWarning&&<p className="notice" role="alert">{refreshWarning} Son yüklenen prim kayıtları gösteriliyor.</p>}
  {updatedAt&&<p className={styles.refreshInfo}>Son güncelleme {date(updatedAt)} · Talep tutarı girilirken otomatik yenileme bekler.</p>}
  {hasPrimaryIban===false&&<p className="notice" role="status">Nakit prim talebi için müdürün hesap sahibi adınızı ve IBAN bilginizi kaydetmesi gerekiyor. Kesinleşmiş priminizi ürün alımında kullanabilirsiniz.</p>}
  <div className={styles.cards}><article><h3>Tüm Dönem Kullanılabilir Prim</h3><strong>{data?money(data.balance.available):'—'}</strong><small>Ürün Alımında Kullanılabilir. Talebe Ayrılanlar, Ödemeler Ve Kesintiler Düşülmüştür.</small></article><article><h3>Nakit Talep Edilebilir Prim</h3><strong>{data?money(String(Math.max(0,Number(data.balance.eligible)))):'—'}</strong><small>Önceki Aylardan Kesinleşen Bakiye</small></article><article><h3>Prim Ödeme Talebi</h3><label>Tutar (TL)<input type="number" disabled={loading||busy} max={Math.max(0,Number(data.balance.eligible))} min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label><button disabled={loading||busy||hasPrimaryIban===false||Number(data.balance.eligible)<=0} onClick={()=>void request()}>Prim Talep Et</button></article></div>
