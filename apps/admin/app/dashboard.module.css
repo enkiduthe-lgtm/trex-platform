@@ -1,4 +1,9 @@
 .workspace { width:100%; min-width:0; }
+.workspace .grid.scopedGrid {
+  grid-template-areas:none;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));
+}
+.workspace .grid.scopedGrid > * { grid-area:auto; }
 .workspace .grid {
   display:grid;
   grid-template-columns:repeat(12,minmax(0,1fr));
