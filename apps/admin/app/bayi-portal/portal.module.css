@@ -6,3 +6,7 @@
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:1fr}.page{padding:14px}.header{flex-wrap:wrap}}
 @media(max-width:540px){.grid{grid-template-columns:1fr}.box{padding:14px}.tabs button{flex:none}}
 .page .orderFields{display:block;min-width:0;margin:0;padding:0;border:0}
+.levelBadge,.statusBadge{display:inline-flex;align-items:center;gap:7px;border:1px solid #ccb5d8;border-radius:7px;background:#f3eaf9;color:#51216a;padding:7px 10px;font-size:13px;font-weight:700}
+.table td small{display:block;margin-top:5px;line-height:1.5;color:#5c4d65}
+.page .table button{min-width:0;min-height:34px;margin-top:6px;padding:6px 10px;font-size:12px}
+.paymentSummary{flex-basis:100%;padding:12px;border:1px solid #cdb7d8;border-radius:8px;background:#faf5fd}.paymentSummary p{margin:6px 0}.paymentSummary small{display:block;color:#5c4d65}

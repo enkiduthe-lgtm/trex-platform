@@ -86,7 +86,9 @@ async function main(){
  await pg.exec(`ALTER TABLE dealers ADD COLUMN archived_at timestamptz;
    ALTER TABLE audit_logs ADD COLUMN actor_user_id uuid;
    ALTER TABLE orders ADD COLUMN sales_channel text DEFAULT 'DEALER_PORTAL';
-   ALTER TABLE shipments ADD COLUMN id uuid DEFAULT gen_random_uuid(),ADD COLUMN provider text DEFAULT 'aras',ADD COLUMN tracking_number text,ADD COLUMN created_at timestamptz,ADD COLUMN updated_at timestamptz,ADD COLUMN tracking_checked_at timestamptz;
+   ALTER TABLE shipments ADD COLUMN id uuid DEFAULT gen_random_uuid(),ADD COLUMN provider text DEFAULT 'aras',ADD COLUMN tracking_number text,ADD COLUMN created_at timestamptz,ADD COLUMN updated_at timestamptz,ADD COLUMN tracking_checked_at timestamptz,
+     ADD COLUMN tracking_error text,ADD COLUMN dispatched_at timestamptz,ADD COLUMN delivered_at timestamptz;
+   CREATE TABLE shipment_events(id uuid,shipment_id uuid,status text,description text,occurred_at timestamptz);
    ALTER TABLE orders ADD COLUMN cod_service_fee numeric DEFAULT 0;
    ALTER TABLE payments ADD COLUMN provider text;
    CREATE TABLE dealer_user_accounts(dealer_id uuid,user_id uuid);
@@ -107,6 +109,13 @@ async function main(){
  assert.equal(portalOrders.length,3);
  assert.equal(portalOrders.find(row=>row.id===id(20)).can_cancel,false);
  assert.equal((await portal.shipments(req)).length,1);
+ const shipment=(await portal.shipments(req))[0];
+ assert.equal(shipment.order_id,id(20));
+ await db.query("INSERT INTO shipment_events SELECT $1,id,'DELIVERED','Aras: Teslim Edildi',now() FROM shipments WHERE order_id=$2",[id(991),id(20)]);
+ const tracking=await portal.orderTracking(id(20),req);
+ assert.equal(tracking.events.length,1);
+ assert.equal(tracking.events[0].description,'Aras: Teslim Edildi');
+ await assert.rejects(()=>portal.orderTracking(id(23),req),/görüntülenebilir kargo/);
  await assert.rejects(()=>portal.orderDetail(id(23),req),/Sipariş Bulunamadı/);
  const portalDetail=await portal.orderDetail(id(20),req);
  assert.equal(portalDetail.items.length,2);
@@ -122,6 +131,7 @@ async function main(){
  assert.equal(walletDetail.returns.find(row=>row.id===id(600)).refunded_to_wallet,true);
  await pg.exec(`UPDATE dealers SET archived_at=now() WHERE id='${id(10)}'`);
  assert.deepEqual(await portal.listOrders(req),[]);
+ await assert.rejects(()=>portal.orderTracking(id(20),req),/görüntülenebilir kargo/);
  await pg.close();console.log('Dealer sales and portal ownership passed: historical levels, partial returns, account isolation, repeated audit records, and archived dealers.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

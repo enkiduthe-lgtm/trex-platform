@@ -41,14 +41,15 @@ export class DealerPortalController {
   @Get('summary')
   async summary(@Req() req: UserRequest) {
     const result = await this.db.query<{
-      id: string; company_name: string; code: string; status: string; agreement_accepted_at: string | null;
+      id: string; company_name: string; code: string; status: string; level_name: string | null; agreement_accepted_at: string | null;
       has_primary_iban: boolean; dealer_balance: string; order_count: string;
-    }>(`SELECT d.id,d.company_name,d.code,d.status,dua.agreement_accepted_at,
+    }>(`SELECT d.id,d.company_name,d.code,d.status,level.name AS level_name,dua.agreement_accepted_at,
       EXISTS(SELECT 1 FROM dealer_bank_accounts b WHERE b.dealer_id=d.id AND b.is_primary=true) AS has_primary_iban,
       COALESCE((SELECT SUM(CASE WHEN direction='DEBIT' THEN amount ELSE -amount END)
         FROM dealer_ledger_entries WHERE dealer_id=d.id AND currency='TRY'),0)::text AS dealer_balance,
       (SELECT count(*) FROM orders o WHERE o.archived_at IS NULL AND ${dealerOwnsOrder})::text AS order_count
       FROM dealer_user_accounts dua JOIN dealers d ON d.id=dua.dealer_id
+      LEFT JOIN dealer_levels level ON level.id=d.dealer_level_id
       WHERE dua.user_id=$1 AND d.status='ACTIVE' AND d.archived_at IS NULL`, [req.user.id]);
     if (!result.rowCount) throw new NotFoundException('Bayi hesabı bulunamadı');
     const { id, ...summary } = result.rows[0];
@@ -112,13 +113,28 @@ export class DealerPortalController {
 
   @Get('shipments')
   async shipments(@Req() req: UserRequest) {
-    return (await this.db.query(`SELECT s.id,o.order_number,s.provider,
+    return (await this.db.query(`SELECT s.id,o.id AS order_id,o.order_number,s.provider,
       CASE WHEN s.provider='aras' THEN NULLIF(s.tracking_number,o.order_number) ELSE s.tracking_number END AS tracking_number,
       CASE WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN' ELSE s.status::text END AS status,
-      s.created_at,s.tracking_checked_at
+      s.created_at,s.tracking_checked_at,s.tracking_error,s.dispatched_at,s.delivered_at
       FROM shipments s JOIN orders o ON o.id=s.order_id
       WHERE o.archived_at IS NULL AND ${dealerOwnsOrder}
       ORDER BY o.created_at DESC,s.id`, [req.user.id])).rows;
+  }
+
+  @Get('orders/:id/tracking')
+  async orderTracking(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
+    const result=await this.db.query<{id:string}>(`SELECT s.id,o.id AS order_id,o.order_number,s.provider,
+      CASE WHEN s.provider='aras' THEN NULLIF(s.tracking_number,o.order_number) ELSE s.tracking_number END AS tracking_number,
+      CASE WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN' ELSE s.status::text END AS status,
+      s.tracking_checked_at,s.tracking_error,s.dispatched_at,s.delivered_at
+      FROM orders o JOIN shipments s ON s.order_id=o.id
+      WHERE o.id=$2 AND o.archived_at IS NULL AND ${dealerOwnsOrder}`,[req.user.id,id]);
+    const shipment=result.rows[0];
+    if(!shipment)throw new NotFoundException('Bu sipariş için görüntülenebilir kargo kaydı bulunamadı.');
+    const events=await this.db.query(`SELECT id,status,description,occurred_at FROM shipment_events
+      WHERE shipment_id=$1 ORDER BY occurred_at DESC,id DESC`,[shipment.id]);
+    return {...shipment,events:events.rows};
   }
 
   @Get('creation-options')

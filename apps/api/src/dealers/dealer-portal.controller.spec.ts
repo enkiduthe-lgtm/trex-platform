@@ -62,6 +62,25 @@ describe('DealerPortalController', () => {
     expect(query.mock.calls[0][0]).toContain('al.entity_id=o.id::text');
   });
 
+  it('does not expose shipment events for an order owned by another dealer', async () => {
+    const query=jest.fn().mockResolvedValue({rows:[]});
+    const controller=new DealerPortalController({query} as never,{} as never,{} as never);
+    await expect(controller.orderTracking('other-order',request)).rejects.toThrow('görüntülenebilir kargo');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][1]).toEqual(['dealer-user','other-order']);
+    expect(query.mock.calls[0][0]).toContain('origin.dealer_id=portal.dealer_id::text');
+  });
+
+  it('returns the owned shipment timeline without exposing provider event references', async () => {
+    const event={id:'event',status:'DELIVERED',description:'Aras: Teslim Edildi',occurred_at:'2026-11-20'};
+    const query=jest.fn().mockResolvedValueOnce({rows:[{id:'shipment',tracking_number:'6521575476166'}]})
+      .mockResolvedValueOnce({rows:[event]});
+    const controller=new DealerPortalController({query} as never,{} as never,{} as never);
+    await expect(controller.orderTracking('order',request)).resolves.toEqual({id:'shipment',tracking_number:'6521575476166',events:[event]});
+    expect(query.mock.calls[1][1]).toEqual(['shipment']);
+    expect(query.mock.calls[1][0]).not.toContain('provider_event_id');
+  });
+
   it('allows an active dealer to accept the agreement without bank details', async () => {
     const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ dealer_id: 'dealer' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
