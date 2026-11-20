@@ -30,7 +30,7 @@ export class OrdersService {
     return (await this.db.query(`SELECT o.id,o.customer_id,o.order_number,o.admin_note,o.status, ${reportOrderStatus} AS sales_status,${canCancelOrder} AS can_cancel,o.total_amount,o.cod_service_fee,o.currency,o.created_at,o.sales_channel,o.marketplace_name,o.commission_amount,
       p.provider AS payment_method,p.status AS payment_status,ps.status AS preparation_status,pk.packed_at,pk.package_barcode,
       dealer.id AS dealer_id,COALESCE(NULLIF(dealer.company_name,''),dealer.contact_name) AS dealer_name,
-      o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
+      o.shipping_cost_amount,s.provider AS shipping_provider,s.tracking_number,s.status AS shipment_status,s.tracking_direction_code,s.tracking_checked_at,s.tracking_error,COALESCE(c.email,cs.contact_email) AS customer_email,COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,COALESCE(SUM(oi.quantity),0) AS item_count,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('product_name',lines.product_name,'sku',lines.sku,'quantity',lines.quantity) ORDER BY lines.product_name,lines.sku)
         FROM (SELECT product_id,product_name,sku,SUM(quantity)::int AS quantity FROM order_items
           WHERE order_id=o.id GROUP BY product_id,product_name,sku) lines),'[]'::jsonb) AS products

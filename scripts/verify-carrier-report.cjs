@@ -9,6 +9,7 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  CREATE TABLE customers(id text,first_name text,last_name text,email text);CREATE TABLE checkout_sessions(id text,contact_name text,contact_email text);CREATE TABLE order_addresses(order_id uuid,recipient_name text);
  CREATE TABLE shipments(order_id uuid UNIQUE,provider text,status text,tracking_direction_code text);CREATE TABLE payments(id text,checkout_id text,provider text,created_at timestamptz);
  CREATE TABLE returns(id text,order_id uuid,status text);
+ CREATE TABLE return_refunds(return_id text,amount numeric,currency text);
  CREATE TABLE return_items(return_id text,order_item_id text,quantity int);
  INSERT INTO orders VALUES('00000000-0000-4000-8000-000000000001','A','DELIVERED','RETAIL',35,'TRY','2026-10-01T00:00:00+03',null,'checkout'),('00000000-0000-4000-8000-000000000002','B','CANCELLED','RETAIL',99,'TRY','2026-10-02',null,null),('00000000-0000-4000-8000-000000000003','C','PAID','RETAIL',8,'USD','2026-10-03',null,null),('00000000-0000-4000-8000-000000000004','D','PAID','RETAIL',7,'TRY','2026-09-30T20:59:59Z',null,null);
  INSERT INTO order_items VALUES('1','00000000-0000-4000-8000-000000000001','Ürün','SKU',2,10),('2','00000000-0000-4000-8000-000000000001','İkinci','SKU2',1,10),('3','00000000-0000-4000-8000-000000000002','Ürün','SKU',1,99),('4','00000000-0000-4000-8000-000000000003','Ürün','SKU',1,8),('5','00000000-0000-4000-8000-000000000004','Ürün','SKU',1,7);
@@ -28,6 +29,11 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
  assert.equal(queue.find(row=>row.stage==='CANCELLED').count,1);
  assert.equal(orderQueueStatus(returnRows.find(row=>row.id==='00000000-0000-4000-8000-000000000002')),'CANCELLED');
  await pg.exec("UPDATE shipments SET tracking_direction_code=NULL WHERE order_id='00000000-0000-4000-8000-000000000001'");
+ await pg.exec("UPDATE orders SET status='SHIPPED' WHERE order_number='A'");
+ const confirmedDelivery=await new OrdersService(db).queueCounts();
+ assert.equal(confirmedDelivery.find(row=>row.stage==='DELIVERED').count,1);
+ assert.ok(!confirmedDelivery.some(row=>row.stage==='SHIPPED'));
+ await pg.exec("UPDATE orders SET status='DELIVERED' WHERE order_number='A'");
  const groups=groupSales(rows,'carrier');assert.equal(groups.length,3);const delivered=groups.find(g=>g.status==='DELIVERED');assert.equal(delivered.orderCount,1);assert.equal(delivered.quantity,3);assert.equal(delivered.amount,'30.00');assert.equal(delivered.label,'aras');
  assert.equal(groups.find(g=>g.status==='CANCELLED').amount,'99.00');assert.equal(groups.find(g=>g.currency==='USD').label,'Kargo Kaydı Yok');
  await pg.exec(`INSERT INTO customers VALUES('member1','Aynı','İsim','bir@example.test'),('member2','Aynı','İsim','iki@example.test');UPDATE orders SET customer_id='member1' WHERE id='00000000-0000-4000-8000-000000000001';UPDATE orders SET customer_id='member2' WHERE id='00000000-0000-4000-8000-000000000002';`);
@@ -52,7 +58,8 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
    ALTER TABLE order_items ADD COLUMN product_id text;
    DELETE FROM payments WHERE id='1';
    ALTER TABLE payments ADD COLUMN status text,ADD PRIMARY KEY(id),ADD UNIQUE(checkout_id);
-   ALTER TABLE shipments ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid(),ADD COLUMN tracking_number text;
+   ALTER TABLE shipments ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid(),ADD COLUMN tracking_number text,
+     ADD COLUMN tracking_checked_at timestamptz,ADD COLUMN tracking_error text;
    ALTER TABLE customers ADD PRIMARY KEY(id);
    ALTER TABLE checkout_sessions ADD PRIMARY KEY(id);
    ALTER TABLE order_addresses ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid();
@@ -67,6 +74,10 @@ async function main(){const pg=new PGlite(),db={query:(sql,args)=>pg.query(sql,a
    FROM generate_series(1,55) n;
  `);
  const service=new OrdersService(db);
+ await pg.exec("UPDATE orders SET status='SHIPPED' WHERE order_number='A'; UPDATE shipments SET status='DELIVERED',tracking_direction_code=NULL WHERE order_id='00000000-0000-4000-8000-000000000001'");
+ assert.deepEqual((await service.list(undefined,undefined,'DELIVERED')).map(order=>order.order_number),['A']);
+ assert.ok(!(await service.list(undefined,undefined,'SHIPPED')).some(order=>order.order_number==='A'));
+ await pg.exec("UPDATE orders SET status='DELIVERED' WHERE order_number='A'; UPDATE shipments SET status='FAILED',tracking_direction_code='3' WHERE order_id='00000000-0000-4000-8000-000000000001'");
  const latest=await service.list();
  assert.equal(latest.length,100);
  assert.ok(!latest.some(order=>order.order_number==='A'));

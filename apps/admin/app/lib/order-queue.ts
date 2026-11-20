@@ -5,10 +5,10 @@ export function orderQueueStatus(order: QueueOrder) {
   if (order.sales_status === 'REFUNDED') return 'REFUNDED';
   if (['CANCELLED','REFUNDED'].includes(order.status)) return order.status;
   if (order.tracking_direction_code === '3') return 'CARRIER_RETURN';
+  if (['PROCESSING','SHIPPED'].includes(order.status) && order.shipment_status === 'DELIVERED') return 'DELIVERED';
   if (order.status !== 'PROCESSING') return order.status;
   if (order.shipment_status === 'CREATED') return 'REGISTERED';
   if (order.shipment_status === 'IN_TRANSIT') return 'SHIPPED';
-  if (order.shipment_status === 'DELIVERED') return 'DELIVERED';
   return order.status;
 }
 

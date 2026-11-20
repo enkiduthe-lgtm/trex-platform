@@ -42,6 +42,8 @@ type Order = {
   marketplace_name?: string | null;
   shipping_provider?: string | null;
   tracking_number?: string | null;
+  tracking_checked_at?: string | null;
+  tracking_error?: string | null;
   shipment_status?: string | null;
   tracking_direction_code?: string | null;
   preparation_status?: string | null; packed_at?: string | null; package_barcode?: string | null;
@@ -112,6 +114,7 @@ function OrdersContent() {
     verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer, viewCustomer: canViewCustomer,
   } = permissions;
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [syncingTracking,setSyncingTracking]=useState(false);
   const actionLock = useRef(false);
   useEffect(() => {
     let active = true;
@@ -139,6 +142,7 @@ function OrdersContent() {
   const [loadingOlder,setLoadingOlder]=useState(false);
   const olderLock=useRef(false);
   const listGeneration=useRef(0);
+  const listRequestRunning=useRef(false);
   const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set());
   const noteLocks = useRef(new Set<string>());
@@ -173,9 +177,11 @@ function OrdersContent() {
   const countGeneration = useRef(0);
   currentUrl.current = listUrl;
   const validDates = !dateFrom || !dateTo || dateFrom <= dateTo;
-  const load = (url = currentUrl.current, refreshCounts = true) => {
+  const load = (url = currentUrl.current, refreshCounts = true, background = false) => {
+    if(background&&listRequestRunning.current)return Promise.resolve(false);
     const generation = ++listGeneration.current;
-    setListLoading(true);
+    listRequestRunning.current=true;
+    if(!background)setListLoading(true);
     if (refreshCounts) {
       countGeneration.current = generation;
       void api<{stage:string;count:number}[]>('/admin/orders/queue-counts')
@@ -190,6 +196,7 @@ function OrdersContent() {
         setListFailed(false);
         setLoadedUrl(url);
         setOrders(loadedOrders);
+        setSelected(current=>current.filter(id=>loadedOrders.some(order=>order.id===id)));
         setHasOlder(loadedOrders.length === 100);
         setOrderNotes(current=>mergeOrderNotes(current,loadedOrders,dirtyNotes.current));
         return true;
@@ -200,13 +207,46 @@ function OrdersContent() {
           setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
         }
         return false;
-      }).finally(() => { if (generation === listGeneration.current) setListLoading(false); });
+      }).finally(() => {
+        if (generation === listGeneration.current) {
+          listRequestRunning.current=false;
+          setListLoading(false);
+        }
+      });
   };
   useEffect(() => {
     if (!validDates) return;
     const timer = window.setTimeout(() => void load(listUrl,countGeneration.current === 0), 250);
     return () => window.clearTimeout(timer);
   }, [listUrl,validDates]);
+  useEffect(()=>{
+    const refresh=()=>{
+      if(document.visibilityState!=='visible'||listLoading||loadingOlder||orders.length>100||
+        actionLock.current||noteLocks.current.size||!validDates||loadedUrl!==currentUrl.current)return;
+      void load(currentUrl.current,true,true);
+    };
+    const timer=window.setInterval(refresh,30_000);
+    window.addEventListener('focus',refresh);
+    document.addEventListener('visibilitychange',refresh);
+    return ()=>{
+      window.clearInterval(timer);
+      window.removeEventListener('focus',refresh);
+      document.removeEventListener('visibilitychange',refresh);
+    };
+  },[listLoading,loadingOlder,orders.length,loadedUrl,validDates]);
+  async function syncTracking() {
+    if(actionLock.current)return;
+    actionLock.current=true;setSyncingTracking(true);
+    try {
+      const result=await api<{configured?:boolean;busy?:boolean;checked:number;updated:number;failed:number}>('/admin/orders/shipping/sync',{method:'POST'});
+      if(result.busy)setMessage('Aras takip kontrolü sürüyor. Tamamlanan sonuçlar listede otomatik yenilenir.');
+      else if(result.configured===false)setMessage('Aras takip sorgulama ayarları eksik. Müdür kargo ayarlarını kontrol etmeli.');
+      else setMessage(`${result.checked} gönderi sorgulandı. ${result.updated} gönderinin takip bilgisi güncellendi. ${result.failed} sorgu tamamlanamadı.`);
+      await load();
+    } catch(error) {
+      setMessage(error instanceof Error?error.message:'Aras takip kontrolü tamamlanamadı.');
+    } finally {actionLock.current=false;setSyncingTracking(false);}
+  }
   async function loadOlder() {
     if(olderLock.current || listLoading || loadedUrl !== listUrl || !orders.length)return;
     olderLock.current=true;setLoadingOlder(true);
@@ -383,6 +423,7 @@ function OrdersContent() {
             <h1>Siparişler</h1>
           </div>
           <div className={styles.headerActions}>
+            {isDirector&&<button type="button" className={styles.financeLink} disabled={syncingTracking||pendingAction!==null} onClick={()=>void syncTracking()}>{syncingTracking?'Aras Sorgulanıyor…':'Aras Takibini Güncelle'}</button>}
             {isDirector&&<Link href="/siparisler/sil" className={removal.entry}><OrderIcon name="trash"/><span>Sipariş Sil / Silinenler</span></Link>}
             {canCreate && (
               <Link href="/siparisler/yeni" className={styles.financeLink}>
@@ -546,6 +587,8 @@ function OrdersContent() {
                   </td>
                   <td>
                     <b>{order.shipping_provider ?? "Kargo bekliyor"}</b>
+                    {order.tracking_checked_at&&<small>Aras kontrolü {date(order.tracking_checked_at)}</small>}
+                    {order.tracking_error&&<small role="status">{order.tracking_error}</small>}
                     <small>{order.tracking_direction_code === '3' ? 'Aras İade Bildirdi' :
                       order.shipment_status === 'FAILED' ? 'Kargo kaydını kontrol edin' :
                       order.tracking_number ?? (order.shipment_status === "CREATED" ? "Şube Kabulü / Takip Bekleniyor" :

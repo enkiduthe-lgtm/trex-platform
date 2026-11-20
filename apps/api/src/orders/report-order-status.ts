@@ -28,9 +28,9 @@ export const orderQueueStatusSql = `CASE
   WHEN (${reportOrderStatus})='REFUNDED' THEN 'REFUNDED'
   WHEN o.status='CANCELLED' THEN 'CANCELLED'
   WHEN s.tracking_direction_code='3' THEN 'CARRIER_RETURN'
+  WHEN o.status IN ('PROCESSING','SHIPPED') AND s.status='DELIVERED' THEN 'DELIVERED'
   WHEN o.status='PROCESSING' AND s.status='CREATED' THEN 'REGISTERED'
   WHEN o.status='PROCESSING' AND s.status='IN_TRANSIT' THEN 'SHIPPED'
-  WHEN o.status='PROCESSING' AND s.status='DELIVERED' THEN 'DELIVERED'
   ELSE o.status::text
 END`;
 

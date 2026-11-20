@@ -23,6 +23,12 @@ test('shipment history never reopens cancelled or refunded orders',()=>{
   }
 });
 
+test('a confirmed delivery leaves the shipped queue even when the order snapshot is older',()=>{
+  assert.equal(orderQueueStatus({status:'SHIPPED',shipment_status:'DELIVERED'}),'DELIVERED');
+  assert.equal(orderQueueStatus({status:'DELIVERED',shipment_status:'IN_TRANSIT'}),'DELIVERED');
+  assert.equal(orderQueueStatus({status:'SHIPPED',shipment_status:'DELIVERED',tracking_direction_code:'3'}),'CARRIER_RETURN');
+});
+
 test('carrier returns leave the active queues until the refund is complete', () => {
   const returned = {status:'SHIPPED',shipment_status:'FAILED',tracking_direction_code:'3'};
   assert.equal(orderQueueStatus(returned),'CARRIER_RETURN');
