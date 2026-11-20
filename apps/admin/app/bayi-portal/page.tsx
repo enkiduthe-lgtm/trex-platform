@@ -149,6 +149,7 @@ export default function DealerPortal() {
       setOrderDetail(null);setTab('Siparişlerim');
       const detail=await api<OrderDetail>(`/dealer-portal/orders/${id}`);
       setOrderDetail(detail);
+      requestAnimationFrame(()=>document.getElementById('bayi-siparis-detayi')?.focus());
     });
   }
   async function confirmCancellation() {
@@ -362,7 +363,7 @@ export default function DealerPortal() {
       </tbody></table></div>
     </section>}
     {tab === 'Kargo Takibi' && <section className={styles.box}><h2>Kargo Kayıtlarım</h2><p>Şube kabulü sonrasında alınan takip numarası ve son kargo durumu burada gösterilir. Ayrıntılar için hareketleri açın.</p><div className={styles.table}><table><thead><tr><th>Sipariş</th><th>Kayıt Tarihi</th><th>Kargo Firması</th><th>Takip Numarası</th><th>Kayıt Durumu</th><th>Son Kontrol</th></tr></thead><tbody>{shownShipments.map(row => <tr key={row.id}><td>{row.order_number}{row.order_id&&<button type="button" className="secondary" onClick={()=>{if(row.order_id)openTracking(row.order_id);}}>Hareketleri Gör</button>}</td><td>{date(row.created_at)}</td><td>{row.provider==='aras'?'Aras Kargo':row.provider}</td><td>{row.tracking_number || 'Henüz Oluşmadı'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.tracking_checked_at?date(row.tracking_checked_at):'Henüz Kontrol Edilmedi'}{row.tracking_error&&<small>{row.tracking_error}</small>}</td></tr>)}{!shownShipments.length && <tr><td colSpan={6}>Seçilen filtrelere uygun kargo kaydı bulunmuyor.</td></tr>}</tbody></table></div></section>}
-    {tab === 'Primlerim' && <WalletPanel hasPrimaryIban={summary?.has_primary_iban} onChange={()=>void refreshAccountSummary()}/>}
+    {tab === 'Primlerim' && <WalletPanel hasPrimaryIban={summary?.has_primary_iban} onChange={()=>void refreshAccountSummary()} onOpenOrder={id=>void openOrder(id)}/>}
     {tab === 'Cari Hesabım' && <section className={styles.box}><h2>Cari Hesap Hareketlerim</h2><div className={styles.table}><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Açıklama</th></tr></thead><tbody>{shownLedger.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.direction === 'DEBIT' ? 'Borç' : 'Alacak'}</td><td>{money(row.amount, row.currency)}</td><td>{row.description || '—'}</td></tr>)}{!shownLedger.length && <tr><td colSpan={4}>Seçilen Tarihlerde Cari Hareket Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     </>}
   </main>;

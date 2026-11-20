@@ -38,3 +38,6 @@
 .orderProducts li span{overflow-wrap:anywhere}.orderProducts li b{white-space:nowrap;color:#51216a}
 .orderActions{display:flex;flex-direction:column;align-items:stretch;gap:8px}
 .page .orderHistory button{min-width:0;min-height:34px;padding:7px 10px;font-size:12px;white-space:nowrap}
+.commissionFilters{display:grid;grid-template-columns:minmax(0,2fr) minmax(190px,1fr) auto;gap:12px;align-items:end;padding:16px;border:1px solid #dfd0e7;border-radius:9px;background:#faf7fc}
+.page .orderLink{min-width:0;min-height:34px;padding:7px 10px;font-size:12px;white-space:nowrap;background:#f4edf8;color:#51216a;border:1px solid #cdb7d8}
+@media(max-width:760px){.commissionFilters{grid-template-columns:1fr}}

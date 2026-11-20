@@ -23,15 +23,15 @@ export class DealerPayoutsService {
    dealerWallet(this.db,id),
    this.db.query(`SELECT r.id,r.amount,r.currency,r.status,r.due_date,r.created_at,r.paid_at,r.reference_number,r.note,
      ${scheduledDate} AS scheduled_date FROM dealer_prim_requests r WHERE r.dealer_id=$1 ORDER BY r.created_at DESC`,[id]),
-   this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC',[id]),
+   this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.id AS order_id,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC',[id]),
    this.db.query(`SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.note,
      CASE WHEN e.entry_kind='REVERSAL' THEN COALESCE(e.reversed_at,e.created_at)
           ELSE COALESCE(e.available_at,e.created_at) END AS period_at,
-     o.order_number,oi.product_name,oi.sku,oi.quantity,oi.unit_amount
+     o.id AS order_id,o.order_number,oi.product_name,oi.sku,oi.quantity,oi.unit_amount
      FROM commission_entries e JOIN orders o ON o.id=e.order_id JOIN order_items oi ON oi.id=e.order_item_id
-     WHERE e.dealer_id=$1 ORDER BY period_at DESC,e.id`,[id]),
+     WHERE e.dealer_id=$1 AND e.recipient_user_id IS NULL ORDER BY period_at DESC,e.id`,[id]),
    this.db.query(`SELECT to_char(o.created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS month,o.currency,count(*)::int AS order_count,SUM(${netOrderAmount})::text AS amount FROM orders o WHERE o.archived_at IS NULL AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED') AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order' AND a.action='order.dealer.created' AND a.metadata->>'dealerId'=$1::text) GROUP BY month,o.currency ORDER BY month DESC`,[id]),
-   this.db.query(`SELECT s.id,s.amount,'TRY' AS currency,s.created_at,o.order_number,'SPEND' AS kind FROM dealer_commission_spends s JOIN orders o ON o.id=s.order_id WHERE s.dealer_id=$1 UNION ALL SELECT f.id,f.amount,'TRY',f.created_at,o.order_number,'REFUND' FROM dealer_prim_refunds f JOIN orders o ON o.id=f.order_id WHERE f.dealer_id=$1 ORDER BY created_at DESC`,[id]),
+   this.db.query(`SELECT s.id,s.amount,'TRY' AS currency,s.created_at,o.id AS order_id,o.order_number,'SPEND' AS kind FROM dealer_commission_spends s JOIN orders o ON o.id=s.order_id WHERE s.dealer_id=$1 UNION ALL SELECT f.id,f.amount,'TRY',f.created_at,o.id AS order_id,o.order_number,'REFUND' FROM dealer_prim_refunds f JOIN orders o ON o.id=f.order_id WHERE f.dealer_id=$1 ORDER BY created_at DESC`,[id]),
   ]);
   return {balance,requests:requests.rows,deductions:deductions.rows,earnings:earnings.rows,sales:sales.rows,spends:spends.rows};
  }

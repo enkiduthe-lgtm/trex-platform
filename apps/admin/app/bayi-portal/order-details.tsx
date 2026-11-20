@@ -33,7 +33,7 @@ export function OrderDetails({order,onClose,onTrack,onOpenCommissions}:{
     ...deductions.map(row=>({currency:row.currency,amount:'-'+row.amount})),
   ]);
   const feeTotals=currencyTotals(deductions);
-  return <section className={styles.box} aria-label="Sipariş detayı">
+  return <section id="bayi-siparis-detayi" tabIndex={-1} className={styles.box} aria-label="Sipariş detayı">
     <div className={styles.header}>
       <div><h2>Sipariş {order.order_number}</h2><p>{financeDateTime(order.created_at)}</p><span className={styles.statusBadge}>{orderStatuses[order.status]??order.status}</span></div>
       <div className={styles.actions}>
