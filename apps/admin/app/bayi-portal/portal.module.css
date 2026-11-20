@@ -28,3 +28,13 @@
 .cancelConfirmation{border-color:#e5ba94;border-left-color:#9a4b1c;background:#fffaf6}
 .cancelConfirmation:focus{outline:3px solid #dfbd5a;outline-offset:3px}
 .refreshInfo{font-size:12px;line-height:1.5;color:#62506c;margin:8px 0 16px}
+.table .orderHistory{border-collapse:separate;border-spacing:0 12px;min-width:780px}
+.orderHistory tbody td{vertical-align:top;background:#fff;border-top:2px solid #d6c6e0;border-bottom:2px solid #d6c6e0}
+.orderHistory tbody td:first-child{border-left:3px solid #9166aa;border-radius:9px 0 0 9px}
+.orderHistory tbody td:last-child{border-right:2px solid #d6c6e0;border-radius:0 9px 9px 0}
+.orderHistory td small{display:block;margin-top:8px;line-height:1.5;color:#66536f}
+.orderProducts{list-style:none;margin:10px 0 0;padding:0;min-width:180px;max-width:360px}
+.orderProducts li{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid #ebe3ef;line-height:1.5}
+.orderProducts li span{overflow-wrap:anywhere}.orderProducts li b{white-space:nowrap;color:#51216a}
+.orderActions{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.page .orderHistory button{min-width:0;min-height:34px;padding:7px 10px;font-size:12px;white-space:nowrap}

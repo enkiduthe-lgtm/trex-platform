@@ -133,6 +133,7 @@ describe('DealerPortalController', () => {
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
     await expect(controller.commissions(request)).resolves.toEqual([{ id: 'entry', order_number: 'TRX-1' }]);
     expect(query.mock.calls[0][0]).toContain('dealer_user_accounts dua JOIN commission_entries e ON e.dealer_id=dua.dealer_id');
+    expect(query.mock.calls[0][0]).toContain('e.recipient_user_id IS NULL');
     expect(query.mock.calls[0][1]).toEqual(['dealer-user']);
   });
 });

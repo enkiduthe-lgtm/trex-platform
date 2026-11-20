@@ -1,0 +1,14 @@
+export type DealerOrderHistory = {
+  order_number:string;recipient_name?:string|null;tracking_number?:string|null;
+  items?:{id:string;product_name:string;sku:string;quantity:number}[];
+};
+
+export function matchesDealerOrder(order:DealerOrderHistory,query:string) {
+  const text=[order.order_number,order.recipient_name,order.tracking_number,
+    ...(order.items??[]).flatMap(item=>[item.product_name,item.sku])].filter(Boolean).join(' ');
+  return text.toLocaleLowerCase('tr-TR').includes(query.trim().toLocaleLowerCase('tr-TR'));
+}
+
+export function dealerOrderProductsLabel(order:DealerOrderHistory) {
+  return (order.items??[]).map(item=>`${item.product_name} × ${item.quantity} adet`).join('; ');
+}

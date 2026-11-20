@@ -12,11 +12,12 @@ import { WalletPanel } from './wallet-panel';
 import { TrackingPanel } from './tracking-panel';
 import { ProductCatalog, type PortalProduct } from './product-catalog';
 import { OrderDetails, type DealerOrderDetail } from './order-details';
+import { matchesDealerOrder, dealerOrderProductsLabel, type DealerOrderHistory } from '../lib/dealer-order-history';
 
 type Summary = { company_name: string; code: string; level_name?:string|null; has_primary_iban?:boolean; dealer_balance: string; order_count: string; agreement_accepted_at: string | null };
 type Product = PortalProduct;
 type Options = { exchangeRate?:number; products: Product[]; warehouses: { id: string; name: string }[] };
-type Order = { id: string; can_cancel?: boolean; order_number: string; status: string; total_amount: string; refunded_amount?: string; net_amount?: string; cod_service_fee?:string; currency: string; created_at: string };
+type Order = DealerOrderHistory & { id: string; can_cancel?: boolean; order_number: string; status: string; total_amount: string; refunded_amount?: string; net_amount?: string; cod_service_fee?:string; currency: string; created_at: string };
 type CreatedOrder = Pick<Order,'id'|'order_number'|'status'|'total_amount'|'currency'>;
 type OrderDetail = DealerOrderDetail;
 type Ledger = { id: string; direction: string; amount: string; currency: string; description: string; reference_type: string; created_at: string };
@@ -70,7 +71,7 @@ export default function DealerPortal() {
     return validRange && (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
   };
   const matchesHistory=(value:string)=>value.toLocaleLowerCase('tr-TR').includes(historyQuery.trim().toLocaleLowerCase('tr-TR'));
-  const shownOrders = orders.filter(row => inRange(row.created_at)&&matchesHistory(row.order_number)&&(historyStatus==='ALL'||row.status===historyStatus));
+  const shownOrders = orders.filter(row => inRange(row.created_at)&&matchesDealerOrder(row,historyQuery)&&(historyStatus==='ALL'||row.status===historyStatus));
   const shownShipments = shipments.filter(row => inRange(row.created_at)&&matchesHistory(row.order_number+' '+(row.tracking_number??''))&&
     (historyStatus==='ALL'||(shipmentOrderStatuses[row.status]??row.status)===historyStatus));
   const shownLedger = ledger.filter(row => inRange(row.created_at));
@@ -243,8 +244,8 @@ export default function DealerPortal() {
     if (tab === 'Siparişlerim') {
       const totals = currencyTotals(shownOrders.filter(row => !['CANCELLED', 'REFUNDED'].includes(row.status)).map(row => ({ currency: row.currency, amount: row.net_amount ?? row.total_amount })));
       downloadXlsx('bayi-siparislerim.xlsx', 'Siparişlerim', [...period,
-        ['Sipariş No', 'Tarih', 'Sipariş Tutarı', 'İade', 'İade Sonrası Tutar', 'Para Birimi', 'Durum'],
-        ...shownOrders.map(row => [row.order_number, date(row.created_at), Number(row.total_amount), Number(row.refunded_amount ?? 0), Number(row.net_amount ?? row.total_amount), row.currency, statuses[row.status] ?? row.status]),
+        ['Sipariş No', 'Tarih', 'Sipariş Tutarı', 'İade', 'İade Sonrası Tutar', 'Para Birimi', 'Durum', 'Alıcı', 'Ürünler ve Adetleri', 'Takip Numarası'],
+        ...shownOrders.map(row => [row.order_number, date(row.created_at), Number(row.total_amount), Number(row.refunded_amount ?? 0), Number(row.net_amount ?? row.total_amount), row.currency, statuses[row.status] ?? row.status, row.recipient_name??'', dealerOrderProductsLabel(row), row.tracking_number??'']),
         [], ['Net Sipariş Toplamı'], ...totals.map(row => ['Toplam', '', '', '', Number(row.amount), row.currency]),
       ]);
     } else if (tab === 'Kargo Takibi') {
@@ -314,7 +315,7 @@ export default function DealerPortal() {
     {['Siparişlerim', 'Cari Hesabım', 'Kargo Takibi'].includes(tab) && <section className={styles.box} aria-label="Tarih Filtresi"><div className={styles.grid}><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label><button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihleri Temizle</button><button type="button" onClick={exportHistory} disabled={!ready || busy || !validRange || (tab === 'Siparişlerim' ? !shownOrders.length : tab==='Kargo Takibi' ? !shownShipments.length : !shownLedger.length)}>Excel&apos;e Aktar</button></div><p>Filtreler tablolara, sipariş grafiklerine ve Excel raporuna uygulanır. Üstteki hesap bakiyeleri tüm dönemleri kapsar.</p>{!validRange && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}</section>}
     {['Siparişlerim','Kargo Takibi'].includes(tab)&&<section className={styles.box} aria-label="Sipariş arama ve durum filtresi">
   <div className={styles.grid}>
-    <label>Sipariş veya takip numarası<input type="search" value={historyQuery} onChange={event=>setHistoryQuery(event.target.value)} placeholder={tab==='Kargo Takibi'?'Sipariş veya takip numarası':'Sipariş numarası'}/></label>
+    <label>{tab==='Kargo Takibi'?'Sipariş veya takip numarası':'Sipariş, alıcı veya ürün ara'}<input type="search" value={historyQuery} onChange={event=>setHistoryQuery(event.target.value)} placeholder={tab==='Kargo Takibi'?'Sipariş veya takip numarası':'Sipariş, alıcı, ürün, SKU veya takip numarası'}/></label>
     <label>Durum<select value={historyStatus} onChange={event=>setHistoryStatus(event.target.value)}>
       <option value="ALL">Tüm durumlar</option>
       {(tab==='Siparişlerim'?['PENDING_PAYMENT','PAID','PROCESSING','REGISTERED','SHIPPED','DELIVERED','CARRIER_RETURN','REFUNDED','CANCELLED']:['REGISTERED','SHIPPED','DELIVERED','CARRIER_RETURN','FAILED','CANCELLED']).map(value=><option key={value} value={value}>{statuses[value]??value}</option>)}
@@ -343,7 +344,23 @@ export default function DealerPortal() {
     {tab === 'Ürünler' && <ProductCatalog products={options.products} currency={form.currency} busy={busy} onSingle={row=>addItem(row)}
       onPack={(row,size)=>{setEditingItemId(null);setForm(current=>({...current,productId:row.id,quantity:1}));setPackSize(size);setPriceOverride('');setTab('Yeni Sipariş');}}/>}
     {tab === 'Siparişlerim' && <div><div className="chart-controls"><label>Grafik Para Birimi<select value={chartCurrency} onChange={e=>setChartCurrency(e.target.value)}>{[...new Set(['TRY',...orders.map(row=>row.currency)])].map(c=><option key={c} value={c}>{c}</option>)}</select></label></div><div className="analytics-grid"><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Aylık Sipariş Tutarlarım" description="Son 6 Ay · Tablo Filtresi Uygulanır · Kısmi İadeler Düşülür · İptal Ve Tam İadeler Hariç" currency={chartCurrency} data={monthlySeries(shownOrders.filter(row=>!['CANCELLED','REFUNDED'].includes(row.status)).map(row=>({created_at:row.created_at,amount:row.net_amount??row.total_amount,currency:row.currency})),chartCurrency,dateTo?new Date(dateTo+'T12:00:00+03:00'):new Date())}/><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Sipariş Durumlarım" description="Tablodaki Tarih Filtresine Göre · Tüm Para Birimlerinde Sipariş Adedi" variant="ring" data={Object.entries(shownOrders.reduce<Record<string,number>>((map,row)=>{const label=statuses[row.status]??row.status;map[label]=(map[label]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div></div>}
-    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2><div className={styles.table}><table><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{shownOrders.map(row => <tr key={row.id}><td><button type="button" className="secondary" disabled={busy} onClick={()=>void openOrder(row.id)}>{row.order_number} · Detay</button></td><td>{date(row.created_at)}</td><td>{money(row.total_amount, row.currency)}{refundSummary(row)}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.can_cancel?<button type="button" disabled={busy} onClick={()=>{setCancelCandidate(row);requestAnimationFrame(()=>document.getElementById('bayi-iptal-onayi')?.focus());}}>Siparişi İptal Et</button>:'—'}</td></tr>)}{!shownOrders.length && <tr><td colSpan={5}>Seçilen filtrelere uygun sipariş bulunmuyor.</td></tr>}</tbody></table></div></section>}
+    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2>
+      <div className={styles.table}><table className={styles.orderHistory}><thead><tr><th>Sipariş</th><th>Alıcı ve ürünler</th><th>Tutar</th><th>Durum</th><th>İşlemler</th></tr></thead><tbody>
+        {shownOrders.map(row=><tr key={row.id}>
+          <td><button type="button" className="secondary" disabled={busy} onClick={()=>void openOrder(row.id)}>{row.order_number} · Detay</button><small>{date(row.created_at)}</small></td>
+          <td><strong>{row.recipient_name||'Alıcı bilgisi bulunamadı'}</strong>
+            {row.items?.length?<ul className={styles.orderProducts}>{row.items.map(item=><li key={item.id}><span>{item.product_name}</span><b>{item.quantity} adet</b></li>)}</ul>:<small>Ürün bilgileri için detayı açın.</small>}
+          </td>
+          <td>{money(row.total_amount,row.currency)}{refundSummary(row)}</td>
+          <td><span className={styles.statusBadge}>{statuses[row.status]??row.status}</span>{row.tracking_number&&<small>Takip: {row.tracking_number}</small>}</td>
+          <td><div className={styles.orderActions}>
+            {['REGISTERED','SHIPPED','DELIVERED','CARRIER_RETURN'].includes(row.status)&&<button type="button" className="secondary" onClick={()=>openTracking(row.id)}>Kargo Hareketleri</button>}
+            {row.can_cancel&&<button type="button" disabled={busy} onClick={()=>{setCancelCandidate(row);requestAnimationFrame(()=>document.getElementById('bayi-iptal-onayi')?.focus());}}>Siparişi İptal Et</button>}
+          </div></td>
+        </tr>)}
+        {!shownOrders.length&&<tr><td colSpan={5}>Seçilen filtrelere uygun sipariş bulunmuyor.</td></tr>}
+      </tbody></table></div>
+    </section>}
     {tab === 'Kargo Takibi' && <section className={styles.box}><h2>Kargo Kayıtlarım</h2><p>Şube kabulü sonrasında alınan takip numarası ve son kargo durumu burada gösterilir. Ayrıntılar için hareketleri açın.</p><div className={styles.table}><table><thead><tr><th>Sipariş</th><th>Kayıt Tarihi</th><th>Kargo Firması</th><th>Takip Numarası</th><th>Kayıt Durumu</th><th>Son Kontrol</th></tr></thead><tbody>{shownShipments.map(row => <tr key={row.id}><td>{row.order_number}{row.order_id&&<button type="button" className="secondary" onClick={()=>{if(row.order_id)openTracking(row.order_id);}}>Hareketleri Gör</button>}</td><td>{date(row.created_at)}</td><td>{row.provider==='aras'?'Aras Kargo':row.provider}</td><td>{row.tracking_number || 'Henüz Oluşmadı'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.tracking_checked_at?date(row.tracking_checked_at):'Henüz Kontrol Edilmedi'}{row.tracking_error&&<small>{row.tracking_error}</small>}</td></tr>)}{!shownShipments.length && <tr><td colSpan={6}>Seçilen filtrelere uygun kargo kaydı bulunmuyor.</td></tr>}</tbody></table></div></section>}
     {tab === 'Primlerim' && <WalletPanel hasPrimaryIban={summary?.has_primary_iban} onChange={()=>void refreshAccountSummary()}/>}
     {tab === 'Cari Hesabım' && <section className={styles.box}><h2>Cari Hesap Hareketlerim</h2><div className={styles.table}><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Açıklama</th></tr></thead><tbody>{shownLedger.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.direction === 'DEBIT' ? 'Borç' : 'Alacak'}</td><td>{money(row.amount, row.currency)}</td><td>{row.description || '—'}</td></tr>)}{!shownLedger.length && <tr><td colSpan={4}>Seçilen Tarihlerde Cari Hareket Bulunmuyor.</td></tr>}</tbody></table></div></section>}

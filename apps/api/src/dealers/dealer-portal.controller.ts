@@ -62,6 +62,10 @@ export class DealerPortalController {
       (${canCancelOrder} AND EXISTS (SELECT 1 FROM audit_logs a WHERE a.entity_id=o.id::text AND a.entity_type='order'
         AND a.actor_user_id=$1 AND a.action='order.dealer.created')) AS can_cancel,
       ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at,
+      s.tracking_number,
+      (SELECT a.recipient_name FROM order_addresses a WHERE a.order_id=o.id LIMIT 1) AS recipient_name,
+      COALESCE((SELECT json_agg(json_build_object('id',i.id,'product_name',i.product_name,'sku',i.sku,'quantity',i.quantity) ORDER BY i.id)
+        FROM order_items i WHERE i.order_id=o.id),'[]'::json) AS items,
       GREATEST(o.created_at,s.updated_at,(SELECT max(h.created_at) FROM order_status_history h WHERE h.order_id=o.id)) AS status_updated_at
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
       WHERE o.archived_at IS NULL AND ${dealerOwnsOrder}
@@ -71,7 +75,7 @@ export class DealerPortalController {
 
   @Get('commissions')
   async commissions(@Req() req: UserRequest) {
-    const result = await this.db.query("SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.reversed_at,e.note,o.order_number FROM dealer_user_accounts dua JOIN commission_entries e ON e.dealer_id=dua.dealer_id JOIN orders o ON o.id=e.order_id WHERE dua.user_id=$1 ORDER BY e.created_at DESC LIMIT 100", [req.user.id]);
+    const result = await this.db.query("SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.reversed_at,e.note,o.order_number FROM dealer_user_accounts dua JOIN commission_entries e ON e.dealer_id=dua.dealer_id JOIN orders o ON o.id=e.order_id WHERE dua.user_id=$1 AND e.recipient_user_id IS NULL ORDER BY e.created_at DESC,e.id LIMIT 100", [req.user.id]);
     return result.rows;
   }
 
