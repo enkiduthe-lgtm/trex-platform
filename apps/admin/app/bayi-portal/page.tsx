@@ -12,10 +12,11 @@ import { WalletPanel } from './wallet-panel';
 import { TrackingPanel } from './tracking-panel';
 import { ProductCatalog, type PortalProduct } from './product-catalog';
 
-type Summary = { company_name: string; code: string; level_name?:string|null; dealer_balance: string; order_count: string; agreement_accepted_at: string | null };
+type Summary = { company_name: string; code: string; level_name?:string|null; has_primary_iban?:boolean; dealer_balance: string; order_count: string; agreement_accepted_at: string | null };
 type Product = PortalProduct;
 type Options = { exchangeRate?:number; products: Product[]; warehouses: { id: string; name: string }[] };
 type Order = { id: string; can_cancel?: boolean; order_number: string; status: string; total_amount: string; refunded_amount?: string; net_amount?: string; cod_service_fee?:string; currency: string; created_at: string };
+type CreatedOrder = Pick<Order,'id'|'order_number'|'status'|'total_amount'|'currency'>;
 type OrderReturn = { id: string; status: string; requested_at: string; completed_at: string | null; quantity: number; refund_amount: string | null; refund_currency: string | null; refunded_to_wallet?: boolean };
 type OrderDetail = Order & { returns?: OrderReturn[]; items: { id: string; product_name: string; sku: string; quantity: number; unit_amount: string; line_total: string }[]; address: { recipient_name: string; phone: string; city: string; district: string; address_line: string; postal_code: string | null } | null };
 type Ledger = { id: string; direction: string; amount: string; currency: string; description: string; reference_type: string; created_at: string };
@@ -42,6 +43,8 @@ export default function DealerPortal() {
   const [options, setOptions] = useState<Options>({ products: [], warehouses: [] });
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [createdOrder,setCreatedOrder]=useState<CreatedOrder|null>(null);
+  const [cancelCandidate,setCancelCandidate]=useState<Order|null>(null);
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [form, setForm] = useState(initial);
@@ -131,6 +134,30 @@ export default function DealerPortal() {
     } catch {
       setMessage(confirmation + ' Güncel Bilgiler Yüklenemedi. Bilgileri Yenile Düğmesini Kullanın.');
     }
+  }
+  async function refreshAccountSummary() {
+    try {
+      const [account,movements,commissionBalances]=await Promise.all([
+        api<Summary>('/dealer-portal/summary'),api<Ledger[]>('/dealer-portal/ledger'),
+        api<{currency:string;amount:string}[]>('/dealer-portal/commission-balances'),
+      ]);
+      setSummary(account);setLedger(movements);setAvailable(commissionBalances);
+    } catch {setMessage('Hesap özeti yenilenemedi. Bilgileri Yenile düğmesini kullanın.');}
+  }
+  async function openOrder(id:string) {
+    await action(async()=>{
+      const detail=await api<OrderDetail>(`/dealer-portal/orders/${id}`);
+      setOrderDetail(detail);setTab('Siparişlerim');
+    });
+  }
+  async function confirmCancellation() {
+    if(!cancelCandidate||!orders.some(row=>row.id===cancelCandidate.id&&row.can_cancel))return;
+    await action(async()=>{
+      await api(`/dealer-portal/orders/${cancelCandidate.id}/cancel`,{method:'POST'});
+      const number=cancelCandidate.order_number;
+      setCancelCandidate(null);
+      await refreshAfterAction(number+' numaralı sipariş iptal edildi.');
+    });
   }
   useEffect(() => { void load().catch(error => setMessage(error instanceof Error ? error.message : 'Bayi Bilgileri Yüklenemedi.')); }, []);
   useEffect(()=>{
@@ -250,8 +277,9 @@ export default function DealerPortal() {
       const {productId:_selection,quantity:_count,...delivery}=form;
       const body = JSON.stringify({ ...delivery,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined, warehouseId: options.warehouses[0].id, currency: items[0].currency, items: items.map(({ productId, quantity, unitAmount,packSize,packAmount }) => ({ productId, quantity,packSize,packAmount:packSize?Number(packAmount):undefined, unitAmount:packSize?undefined:Number(unitAmount) })), priceChangeReason: 'Bayi Portalı Fiyatı' });
       if (pendingOrder.current?.body !== body) pendingOrder.current = { body, key: crypto.randomUUID() };
-      const result = await api<{ order_number: string }>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': pendingOrder.current.key }, body });
+      const result = await api<CreatedOrder>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': pendingOrder.current.key }, body });
       pendingOrder.current = null;
+      setCreatedOrder(result);
       setEditingItemId(null);
       setItems([]); setForm({ ...initial, currency:form.currency, paymentMethod:form.paymentMethod, contactEmail: email }); setCodServiceFee('75'); setTab('Siparişlerim');
       await refreshAfterAction(`${result.order_number} Numaralı Sipariş Oluşturuldu.`);
@@ -260,7 +288,24 @@ export default function DealerPortal() {
   return <main className={styles.page}>
     <header className={styles.header}><div><p>Bayi Paneli</p><h1>{summary?.company_name || 'Bayi Paneli'}</h1><p>{summary?.code} · {email}</p>{summary?.level_name&&<span className={styles.levelBadge}><span aria-hidden="true">★</span> {summary.level_name}</span>}</div><div className={styles.actions}><button type="button" className="secondary" disabled={busy} onClick={() => void action(load)}>Bilgileri Yenile</button><button type="button" className="secondary" onClick={() => void action(async () => { try { await logout(); } finally { clearToken(); window.location.assign('/giris'); } })}>Güvenli Çıkış</button></div></header>
     {message && <p role="status" className="notice">{message}</p>}
-    <section className={styles.cards} aria-label="Hesap Özeti"><article><h2>Siparişlerim</h2><strong>{summary?.order_count ?? '—'}</strong></article><article><h2>Kullanılabilir Prim</h2>{available.length ? available.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}<small>Tüm Kesinleşen Ve Kullanılabilir Kayıtlar</small></article><article><h2>Cari Bakiye</h2>{balances.length ? balances.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}</article></section>
+    {createdOrder&&<section className={styles.orderResult} aria-label="Son oluşturulan sipariş">
+  <div><h2>Siparişiniz kaydedildi</h2><p><strong>{createdOrder.order_number}</strong> · {money(createdOrder.total_amount,createdOrder.currency)} · {statuses[createdOrder.status]??createdOrder.status}</p></div>
+  <div className={styles.actions}>
+    <button type="button" disabled={busy||!ready} onClick={()=>void openOrder(createdOrder.id)}>Sipariş Detayını Aç</button>
+    <button type="button" className="secondary" disabled={busy} onClick={()=>{setCreatedOrder(null);setTab('Yeni Sipariş');}}>Yeni Siparişe Geç</button>
+    <button type="button" className="secondary" onClick={()=>setCreatedOrder(null)}>Bildirimi Kapat</button>
+  </div>
+</section>}
+{cancelCandidate&&<section id="bayi-iptal-onayi" className={styles.cancelConfirmation} role="alertdialog" aria-labelledby="bayi-iptal-basligi" aria-describedby="bayi-iptal-aciklamasi" tabIndex={-1}>
+  <h2 id="bayi-iptal-basligi">{cancelCandidate.order_number} · Sipariş iptali</h2>
+  <p id="bayi-iptal-aciklamasi">Bu siparişi iptal etmek istediğinizi onaylayın. Stok ve varsa kullanılan prim bakiyesi işlem sırasında güncellenir.</p>
+  {!orders.some(row=>row.id===cancelCandidate.id&&row.can_cancel)&&<p role="status">Siparişin durumu değiştiği için iptal işlemi kullanılamıyor. Güncel detayını kontrol edin.</p>}
+  <div className={styles.actions}>
+    <button type="button" disabled={busy||!orders.some(row=>row.id===cancelCandidate.id&&row.can_cancel)} onClick={()=>void confirmCancellation()}>{busy?'İşleniyor…':'İptali Onayla'}</button>
+    <button type="button" className="secondary" disabled={busy} onClick={()=>setCancelCandidate(null)}>Vazgeç</button>
+  </div>
+</section>}
+<section className={styles.cards} aria-label="Hesap Özeti"><article><h2>Siparişlerim</h2><strong>{summary?.order_count ?? '—'}</strong></article><article><h2>Kullanılabilir Prim</h2>{available.length ? available.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}<small>Tüm Kesinleşen Ve Kullanılabilir Kayıtlar</small></article><article><h2>Cari Bakiye</h2>{balances.length ? balances.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}</article></section>
     <nav className={styles.tabs} aria-label="Bayi Paneli Bölümleri">{tabs.map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => {setTab(value);setHistoryStatus('ALL');}}>{value}</button>)}</nav>
     {['Siparişlerim', 'Cari Hesabım', 'Kargo Takibi'].includes(tab) && <section className={styles.box} aria-label="Tarih Filtresi"><div className={styles.grid}><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label><button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihleri Temizle</button><button type="button" onClick={exportHistory} disabled={!ready || busy || !validRange || (tab === 'Siparişlerim' ? !shownOrders.length : tab==='Kargo Takibi' ? !shownShipments.length : !shownLedger.length)}>Excel&apos;e Aktar</button></div><p>Filtreler tablolara, sipariş grafiklerine ve Excel raporuna uygulanır. Üstteki hesap bakiyeleri tüm dönemleri kapsar.</p>{!validRange && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}</section>}
     {['Siparişlerim','Kargo Takibi'].includes(tab)&&<section className={styles.box} aria-label="Sipariş arama ve durum filtresi">
@@ -295,9 +340,9 @@ export default function DealerPortal() {
     {tab === 'Ürünler' && <ProductCatalog products={options.products} currency={form.currency} busy={busy} onSingle={row=>addItem(row)}
       onPack={(row,size)=>{setEditingItemId(null);setForm(current=>({...current,productId:row.id,quantity:1}));setPackSize(size);setPriceOverride('');setTab('Yeni Sipariş');}}/>}
     {tab === 'Siparişlerim' && <div><div className="chart-controls"><label>Grafik Para Birimi<select value={chartCurrency} onChange={e=>setChartCurrency(e.target.value)}>{[...new Set(['TRY',...orders.map(row=>row.currency)])].map(c=><option key={c} value={c}>{c}</option>)}</select></label></div><div className="analytics-grid"><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Aylık Sipariş Tutarlarım" description="Son 6 Ay · Tablo Filtresi Uygulanır · Kısmi İadeler Düşülür · İptal Ve Tam İadeler Hariç" currency={chartCurrency} data={monthlySeries(shownOrders.filter(row=>!['CANCELLED','REFUNDED'].includes(row.status)).map(row=>({created_at:row.created_at,amount:row.net_amount??row.total_amount,currency:row.currency})),chartCurrency,dateTo?new Date(dateTo+'T12:00:00+03:00'):new Date())}/><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Sipariş Durumlarım" description="Tablodaki Tarih Filtresine Göre · Tüm Para Birimlerinde Sipariş Adedi" variant="ring" data={Object.entries(shownOrders.reduce<Record<string,number>>((map,row)=>{const label=statuses[row.status]??row.status;map[label]=(map[label]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div></div>}
-    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2><div className={styles.table}><table><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{shownOrders.map(row => <tr key={row.id}><td><button type="button" className="secondary" disabled={busy} onClick={() => void action(async () => { setOrderDetail(null); setOrderDetail(await api<OrderDetail>(`/dealer-portal/orders/${row.id}`)); })}>{row.order_number} · Detay</button></td><td>{date(row.created_at)}</td><td>{money(row.total_amount, row.currency)}{refundSummary(row)}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.can_cancel ? <button disabled={busy} onClick={() => { if (window.confirm(`${row.order_number} Numaralı Sipariş İptal Edilsin Mi?`)) void action(async () => { await api(`/dealer-portal/orders/${row.id}/cancel`, { method: 'POST' }); await refreshAfterAction(row.order_number + ' Numaralı Sipariş İptal Edildi.'); }); }}>Siparişi İptal Et</button> : '—'}</td></tr>)}{!shownOrders.length && <tr><td colSpan={5}>Seçilen filtrelere uygun sipariş bulunmuyor.</td></tr>}</tbody></table></div></section>}
+    {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2><div className={styles.table}><table><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Tutar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>{shownOrders.map(row => <tr key={row.id}><td><button type="button" className="secondary" disabled={busy} onClick={()=>void openOrder(row.id)}>{row.order_number} · Detay</button></td><td>{date(row.created_at)}</td><td>{money(row.total_amount, row.currency)}{refundSummary(row)}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.can_cancel?<button type="button" disabled={busy} onClick={()=>{setCancelCandidate(row);requestAnimationFrame(()=>document.getElementById('bayi-iptal-onayi')?.focus());}}>Siparişi İptal Et</button>:'—'}</td></tr>)}{!shownOrders.length && <tr><td colSpan={5}>Seçilen filtrelere uygun sipariş bulunmuyor.</td></tr>}</tbody></table></div></section>}
     {tab === 'Kargo Takibi' && <section className={styles.box}><h2>Kargo Kayıtlarım</h2><p>Şube kabulü sonrasında alınan takip numarası ve son kargo durumu burada gösterilir. Ayrıntılar için hareketleri açın.</p><div className={styles.table}><table><thead><tr><th>Sipariş</th><th>Kayıt Tarihi</th><th>Kargo Firması</th><th>Takip Numarası</th><th>Kayıt Durumu</th><th>Son Kontrol</th></tr></thead><tbody>{shownShipments.map(row => <tr key={row.id}><td>{row.order_number}{row.order_id&&<button type="button" className="secondary" onClick={()=>setTrackingOrder(row.order_id??null)}>Hareketleri Gör</button>}</td><td>{date(row.created_at)}</td><td>{row.provider==='aras'?'Aras Kargo':row.provider}</td><td>{row.tracking_number || 'Henüz Oluşmadı'}</td><td>{statuses[row.status] ?? row.status}</td><td>{row.tracking_checked_at?date(row.tracking_checked_at):'Henüz Kontrol Edilmedi'}{row.tracking_error&&<small>{row.tracking_error}</small>}</td></tr>)}{!shownShipments.length && <tr><td colSpan={6}>Seçilen filtrelere uygun kargo kaydı bulunmuyor.</td></tr>}</tbody></table></div></section>}
-    {tab === 'Primlerim' && <WalletPanel onChange={()=>void load().catch(()=>setMessage('Hesap Özeti Yenilenemedi. Bilgileri Yenile Düğmesini Kullanın.'))} />}
+    {tab === 'Primlerim' && <WalletPanel hasPrimaryIban={summary?.has_primary_iban} onChange={()=>void refreshAccountSummary()}/>}
     {tab === 'Cari Hesabım' && <section className={styles.box}><h2>Cari Hesap Hareketlerim</h2><div className={styles.table}><table><thead><tr><th>Tarih</th><th>İşlem</th><th>Tutar</th><th>Açıklama</th></tr></thead><tbody>{shownLedger.map(row => <tr key={row.id}><td>{date(row.created_at)}</td><td>{row.direction === 'DEBIT' ? 'Borç' : 'Alacak'}</td><td>{money(row.amount, row.currency)}</td><td>{row.description || '—'}</td></tr>)}{!shownLedger.length && <tr><td colSpan={4}>Seçilen Tarihlerde Cari Hareket Bulunmuyor.</td></tr>}</tbody></table></div></section>}
     </>}
   </main>;

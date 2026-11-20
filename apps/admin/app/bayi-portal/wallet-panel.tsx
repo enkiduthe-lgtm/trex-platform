@@ -5,6 +5,7 @@ import { monthlySeries } from '../lib/chart-data';
 import { api } from '../lib/api';
 import { currencyTotals } from '../lib/report-totals';
 import { downloadXlsx } from '../lib/xlsx';
+import { createRequestGate } from '../lib/async-controls';
 import styles from './portal.module.css';
 type Earning={id:string;amount:string;currency:string;status:string;entry_kind:string;created_at:string;period_at?:string;available_at:string|null;note:string|null;order_number:string;product_name:string;sku:string;quantity:number;unit_amount:string};
 type Payout={id:string;amount:string;currency:string;status:string;due_date:string;scheduled_date?:string;created_at:string;paid_at:string|null;reference_number:string|null;note:string|null};
@@ -16,22 +17,51 @@ const date=(value:string)=>new Date(value).toLocaleString('tr-TR',{timeZone:'Eur
 const money=(amount:string,currency='TRY')=>Number(amount).toLocaleString('tr-TR',{style:'currency',currency});
 const earningDate=(row:Earning)=>row.period_at ?? (row.entry_kind==='REVERSAL' ? row.created_at : row.available_at ?? row.created_at);
 const status:Record<string,string>={REQUESTED:'Ödeme Talep Edildi',APPROVED:'Onaylandı · Havale Bekliyor',PAID:'Bankaya Yatırıldı',REJECTED:'Talep Reddedildi',CANCELLED:'İptal Edildi',PENDING:'Kesinleşme Bekliyor',CONFIRMED:'Teslimatla Kesinleşti',AVAILABLE:'Kullanılabilir',REVERSED:'İade / İptal İle Geri Alındı',USED:'Ürün Alımında Kullanıldı',RESERVED:'Ayrıldı'};
-export function WalletPanel({onChange}:{onChange:()=>void}) {
+export function WalletPanel({onChange,hasPrimaryIban}:{onChange:()=>void;hasPrimaryIban?:boolean}) {
  const [data,setData]=useState<Data|null>(null),[month,setMonth]=useState(monthOf(new Date().toISOString())),[amount,setAmount]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
  const [loading,setLoading]=useState(true);
+ const [refreshWarning,setRefreshWarning]=useState('');
+ const [updatedAt,setUpdatedAt]=useState<string|null>(null);
+ const alive=useRef(false);
+ const gate=useRef(createRequestGate());
+ const fetching=useRef<{ticket:number}|null>(null);
  const key=useRef<{amount:string;id:string}|null>(null);const lock=useRef(false);
- async function load() {
+ async function load(preserveData=false) {
+  if(!alive.current || fetching.current&&gate.current.isCurrent(fetching.current.ticket))return;
+  const ticket=gate.current.begin();
+  fetching.current={ticket};
   setLoading(true);
-  try { setData(await api<Data>('/dealer-portal/wallet')); }
-  catch (error) { setData(null); throw error; }
-  finally { setLoading(false); }
+  try {
+   const result=await api<Data>('/dealer-portal/wallet');
+   if(alive.current&&gate.current.isCurrent(ticket)){setData(result);setRefreshWarning('');setUpdatedAt(new Date().toISOString());}
+  } catch (error) {
+   if(alive.current&&gate.current.isCurrent(ticket)){if(!preserveData)setData(null);throw error;}
+  } finally {
+   if(fetching.current?.ticket===ticket)fetching.current=null;
+   if(alive.current&&gate.current.isCurrent(ticket))setLoading(false);
+  }
  }
  async function refresh() {
   if (loading || busy) return;
-  try { await load(); setMessage('Prim Bilgileri Güncellendi.'); }
+  try { await load(true); setMessage('Prim Bilgileri Güncellendi.');onChange(); }
   catch (error) { setMessage(error instanceof Error ? error.message : 'Prim Bilgileri Yüklenemedi.'); }
  }
- useEffect(()=>{void load().catch(e=>setMessage(e instanceof Error?e.message:'Prim Bilgileri Yüklenemedi.'));},[]);
+ useEffect(()=>{
+  alive.current=true;
+  void load().catch(e=>setMessage(e instanceof Error?e.message:'Prim Bilgileri Yüklenemedi.'));
+  return ()=>{alive.current=false;gate.current.invalidate();};
+ },[]);
+ useEffect(()=>{
+  const refreshVisible=()=>{
+   if(!alive.current||document.visibilityState!=='visible'||lock.current||fetching.current||amount.trim())return;
+   void load(true).then(()=>{if(alive.current)onChange();}).catch(error=>{
+    if(alive.current)setRefreshWarning(error instanceof Error?error.message:'Prim bilgileri yenilenemedi.');
+   });
+  };
+  const timer=window.setInterval(refreshVisible,60_000);
+  window.addEventListener('focus',refreshVisible);
+  return ()=>{window.clearInterval(timer);window.removeEventListener('focus',refreshVisible);};
+ },[amount]);
  const earnings=data?.earnings.filter(row=>monthOf(earningDate(row))===month)??[];
  const sales=data?.sales.filter(row=>row.month===month)??[];
  const deductions=data?.deductions.filter(row=>monthOf(row.created_at)===month)??[];
@@ -54,7 +84,7 @@ export function WalletPanel({onChange}:{onChange:()=>void}) {
  }
  const renderTotals=(rows:{currency:string;amount:string}[])=>rows.length?rows.map(row=><strong key={row.currency}>{money(row.amount,row.currency)}</strong>):<span>Kayıt Yok</span>;
  async function request() {
-  if (lock.current || loading || !data) return;
+  if (lock.current || loading || fetching.current || !data || hasPrimaryIban===false) return;
   lock.current=true;setBusy(true);setMessage('');
   try {
    const value=Number(amount);
@@ -86,8 +116,10 @@ export function WalletPanel({onChange}:{onChange:()=>void}) {
   [],['Bankaya Yatırılan Prim','Tutar','Para Birimi','Havale Referansı'],...paid.map(row=>[date(row.paid_at!),Number(row.amount),row.currency,row.reference_number??'']),
  ]);}
  if (!data) return <section className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p role="status">{loading?'Prim Bilgileri Yükleniyor…':message||'Prim Bilgileri Yüklenemedi.'}</p><button type="button" disabled={loading||busy} onClick={()=>void refresh()}>Prim Bilgilerini Yenile</button></section>;
- return <section className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p>Prim Kargo Tesliminde Kesinleşir. Önceki Aylardan Kesinleşmiş Primler İçin Talep Oluşturabilirsiniz. Nakit Ödeme Günü Ayın 5’idir. Ayın 5’inden Sonraki Talepler Sonraki Ödeme Gününe Planlanır. Talep Edilmeyen Ve Ödenmeyen Bakiye Devreder.</p>{message&&<p className="notice" role="status">{message}</p>}
- <div className={styles.cards}><article><h3>Tüm Dönem Kullanılabilir Prim</h3><strong>{data?money(data.balance.available):'—'}</strong><small>Ürün Alımında Kullanılabilir. Talebe Ayrılanlar, Ödemeler Ve Kesintiler Düşülmüştür.</small></article><article><h3>Nakit Talep Edilebilir Prim</h3><strong>{data?money(String(Math.max(0,Number(data.balance.eligible)))):'—'}</strong><small>Önceki Aylardan Kesinleşen Bakiye</small></article><article><h3>Prim Ödeme Talebi</h3><label>Tutar (TL)<input type="number" disabled={loading||busy} max={Math.max(0,Number(data.balance.eligible))} min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label><button disabled={loading||busy||Number(data.balance.eligible)<=0} onClick={()=>void request()}>Prim Talep Et</button></article></div>
+ return <section className={styles.box}><h2>Primlerim Ve Ödeme Taleplerim</h2><p>Prim Kargo Tesliminde Kesinleşir. Önceki Aylardan Kesinleşmiş Primler İçin Talep Oluşturabilirsiniz. Nakit Ödeme Günü Ayın 5’idir. Ayın 5’inden Sonraki Talepler Sonraki Ödeme Gününe Planlanır. Talep Edilmeyen Ve Ödenmeyen Bakiye Devreder.</p>{message&&<p className="notice" role="status">{message}</p>}{refreshWarning&&<p className="notice" role="alert">{refreshWarning} Son yüklenen prim kayıtları gösteriliyor.</p>}
+ {updatedAt&&<p className={styles.refreshInfo}>Son güncelleme {date(updatedAt)} · Talep tutarı girilirken otomatik yenileme bekler.</p>}
+ {hasPrimaryIban===false&&<p className="notice" role="status">Nakit prim talebi için müdürün hesap sahibi adınızı ve IBAN bilginizi kaydetmesi gerekiyor. Kesinleşmiş priminizi ürün alımında kullanabilirsiniz.</p>}
+ <div className={styles.cards}><article><h3>Tüm Dönem Kullanılabilir Prim</h3><strong>{data?money(data.balance.available):'—'}</strong><small>Ürün Alımında Kullanılabilir. Talebe Ayrılanlar, Ödemeler Ve Kesintiler Düşülmüştür.</small></article><article><h3>Nakit Talep Edilebilir Prim</h3><strong>{data?money(String(Math.max(0,Number(data.balance.eligible)))):'—'}</strong><small>Önceki Aylardan Kesinleşen Bakiye</small></article><article><h3>Prim Ödeme Talebi</h3><label>Tutar (TL)<input type="number" disabled={loading||busy} max={Math.max(0,Number(data.balance.eligible))} min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label><button disabled={loading||busy||hasPrimaryIban===false||Number(data.balance.eligible)<=0} onClick={()=>void request()}>Prim Talep Et</button></article></div>
  <div className="analytics-grid"><MetricChart loading={!data&&!message} unavailable={!data&&!!message} title="Aylık Net Prim Hareketlerim" description="Son 6 Ay · TL · Bekleyen Primler Hariç · Ters Kayıtlar Ve İade Kargo Kesintileri Dahil" currency="TRY" data={monthlySeries([...(data?.earnings??[]).filter(row=>row.status!=='PENDING').map(row=>({...row,created_at:earningDate(row)})),...(data?.deductions??[]).map(row=>({...row,amount:String(-Number(row.amount))}))],'TRY',month?new Date(month+'-15T12:00:00+03:00'):new Date())}/><MetricChart loading={!data&&!message} unavailable={!data&&!!message} title="Prim Ödeme Taleplerim" description="Tüm Dönemler · Talep Adedi · Yalnız Kendi Hesabınız" variant="ring" data={Object.entries((data?.requests??[]).reduce<Record<string,number>>((map,row)=>{const key=status[row.status]??row.status;map[key]=(map[key]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div>
  <div className={styles.actions}><button type="button" disabled={loading||busy} onClick={()=>void refresh()}>Prim Bilgilerini Yenile</button><label>Prim Ve Satış Dönemi<input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label><button onClick={()=>setMonth(monthOf(new Date().toISOString()))}>Bu Ay</button><button onClick={()=>{const [year,currentMonth]=monthOf(new Date().toISOString()).split('-').map(Number);setMonth(monthOf(new Date(Date.UTC(year,currentMonth-2,15)).toISOString()));}}>Önceki Ay</button><button disabled={!data||busy} onClick={exportReport}>Excel&apos;e Aktar</button></div>
  <div className={styles.cards}><article><h3>Seçilen Ayın Satışı</h3>{sales.map(row=><p key={row.currency}><b>{money(row.amount,row.currency)}</b> · {row.order_count} Sipariş</p>)}<small>İptaller ve tam iadeler hariç. Kaydedilen kısmi iade tutarları düşülür.</small></article><article><h3>Kazanılan Prim</h3>{renderTotals(earned)}<small>Bu Ay Oluşan Prim Kayıtları</small></article><article><h3>Prim Ters Kayıtları</h3>{renderTotals(reversed)}</article><article><h3>İade Kargo Kesintileri</h3>{renderTotals(feeTotals)}</article><article><h3>Ürün Alımında Kullanılan</h3>{renderTotals(spentTotals)}</article><article><h3>Ürün Alımından Geri Verilen</h3>{renderTotals(refundedSpendTotals)}</article><article><h3>Bankaya Yatırılan</h3>{renderTotals(paidTotals)}</article></div>
