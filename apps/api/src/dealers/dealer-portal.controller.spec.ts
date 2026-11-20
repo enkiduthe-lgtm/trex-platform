@@ -16,12 +16,20 @@ describe('DealerPortalController', () => {
     const query = jest.fn().mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'order' }] })
       .mockResolvedValueOnce({ rows: [{ unit_amount: '20.00', quantity: 2 }] })
       .mockResolvedValueOnce({ rows: [{ recipient_name: 'Recipient' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'return' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'return' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'commission',amount:'10.00' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'fee',amount:'2.00' }] });
     const controller = new DealerPortalController({ query } as never, {} as never, {} as never);
-    await expect(controller.orderDetail('order', request)).resolves.toEqual({ id: 'order', items: [{ unit_amount: '20.00', quantity: 2 }], address: { recipient_name: 'Recipient' }, returns: [{ id: 'return' }] });
+    await expect(controller.orderDetail('order', request)).resolves.toEqual({
+      id:'order',items:[{unit_amount:'20.00',quantity:2}],address:{recipient_name:'Recipient'},returns:[{id:'return'}],
+      commissions:[{id:'commission',amount:'10.00'}],deductions:[{id:'fee',amount:'2.00'}],
+    });
     expect(query.mock.calls[1][1]).toEqual(['order']);
     expect(query.mock.calls[2][1]).toEqual(['order']);
     expect(query.mock.calls[3][1]).toEqual(['order']);
+    expect(query.mock.calls[4][1]).toEqual(['dealer-user','order']);
+    expect(query.mock.calls[5][1]).toEqual(['dealer-user','order']);
+    expect(query.mock.calls[4][0]).toContain('e.recipient_user_id IS NULL');
   });
 
   it('calculates balances over all eligible movements separately per currency', async () => {

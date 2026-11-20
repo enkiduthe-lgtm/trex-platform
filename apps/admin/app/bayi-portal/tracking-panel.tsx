@@ -46,7 +46,7 @@ export function TrackingPanel({orderId,onClose}:{orderId:string;onClose:()=>void
       if(refreshRef.current===refresh)refreshRef.current=null;
     };
   },[orderId]);
-  return <section className={styles.box} aria-label="Kargo hareketleri">
+  return <section id="bayi-kargo-hareketleri" className={styles.box} aria-label="Kargo hareketleri" tabIndex={-1}>
     <div className={styles.header}>
       <div><h2>{data?.order_number??'Sipariş'} · Kargo hareketleri</h2>
         {data&&<span className={styles.statusBadge}>{statuses[data.status]??data.status}</span>}

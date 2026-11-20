@@ -78,11 +78,15 @@ export class DealerPortalController {
   @Get('orders/:id')
   async orderDetail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: UserRequest) {
     const order = await this.db.query(`SELECT o.id,o.order_number,${orderQueueStatusSql} AS status,o.total_amount,
-      ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at
+      ${completedRefundAmount}::text AS refunded_amount,${netOrderAmount}::text AS net_amount,o.cod_service_fee,o.currency,o.created_at,
+      payment.provider AS payment_method,payment.status AS payment_status,payment.amount AS payment_amount,
+      payment.currency AS payment_currency,payment.verified_at AS payment_verified_at,s.id IS NOT NULL AS has_shipment
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
+      LEFT JOIN LATERAL (SELECT p.provider,p.status,p.amount,p.currency,p.verified_at FROM payments p
+        WHERE p.checkout_id=o.checkout_id ORDER BY p.created_at DESC,p.id DESC LIMIT 1) payment ON true
       WHERE o.id=$2 AND o.archived_at IS NULL AND ${dealerOwnsOrder}`, [req.user.id,id]);
     if (!order.rowCount) throw new NotFoundException('Sipariş Bulunamadı');
-    const [items,address,returns] = await Promise.all([
+    const [items,address,returns,commissions,deductions] = await Promise.all([
       this.db.query('SELECT id,product_name,sku,quantity,unit_amount,(quantity*unit_amount)::text AS line_total FROM order_items WHERE order_id=$1 ORDER BY id', [id]),
       this.db.query('SELECT recipient_name,phone,city,district,address_line,postal_code FROM order_addresses WHERE order_id=$1', [id]),
       this.db.query(`SELECT r.id,r.status,r.requested_at,r.completed_at,rr.amount::text AS refund_amount,
@@ -92,8 +96,17 @@ export class DealerPortalController {
         LEFT JOIN dealer_prim_refunds wallet ON wallet.return_id=rr.return_id AND wallet.order_id=r.order_id
         WHERE r.order_id=$1
         ORDER BY r.requested_at DESC,r.id`, [id]),
+      this.db.query(`SELECT e.id,e.order_item_id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.note
+        FROM commission_entries e JOIN dealer_user_accounts portal ON portal.dealer_id=e.dealer_id
+        WHERE portal.user_id=$1 AND e.order_id=$2 AND e.recipient_user_id IS NULL
+        ORDER BY e.created_at DESC,e.id`,[req.user.id,id]),
+      this.db.query(`SELECT f.id,f.amount,f.currency,f.note,f.created_at
+        FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id
+        JOIN dealer_user_accounts portal ON portal.dealer_id=f.dealer_id
+        WHERE portal.user_id=$1 AND r.order_id=$2 ORDER BY f.created_at DESC,f.id`,[req.user.id,id]),
     ]);
-    return { ...order.rows[0], items: items.rows, address: address.rows[0] ?? null, returns: returns.rows };
+    return { ...order.rows[0], items: items.rows, address: address.rows[0] ?? null, returns: returns.rows,
+      commissions:commissions.rows,deductions:deductions.rows };
   }
 
   @Get('ledger')

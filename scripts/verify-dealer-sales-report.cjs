@@ -90,7 +90,8 @@ async function main(){
      ADD COLUMN tracking_error text,ADD COLUMN dispatched_at timestamptz,ADD COLUMN delivered_at timestamptz;
    CREATE TABLE shipment_events(id uuid,shipment_id uuid,status text,description text,occurred_at timestamptz);
    ALTER TABLE orders ADD COLUMN cod_service_fee numeric DEFAULT 0;
-   ALTER TABLE payments ADD COLUMN provider text;
+   ALTER TABLE payments ADD COLUMN provider text,ADD COLUMN amount numeric,ADD COLUMN currency text,ADD COLUMN verified_at timestamptz;
+   ALTER TABLE commission_entries ADD COLUMN available_at timestamptz;
    CREATE TABLE dealer_user_accounts(dealer_id uuid,user_id uuid);
    CREATE TABLE order_status_history(order_id uuid,created_at timestamptz);
    CREATE TABLE order_addresses(order_id uuid,recipient_name text,phone text,city text,district text,address_line text,postal_code text);
@@ -121,6 +122,15 @@ async function main(){
  assert.equal(portalDetail.items.length,2);
  assert.equal(portalDetail.returns.length,2);
  assert.equal(Number(portalDetail.returns.find(row=>row.id===id(501)).refund_amount),7);
+ assert.equal(portalDetail.commissions.length,1);
+ assert.equal(Number(portalDetail.commissions[0].amount),10);
+ assert.equal(portalDetail.deductions.length,1);
+ assert.equal(Number(portalDetail.deductions[0].amount),2);
+ await db.query("UPDATE payments SET provider='bank_transfer',amount=35,currency='TRY',verified_at=now() WHERE id=$1",[id(401)]);
+ const paymentDetail=await portal.orderDetail(id(20),req);
+ assert.equal(paymentDetail.payment_method,'bank_transfer');
+ assert.equal(paymentDetail.payment_status,'SUCCEEDED');
+ assert.equal(Number(paymentDetail.payment_amount),35);
  await db.query("UPDATE returns SET status='REFUNDED' WHERE id=$1",[id(600)]);
  await db.query('INSERT INTO return_items VALUES($1,$2,1)',[id(600),id(250)]);
  await db.query('INSERT INTO dealer_prim_refunds(id,dealer_id,order_id,amount,created_at,return_id) VALUES($1,$2,$3,3,now(),$4)',[id(990),id(10),id(20),id(600)]);
