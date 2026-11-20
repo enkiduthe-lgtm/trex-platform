@@ -142,6 +142,7 @@ async function main(){
  const secondary=uuid(39);
  await db.query("INSERT INTO warehouses VALUES($1,'OTHER','Secondary',true)",[secondary]);
  await db.query('INSERT INTO inventory VALUES($1,$2,99,0,now())',[product,secondary]);
+ await pg.exec("ALTER TABLE products ADD COLUMN description text,ADD COLUMN image_url text");
  const dealerOptions=await adminOrders.options(dealer);
  assert.deepEqual(dealerOptions.warehouses.map(row=>row.id),[warehouse]);
  assert.equal(dealerOptions.products[0].available_quantity,10);
@@ -227,7 +228,7 @@ async function main(){
  assert.equal(listed.refunded_amount,'300.00');
  assert.equal(listed.net_amount,'700.00');
  assert.equal(listed.can_cancel,false);
- await pg.exec('ALTER TABLE shipments ADD COLUMN tracking_number text, ADD COLUMN created_at timestamptz DEFAULT now(), ADD COLUMN tracking_checked_at timestamptz');
+ await pg.exec('ALTER TABLE shipments ADD COLUMN tracking_number text, ADD COLUMN created_at timestamptz DEFAULT now(), ADD COLUMN tracking_checked_at timestamptz, ADD COLUMN tracking_error text');
  const dealerCod=await adminOrders.create({...validBody,paymentMethod:'COD_CARD'},uuid(73),actor,dealer);
  await db.query("INSERT INTO shipments(order_id,status,provider,tracking_number) VALUES($1,'CREATED','aras',$2)",[dealerCod.id,dealerCod.order_number]);
  const dealerOrders=()=>dealerPortal.listOrders({user:{id:user}});

@@ -10,3 +10,16 @@
 .table td small{display:block;margin-top:5px;line-height:1.5;color:#5c4d65}
 .page .table button{min-width:0;min-height:34px;margin-top:6px;padding:6px 10px;font-size:12px}
 .paymentSummary{flex-basis:100%;padding:12px;border:1px solid #cdb7d8;border-radius:8px;background:#faf5fd}.paymentSummary p{margin:6px 0}.paymentSummary small{display:block;color:#5c4d65}
+.catalogGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,410px),1fr));gap:18px;margin-top:20px}
+.productCard{border:1px solid #d8c8e2;border-radius:12px;overflow:hidden;background:#fff;min-width:0}
+.productImage{height:190px;padding:18px;display:flex;align-items:center;justify-content:center;background:#faf7fc;border-bottom:1px solid #e5dcea;box-sizing:border-box}
+.productImage img{width:100%;height:100%;object-fit:contain}
+.productImage span{color:#68566f;font-size:13px}
+.productContent{padding:18px}.productContent h3{margin:0 0 5px;font-size:18px;line-height:1.4}
+.stockLabel{font-size:13px;font-weight:600;color:#4f355d}
+.priceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.priceChoices>div{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid #e3d8ea;border-radius:8px;background:#fcf9fe;min-width:0}
+.priceChoices span,.priceChoices small{font-size:12px;line-height:1.5;color:#62506c}.priceChoices strong{font-size:17px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.page .priceChoices button{min-width:0;min-height:36px;margin-top:auto;font-size:12px;padding:7px 10px}
+.productDescription{margin-top:15px;border-top:1px solid #e3d8ea;padding-top:12px}.productDescription summary{font-weight:700;cursor:pointer;color:#51216a}.productDescription p{white-space:pre-wrap;line-height:1.65;font-size:14px;overflow-wrap:anywhere}
+@media(max-width:420px){.priceChoices{grid-template-columns:1fr}.productContent{padding:13px}}

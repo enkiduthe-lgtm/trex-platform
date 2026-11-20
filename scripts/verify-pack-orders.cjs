@@ -28,6 +28,7 @@ async function main(){const pg=new PGlite();try{
  // Existing orders/prices acquire a zero fee and a single-unit size, without rewriting their history.
  await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/074_cod_fee_and_dealer_packs.sql'),'utf8'));
  await query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,pack_size) VALUES($1,'DEALER_LEVEL',$2,1059.99,2),($1,'DEALER_LEVEL',$2,1000,3),($1,'DEALER_LEVEL',$2,2000,5)",[pid,level]);
+ await pg.exec("ALTER TABLE dealers ADD COLUMN archived_at timestamptz; ALTER TABLE checkout_sessions ADD COLUMN discount_amount numeric DEFAULT 0");
  const input={warehouseId:wid,recipientName:'Test',contactEmail:'test@example.com',phone:'05000000000',city:'Test',district:'Test',addressLine:'Test',paymentMethod:'COD_CASH',items:[{productId:pid,quantity:2,packSize:2,packAmount:1499.98}]};
  const key=randomUUID(),order=await service.create(input,key,actor,did);
  assert.equal(order.total_amount,'1574.98');assert.equal((await service.create(input,key,actor,did)).id,order.id);
@@ -56,7 +57,11 @@ async function main(){const pg=new PGlite();try{
  assert.equal(multiLines.find(r=>r.product_id===pid).qty,5);assert.equal(multiLines.find(r=>r.product_id===other).qty,3);
  const triple=await service.create({...input,paymentMethod:'TRANSFER',items:[{productId:pid,quantity:3,packSize:3}]},randomUUID(),actor,did);
  assert.equal(triple.total_amount,'1000.00');assert.equal((await query('SELECT SUM(quantity*unit_amount)::text total,SUM(quantity)::int qty FROM order_items WHERE order_id=$1',[triple.id])).rows[0].total,'1000.00');
+ await pg.exec("ALTER TABLE products ADD COLUMN description text,ADD COLUMN image_url text");
+ await query("UPDATE products SET description='Ürün bilgisi',image_url='/v1/assets/product/'||id::text WHERE id=$1",[pid]);
  const options=await service.options(did);assert.equal(options.products.find(p=>p.id===pid).amount,'600.00');assert.equal(options.products.find(p=>p.id===pid).packs.length,3);
+ assert.equal(options.products.find(p=>p.id===pid).description,'Ürün bilgisi');
+ assert.equal(options.products.find(p=>p.id===pid).image_url,'/v1/assets/product/'+pid);
  await query("INSERT INTO product_prices(product_id,scope,dealer_level_id,amount,currency,starts_at) VALUES($1,'DEALER_LEVEL',$2,1,'USD',now())",[pid,level]);
  const optionsAfterForeignPrice=await service.options(did);
  assert.equal(optionsAfterForeignPrice.products.find(row=>row.id===pid).amount,'600.00');

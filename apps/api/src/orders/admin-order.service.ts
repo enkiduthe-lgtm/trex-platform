@@ -35,7 +35,7 @@ export class AdminOrderService {
     const productQuery = dealerId
       ? this.db.query(`WITH dispatch_warehouse AS (
           SELECT id FROM warehouses ${activeWarehouseOrder} LIMIT 1
-        ) SELECT p.id,p.name,p.sku,price.amount,price.currency,
+        ) SELECT p.id,p.name,p.sku,p.description,p.image_url,price.amount,price.currency,
           COALESCE(stock.physical_quantity-stock.reserved_quantity,0)::int AS available_quantity,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('size',q.pack_size,'amount',q.amount) ORDER BY q.pack_size) FROM (SELECT DISTINCT ON (pack_size) pack_size,amount FROM product_prices WHERE product_id=p.id AND pack_size>1 AND ${activeDealerPrice('$1')} ORDER BY pack_size,starts_at DESC,id DESC) q),'[]'::jsonb) AS packs FROM products p
           LEFT JOIN LATERAL (SELECT amount,currency FROM product_prices pp WHERE pp.product_id=p.id AND pack_size=1 AND ${activeDealerPrice('$1')}
