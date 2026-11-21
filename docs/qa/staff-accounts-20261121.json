@@ -1,0 +1,28 @@
+{
+  "base_commit": "24819b8",
+  "deployment_status": "local_only",
+  "changes": [
+    "Serialize account creation, role changes, activation and password-reset requests with a synchronous action lock.",
+    "Distinguish a successful account write from a failed follow-up list refresh.",
+    "Mark stale account lists and disable sensitive actions until a successful reload.",
+    "Show distinct loading, failed-load, empty-list and no-search-results states.",
+    "Preserve permission-editor drafts while the account list reloads, and disable their writes until the list is current.",
+    "Disable account/password inputs during writes and clear dismissed replacement passwords."
+  ],
+  "verification": {
+    "reproduced_before_fix": "Rapid account action clicks sent two conflicting requests; the regression now sends one.",
+    "workflow_scripts_passed": [
+      "verify-staff-account-actions.cjs",
+      "verify-staff-account-view.cjs",
+      "verify-staff-access-editor.cjs"
+    ],
+    "staff_security_tests": { "passed": 19, "suites": 1 },
+    "admin_build": "passed",
+    "markup_scope": "Actual page rendered with synthetic loading, failed, stale and filtered account states; not a browser layout review."
+  },
+  "manual_checks_pending": [
+    "Browser review of account refresh warnings and disabled form controls after deployment.",
+    "Authenticated director review of account creation, role changes and password reset using designated test accounts."
+  ],
+  "live_environment_modified": false
+}
