@@ -15,7 +15,7 @@ type View = 'stok' | 'raporlar';
 const movementLabel: Record<string, string> = { RECEIPT: 'Stok girişi', ADJUSTMENT: 'Stok düzeltmesi', RESERVATION: 'Sipariş rezervasyonu', RELEASE: 'Rezervasyon çözümü', FULFILLMENT: 'Sipariş çıkışı', TRANSFER_OUT: 'Depodan transfer', TRANSFER_IN: 'Depoya transfer', RETURN_QUARANTINE: 'İade girişi', RETURN_DAMAGED: 'Hasarlı iade' };
 
 export default function Inventory() {
-  const {permissions, loading: accessLoading}=useOrderPermissions();
+  const {permissions, loading: accessLoading,error:accessError,refresh:refreshPermissions}=useOrderPermissions();
   const receiptLock=useRef(false);
   const [view, setView] = useState<View>('stok');
   const [movementFrom, setMovementFrom] = useState('');
@@ -102,6 +102,7 @@ export default function Inventory() {
   const table = (rows: Movement[], empty: string) => <div style={{ overflowX: 'auto' }}><table><thead><tr><th>Tarih</th><th>Ürün</th><th>SKU</th><th>İşlem</th><th>Adet</th><th>İşlemi Yapan</th><th>Açıklama</th></tr></thead><tbody>{rows.map(item => <tr key={item.id}><td>{new Date(item.created_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td><td>{item.product_name}</td><td>{item.sku}</td><td>{movementLabel[item.movement_type] ?? item.movement_type}</td><td>{item.quantity_delta > 0 ? '+' : ''}{item.quantity_delta}</td><td>{item.created_by_email ?? 'Sistem'}</td><td>{item.note??'—'}</td></tr>)}</tbody></table>{!rows.length && <p>{empty}</p>}</div>;
 
   return <main><AdminNav /><section className="stock-workspace"><p>STOK VE ENVANTER</p><h1>Genel Stok Yönetimi</h1><p>Ürün stok girişlerini ve ürün bazlı hareket raporlarını tek ekrandan yönetin.</p>
+    {accessError&&<div className="form-card" role="alert"><p>{accessError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
     <nav className="stock-local-nav" aria-label="Stok bölümleri"><button className={view === 'stok' ? 'selected' : ''} onClick={() => setView('stok')}>Stok Ve Envanter</button><button className={view === 'raporlar' ? 'selected' : ''} onClick={() => setView('raporlar')}>Gelen / Giden Raporlar</button><a href="/siparisler?durum=PROCESSING">Sipariş Hazırlama Ve Kargo →</a></nav>
     {message && <div role="status" className="form-card"><p>{message}</p><button type="button" className="secondary" disabled={busy} onClick={async () => {
       setBusy(true);

@@ -11,7 +11,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import { AdminNav } from "../components/admin-nav";
 import { api } from "../lib/api";
-import { orderPermissions } from '../lib/order-permissions';
+import { useOrderPermissions } from '../lib/use-order-permissions';
 import { orderQueueStatus, nextPreparationAction, needsTransferMatching } from "../lib/order-queue";
 import { paymentLabel } from "../lib/payment-label";
 import { currencyTotals } from "../lib/report-totals";
@@ -107,8 +107,8 @@ function OrderIcon({ name }: { name: "eye" | "edit" | "print" | "barcode" | "tra
 
 function OrdersContent() {
   const searchParams = useSearchParams();
-  const [isDirector,setIsDirector]=useState(false);
-  const [permissions, setPermissions] = useState(() => orderPermissions(''));
+  const {permissions,role,error:permissionsError,refresh:refreshPermissions}=useOrderPermissions();
+  const isDirector=role==='SUPER_ADMIN';
   const {
     create: canCreate, edit: canEdit, prepare: canPrepare, ship: canShip, viewDealer: canViewDealer,
     verify: canVerify, transfers: canViewTransfers, createTransfer: canCreateTransfer, viewCustomer: canViewCustomer,
@@ -116,25 +116,6 @@ function OrdersContent() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [syncingTracking,setSyncingTracking]=useState(false);
   const actionLock = useRef(false);
-  useEffect(() => {
-    let active = true;
-    void api<{ user: { role: string } }>('/auth/me').then(async data => {
-      const role = data.user.role;
-      const profile = role === 'ADMIN'
-        ? await api<{ configured: boolean; grants: string[] | null }>('/admin/access/me')
-        : undefined;
-      if (active) {
-        setIsDirector(role === 'SUPER_ADMIN');
-        setPermissions(orderPermissions(role, profile));
-      }
-    }).catch(() => {
-      if (active) {
-        setPermissions(orderPermissions(''));
-        setMessage('İşlem Yetkileri Yüklenemedi. Sayfayı Yenileyin.');
-      }
-    });
-    return () => { active = false; };
-  }, []);
   const [orders, setOrders] = useState<Order[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listFailed, setListFailed] = useState(false);
@@ -439,6 +420,7 @@ function OrdersContent() {
             {message}
           </p>
         )}
+        {permissionsError&&<div className={styles.notice} role="alert"><p>{permissionsError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
         {listFailed && <div className={styles.cardActions}><button type="button" disabled={listLoading || !validDates} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
         <div className={styles.toolbar}>
           <button

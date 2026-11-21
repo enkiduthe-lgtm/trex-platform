@@ -8,7 +8,7 @@ import { AdminNav } from "../../components/admin-nav";
 import { api } from "../../lib/api";
 import { financeDateTime } from "../../lib/finance-report";
 import { createActionLock } from "../../lib/async-controls";
-import { orderPermissions } from '../../lib/order-permissions';
+import { useOrderPermissions } from '../../lib/use-order-permissions';
 import { needsTransferMatching, nextPreparationAction, orderQueueStatus } from "../../lib/order-queue";
 import styles from "../orders.module.css";
 
@@ -181,11 +181,10 @@ type Invoice = {
   pdf_url: string | null;
 };
 export default function OrderDetail() {
-  const [permissions, setPermissions] = useState(() => orderPermissions(''));
-  const [permissionsReady, setPermissionsReady] = useState(false);
+  const {permissions,role,loading:permissionsLoading,error:permissionsError,refresh:refreshPermissions}=useOrderPermissions();
+  const permissionsReady=!permissionsLoading;
   const { edit: canEdit, prepare: canPrepare, ship: canShip, verify: canVerify,
     updateShipment: canUpdateShipment, viewCustomer: canViewCustomer, viewDealer: canViewDealer, transfers: canViewTransfers } = permissions;
-  const [role, setRole] = useState('');
   const [automaticTracking, setAutomaticTracking] = useState<boolean | null>(null);
   useEffect(() => {
     if (!permissions.viewShipping) return;
@@ -195,23 +194,6 @@ export default function OrderDetail() {
       .catch(() => { if (active) setAutomaticTracking(null); });
     return () => { active = false; };
   }, [permissions.viewShipping]);
-  useEffect(() => {
-    let active = true;
-    void api<{ user: { role: string } }>('/auth/me').then(async value => {
-      const currentRole = value.user.role;
-      const profile = currentRole === 'ADMIN'
-        ? await api<{ configured: boolean; grants: string[] | null }>('/admin/access/me')
-        : undefined;
-      if (active) {
-        setRole(currentRole);
-        setPermissions(orderPermissions(currentRole, profile));
-        setPermissionsReady(true);
-      }
-    }).catch(() => {
-      if (active) { setRole(''); setPermissions(orderPermissions('')); setPermissionsReady(true); }
-    });
-    return () => { active = false; };
-  }, []);
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const displayStatus = data ? orderQueueStatus({status:data.status,sales_status:data.sales_status, shipment_status:data.fulfillment?.shipment_status,tracking_direction_code:data.fulfillment?.tracking_direction_code}) : '';
@@ -429,19 +411,22 @@ export default function OrderDetail() {
         if (active)
           setError(e instanceof Error ? e.message : "Sipariş yüklenemedi");
       }).finally(() => { if (active) setLoading(false); });
-    if (role === "SUPER_ADMIN") api<Invoice | null>(`/admin/orders/${id}/invoice`).then((value) => {
-      if (active) setInvoice(value);
-    }).catch(() => { if (active) setInvoice(null); });
     return () => {
       active = false;
     };
-  }, [id, role, loadAttempt]);
+  }, [id, loadAttempt]);
+  useEffect(()=>{
+    let active=true;setInvoice(null);
+    if(role==='SUPER_ADMIN')void api<Invoice|null>(`/admin/orders/${id}/invoice`).then(value=>{if(active)setInvoice(value);}).catch(()=>{if(active)setInvoice(null);});
+    return()=>{active=false;};
+  },[id,role,loadAttempt]);
   return (
     <main>
       <AdminNav />
       <section className={styles.page}>
         <Link href="/siparisler">← Siparişler</Link>
         <h1>Sipariş detayı {data?.order_number}</h1>
+        {permissionsError&&<div className={styles.notice} role="alert"><p>{permissionsError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
         {error && data && <p className={styles.notice} role="alert">{error}</p>}
         {!data && <section className={styles.detailCard} aria-busy={loading}>
           <h2>{loading ? "Sipariş Yükleniyor" : "Sipariş Açılamadı"}</h2>

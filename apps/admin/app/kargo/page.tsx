@@ -50,7 +50,7 @@ const shipmentStage = (shipment: Shipment) => shipment.tracking_direction_code =
 const shipmentTracking = (shipment: Shipment) =>
   shipment.provider === 'aras' && shipment.tracking_number === shipment.order_number ? null : shipment.tracking_number;
 export default function Shipping() {
-  const {permissions,loading:accessLoading}=useOrderPermissions();
+  const {permissions,loading:accessLoading,error:accessError,refresh:refreshPermissions}=useOrderPermissions();
   const actionLock=useRef(false);
   const [loading,setLoading]=useState(true);
   const [loaded,setLoaded]=useState(false);
@@ -170,6 +170,7 @@ export default function Shipping() {
       <section className={styles.page}>
         <p>Siparişler / Kargo</p>
         <header className={styles.toolbar}><h1>Kargo İşlemleri</h1><button type="button" disabled={loading||busy!==null} onClick={()=>void load()}>{loading?'Yükleniyor…':'Kayıtları Yenile'}</button></header>
+        {accessError&&<div role="alert"><p>{accessError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
         {message && <p role="status">{message}</p>}
         {loading&&<p role="status">Kargo Bilgileri Yükleniyor…</p>}
         <div className={styles.summary}><article><p>KARGO KAYDI HAZIR</p><h2>{loaded?registered.length:'—'}</h2><p>Şube Kabulü / Takip Bekleniyor</p></article>

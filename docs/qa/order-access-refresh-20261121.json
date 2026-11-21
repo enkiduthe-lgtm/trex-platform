@@ -1,0 +1,26 @@
+{
+  "base_commit": "e9a6bcb",
+  "deployment_status": "local_only",
+  "changes": [
+    "Recheck action permissions on tab focus, visible-tab return and every minute while visible, coalescing concurrent reads.",
+    "Fail closed on unreadable or malformed permission profiles, with explicit retry controls on order list, order detail, shipping and stock pages.",
+    "Use the same permission hook for order list/detail and existing permission-aware management pages.",
+    "Keep background permission checks from restarting page loading states.",
+    "Separate order detail loading from director-only invoice reads so role rechecks do not blank the order."
+  ],
+  "verification": {
+    "permission_rule_tests_passed": 12,
+    "workflow_scripts_passed": [
+      "verify-order-permission-refresh.cjs",
+      "verify-order-detail-permission-loading.cjs"
+    ],
+    "reproduced_before_fix": "Open pages registered no focus handler and kept their initial permission snapshot.",
+    "admin_build": "passed"
+  },
+  "manual_checks_pending": [
+    "With two designated test sessions, change a manager grant and verify the already-open order, stock and shipping screens update on return.",
+    "Browser interaction and layout review after deployment."
+  ],
+  "authorization_note": "Client refresh improves current button visibility; existing server-side permission checks remain authoritative for every action.",
+  "live_environment_modified": false
+}
