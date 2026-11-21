@@ -25,7 +25,7 @@ const order={id:'order',order_number:'TEST-1',status:'DELIVERED',total_amount:'2
   {id:'pending',order_item_id:'item',amount:'30.00',currency:'TRY',status:'PENDING',entry_kind:'EARN',created_at:'2026-11-20T10:00:00Z'},
   {id:'euro',order_item_id:'item',amount:'12.00',currency:'EUR',status:'CONFIRMED',entry_kind:'EARN',created_at:'2026-11-20T10:00:00Z'},
  ],deductions:[{id:'fee',amount:'5.01',currency:'TRY',note:'İade kargo bedeli',created_at:'2026-11-20T10:00:00Z'}]};
-const render=value=>renderToStaticMarkup(React.createElement(OrderDetails,{order:value,onClose(){},onTrack(){},onOpenCommissions(){}}));
+const render=(value,extra={})=>renderToStaticMarkup(React.createElement(OrderDetails,{order:value,onClose(){},onTrack(){},onOpenCommissions(){},...extra}));
 const html=render(order);
 const formatted=(value,currency)=>Number(value).toLocaleString('tr-TR',{style:'currency',currency});
 assert(html.includes(formatted('75.04','TRY')),'Net commission must subtract reversals and cargo fees, exclude pending earnings');
@@ -33,6 +33,8 @@ assert(html.includes(formatted('12.00','EUR')),'Currencies must remain separate'
 assert(html.includes('Havale / EFT')&&html.includes('Ödeme doğrulandı'));
 assert(html.includes('Deneme Ürünü')&&html.includes('Prim ters kaydı'));
 assert(html.includes('Kargo Hareketleri'));
+const stale=render(order,{onRefresh(){},refreshing:false,refreshError:'Bağlantı kesildi.',refreshedAt:'2026-11-21T08:00:00Z'});
+assert(stale.includes('Detayı Yenile')&&stale.includes('Son yüklenen sipariş bilgileri gösteriliyor.')&&stale.includes('Son ekran yenilemesi'));
 const legacy=render({...order,has_shipment:false,payment_method:null,payment_status:null,payment_amount:null,commissions:undefined,deductions:undefined});
 assert(!legacy.includes('Kargo Hareketleri'));
 assert(legacy.includes('Ödeme kaydı yok')&&legacy.includes('henüz prim hareketi kaydedilmemiş'));

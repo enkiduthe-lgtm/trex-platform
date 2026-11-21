@@ -22,8 +22,9 @@ const paymentStatuses:Record<string,string>={PENDING:'Ödeme bekliyor',INITIATED
 const returnStatuses:Record<string,string>={REQUESTED:'Talep alındı',APPROVED:'Onaylandı',REJECTED:'Reddedildi',RECEIVED:'Teslim alındı',INSPECTED:'İncelendi',REFUNDED:'Geri ödeme tamamlandı',CANCELLED:'İptal edildi'};
 const commissionStatuses:Record<string,string>={PENDING:'Teslimat bekliyor',CONFIRMED:'Kesinleşti',AVAILABLE:'Kullanılabilir',PAID:'Ödendi',REVERSED:'Geri alındı',USED:'Kullanıldı',RESERVED:'Ayrıldı'};
 
-export function OrderDetails({order,onClose,onTrack,onOpenCommissions}:{
+export function OrderDetails({order,onClose,onTrack,onOpenCommissions,onRefresh,refreshing,refreshError,refreshedAt}:{
   order:DealerOrderDetail;onClose:()=>void;onTrack:()=>void;onOpenCommissions:()=>void;
+  onRefresh?:()=>void;refreshing?:boolean;refreshError?:string;refreshedAt?:string|null;
 }) {
   const commissions=order.commissions??[];
   const deductions=order.deductions??[];
@@ -37,11 +38,14 @@ export function OrderDetails({order,onClose,onTrack,onOpenCommissions}:{
     <div className={styles.header}>
       <div><h2>Sipariş {order.order_number}</h2><p>{financeDateTime(order.created_at)}</p><span className={styles.statusBadge}>{orderStatuses[order.status]??order.status}</span></div>
       <div className={styles.actions}>
+        {onRefresh&&<button type="button" disabled={refreshing} onClick={onRefresh}>{refreshing?'Yenileniyor…':'Detayı Yenile'}</button>}
         {order.has_shipment&&<button type="button" onClick={onTrack}>Kargo Hareketleri</button>}
         <button type="button" className="secondary" onClick={onOpenCommissions}>Primlerimi Aç</button>
         <button type="button" className="secondary" onClick={onClose}>Detayı Kapat</button>
       </div>
     </div>
+    {refreshedAt&&<p className={styles.refreshInfo}>Son ekran yenilemesi {financeDateTime(refreshedAt)} · Panel kayıtları açık ekranda 30 saniyede bir yenilenir.</p>}
+    {refreshError&&<p className="notice" role="alert">{refreshError} Son yüklenen sipariş bilgileri gösteriliyor.</p>}
     <div className={styles.table}><table><thead><tr><th>Sipariş toplamı</th><th>Hizmet bedeli</th><th>İade edilen tutar</th><th>İade sonrası tutar</th></tr></thead><tbody><tr>
       <td>{money(order.total_amount,order.currency)}</td><td>{money(order.cod_service_fee??'0',order.currency)}</td>
       <td>{money(order.refunded_amount??'0',order.currency)}</td><td>{money(order.net_amount??order.total_amount,order.currency)}</td>

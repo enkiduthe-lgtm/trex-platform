@@ -25,7 +25,7 @@ export function TrackingPanel({orderId,onClose}:{orderId:string;onClose:()=>void
     let active=true,inFlight=false;
     setData(null);setError('');
     const refresh=async()=>{
-      if(inFlight)return;
+      if(!active||inFlight)return;
       inFlight=true;setBusy(true);
       try {
         const result=await api<Tracking>(`/dealer-portal/orders/${orderId}/tracking`);

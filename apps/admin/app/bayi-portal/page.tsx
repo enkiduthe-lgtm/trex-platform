@@ -11,7 +11,8 @@ import styles from './portal.module.css';
 import { WalletPanel, createWalletView } from './wallet-panel';
 import { TrackingPanel } from './tracking-panel';
 import { ProductCatalog, type PortalProduct } from './product-catalog';
-import { OrderDetails, type DealerOrderDetail } from './order-details';
+import type { DealerOrderDetail } from './order-details';
+import { OrderDetailPanel } from './order-detail-panel';
 import { matchesDealerOrder, dealerOrderProductsLabel, type DealerOrderHistory } from '../lib/dealer-order-history';
 import { createRequestGate } from '../lib/async-controls';
 import { DeliveryField } from './delivery-field';
@@ -50,6 +51,7 @@ export default function DealerPortal() {
   const [options, setOptions] = useState<Options>({ products: [], warehouses: [] });
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [orderDetailLoadedAt,setOrderDetailLoadedAt]=useState<string|null>(null);
   const [createdOrder,setCreatedOrder]=useState<CreatedOrder|null>(null);
   const [cancelCandidate,setCancelCandidate]=useState<Order|null>(null);
   const [ledger, setLedger] = useState<Ledger[]>([]);
@@ -164,6 +166,7 @@ export default function DealerPortal() {
       catch(error){if(orderViewGate.current.isCurrent(ticket))throw error;return;}
       if(!orderViewGate.current.isCurrent(ticket))return;
       setOrderDetail(detail);
+      setOrderDetailLoadedAt(new Date().toISOString());
       setTrackingOrder(null);setTab('Siparişlerim');
       requestAnimationFrame(()=>document.getElementById('bayi-siparis-detayi')?.focus());
     });
@@ -360,7 +363,7 @@ export default function DealerPortal() {
 </section>}
 {ready&&trackingOrder&&['Siparişlerim','Kargo Takibi'].includes(tab)&&<TrackingPanel orderId={trackingOrder} onClose={()=>setTrackingOrder(null)}/>}
 {!ready ? <section className={styles.box}><p>Bayi Bilgileri Bekleniyor.</p></section> : <>
-    {tab === 'Siparişlerim' && orderDetail && <OrderDetails order={orderDetail} onClose={()=>setOrderDetail(null)}
+    {tab === 'Siparişlerim' && orderDetail && <OrderDetailPanel order={orderDetail} loadedAt={orderDetailLoadedAt} onClose={()=>setOrderDetail(null)}
       onTrack={()=>openTracking(orderDetail.id)} onOpenCommissions={()=>{setTab('Primlerim');requestAnimationFrame(()=>document.getElementById('bayi-prim-ekrani')?.focus());}}/>}
     {tab === 'Yeni Sipariş' && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!ready ? <p role="status">Sipariş Bilgileri Hazır Değil. Bilgileri Yenile Düğmesini Kullanın.</p> : !summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await refreshAfterAction('Bayilik Sözleşmesi Kabul Edildi.'); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form noValidate onSubmit={event => void create(event)}><fieldset disabled={busy} className={styles.orderFields}>
       <div className={styles.grid}>{deliveryFieldNames.filter(key=>key!=='addressLine').map(key=><DeliveryField key={key} name={key} value={form[key]} error={deliveryErrors[key]} onChange={value=>change(key,value)}/>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} disabled={busy} onChange={event => void changePayment(event.target.value,['TRANSFER','HAND_CASH'].includes(event.target.value)?form.currency:'TRY')}><option value="TRANSFER">Havale / EFT</option><option value="COMMISSION">Kesinleşmiş Primimle Öde</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label>Para Birimi<select disabled={busy||!['TRANSFER','HAND_CASH'].includes(form.paymentMethod)} value={form.currency} onChange={event=>void changePayment(form.paymentMethod,event.target.value)}><option value="TRY">TL</option><option value="EUR">Euro</option><option value="USD">Dolar</option></select></label>{form.currency!=='TRY'&&<p>Ortak Kur: 1 {form.currency} = {options.exchangeRate} TL · Sipariş Kaydında Güncel Kur Doğrulanır.</p>}{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input id="bayi-cod-service-fee" type="number" min="0" max="9999999999.99" step="0.01" required aria-invalid={feeError?true:undefined} aria-describedby={feeError?'bayi-cod-fee-error':undefined} value={codServiceFee} onChange={e=>{setCodServiceFee(e.target.value);setFeeError('');}}/>{feeError&&<small id="bayi-cod-fee-error" className={styles.fieldError}>{feeError}</small>}</label>}{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<div className={styles.full}><DeliveryField name="addressLine" value={form.addressLine} error={deliveryErrors.addressLine} onChange={value=>change('addressLine',value)}/></div></div>{currencyChange && <div className="notice"><p>Para birimi {currencyChange.currency} olarak değiştiğinde sepetteki ürünler temizlenecek.</p><div className={styles.actions}><button type="button" onClick={() => void changePayment(currencyChange.method,currencyChange.currency,true)}>Değiştir ve sepeti temizle</button><button type="button" className="secondary" onClick={() => setCurrencyChange(null)}>Vazgeç</button></div></div>}

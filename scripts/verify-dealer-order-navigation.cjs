@@ -15,6 +15,7 @@ async function main(){
  const context=vm.createContext({Error,
   orderViewGate:{current:controls.exports.createRequestGate()},actionLock:{current:false},
   setTabState:value=>state.tab=value,setOrderDetail:value=>state.detail=value,
+  setOrderDetailLoadedAt:value=>state.loadedAt=value,
   setTrackingOrder:value=>state.tracking=value,setMessage:value=>state.message=value,setBusy:value=>state.busy=value,
   requestAnimationFrame:callback=>callback(),document:{getElementById:()=>({focus:()=>state.focus++})},
   api:url=>new Promise((resolve,reject)=>requests.push({url,resolve,reject})),
