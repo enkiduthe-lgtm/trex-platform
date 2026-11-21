@@ -1,6 +1,14 @@
 import { FinanceService } from './finance.service';
 import { BadRequestException } from '@nestjs/common';
 
+describe('Finance reconciliation input safety',()=>{
+  it.each([['2026-02-29',undefined],['2026-04-31',undefined],['not-a-date',undefined],['0000-01-01',undefined],['2026-11-21T00:00:00Z',undefined],[undefined,'2026-13-01'],['2026-11-22','2026-11-21']])('rejects invalid or reversed dates before database access: %s / %s',async(from,to)=>{
+    const query=jest.fn();
+    await expect(new FinanceService({query} as never).reconciliation(from,to)).rejects.toBeInstanceOf(BadRequestException);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
 describe('Manual finance transaction safety', () => {
   it('keeps settlement-linked transactions immutable', async () => {
     const query=jest.fn().mockResolvedValue({rows:[{locked:true}]});

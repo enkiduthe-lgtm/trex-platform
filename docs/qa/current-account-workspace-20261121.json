@@ -15,7 +15,7 @@
     "permission_rule_tests_passed": 14,
     "passed_scripts": ["verify-current-account-idempotency.cjs", "verify-current-accounts.cjs", "verify-current-account-workflow.cjs", "verify-current-account-view.cjs"],
     "api_build": "passed",
-    "admin_build": "pending_final_refresh"
+    "admin_build": "passed"
   },
   "limitations": ["Recovery keys remain in the current screen session. After a full reload, inspect history before entering another transaction."],
   "manual_checks_pending": ["Browser layout and separate director/view-only-manager checks after deployment."],

@@ -1,0 +1,32 @@
+{
+  "requested_scope": "Two hours of manager-panel gap fixes and development",
+  "started_at_utc": "2026-11-21T14:21:21Z",
+  "requested_end_at_utc": "2026-11-21T16:21:21Z",
+  "base_commit": "2f60ce6",
+  "deployment_status": "local_only",
+  "completed_batches": [
+    {"commit": "a0ab91c", "area": "Order archives and uncertain finance entry recovery", "evidence": "manager-operations-20261121.json"},
+    {"commit": "e5296bd", "area": "Independent report reads and displayed-period export protection", "evidence": "manager-reports-20261121.json"},
+    {"commit": "2f51759", "area": "Finance workspace permissions, exact account IDs and atomic transfer pairs", "evidence": "finance-workspace-20261121.json"},
+    {"commit": "111ca98", "area": "Company income/expense excludes internal transfers", "evidence": "company-cash-summary-20261121.json"},
+    {"commit": "502d81e", "area": "Account archive recovery and director-only single-shipment tracking queries", "evidence": "manager-archive-shipping-20261121.json"},
+    {"commit": "c9138c1", "area": "Current-account posting, account-specific drafts and report periods", "evidence": "current-account-workspace-20261121.json"},
+    {"area": "Carrier payout plans, zero-net closure and reconciliation input errors", "evidence": "carrier-payout-workspace-20261121.json"}
+  ],
+  "verification_scope": {
+    "data": "Synthetic isolated SQL databases and controlled API responses; no live financial, order, account or carrier mutations.",
+    "api_tests": "Finance, staff security, current accounts, order archives, account archives and shipping suites passed during the work window. Counts and exact checks are recorded per batch.",
+    "permission_rules": "14 passed after adding separate current-account posting permission.",
+    "rendered_views": "Actual components rendered against synthetic view-only, partial-error, pending-request and confirmation states. These are markup checks, not browser layout approval.",
+    "final_admin_build": "passed: compiled, type checking and all 53 pages completed",
+    "last_queue_control_adjustment": "Final stale-queue button guard checked by rendering the updated shipping component after the build; no additional full build was needed for this boolean UI condition."
+  },
+  "remaining_verification": [
+    "Review the changed screens in a browser after publishing the API and panel together.",
+    "Use a real delivered shipment to verify carrier polling, tracking number and order-list movement after deployment.",
+    "Review role-specific screens using separate director and restricted-manager sessions."
+  ],
+  "deliberately_not_repeated": ["Previously confirmed Aras barcode work", "Marketplace integrations deferred until panel readiness"],
+  "preserved_workspace_files": ["apps/admin/next-env.d.ts", "apps/admin/tsconfig.json", "apps/admin/tsconfig.tsbuildinfo"],
+  "live_environment_modified": false
+}

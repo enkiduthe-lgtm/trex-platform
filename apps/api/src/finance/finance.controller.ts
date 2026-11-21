@@ -41,6 +41,7 @@ export class FinanceController {
   @Get('marketplace-settlements') marketplaceSettlements() { return this.finance.listMarketplaceSettlements(); }
   @Get('carrier-settlements') carrierSettlements() { return this.finance.listCarrierSettlements(); }
   @Post('carrier-settlements') carrierSettlement(@Body() dto: CreateCarrierSettlementDto, @Req() req: UserRequest) { return this.finance.createCarrierSettlement(dto, req.user); }
+  @Post('carrier-settlements/idempotent') idempotentCarrierSettlement(@Body() dto:CreateCarrierSettlementDto,@Req() req:UserRequest,@Headers('idempotency-key') key?:string) { return this.finance.createCarrierSettlement(dto,req.user,key??''); }
   @Post('carrier-settlements/:id/mark-paid') markCarrierSettlementPaid(@Param('id') id: string, @Req() req: UserRequest) { return this.finance.markCarrierSettlementPaid(id, req.user); }
   @Get('dashboard') dashboard(@Req() req:UserRequest) { return this.finance.dashboard(req.user); }
   @Get('alerts') alerts(@Req() req:UserRequest) { return this.finance.alerts(req.user); }

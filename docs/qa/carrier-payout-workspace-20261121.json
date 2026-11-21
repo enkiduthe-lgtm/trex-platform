@@ -1,0 +1,27 @@
+{
+  "base_commit": "c9138c1",
+  "deployment_status": "local_only",
+  "changes": [
+    "Close a zero-net carrier plan without inserting an invalid zero-value cash transaction.",
+    "Calculate gross, deductions and net in integer cents; validate account limits and blank carrier names.",
+    "Require an active TRY account before recording a positive carrier payout; retain existing same-plan payment replay protection.",
+    "Store carrier plan creation, audit and an actor-scoped recovery key atomically on a new mandatory-key route.",
+    "Separate finance create and approval controls; review the exact account and amount before closing a plan.",
+    "Retry the original uncertain create request, freeze other writes while unresolved, retain drafts after failure and show refresh failures separately from successful payments.",
+    "Keep historical plan data visible when an independent account read fails; use active TRY accounts for new plans.",
+    "Reject invalid or reversed reconciliation dates with a client error before database access."
+  ],
+  "verification": {
+    "reproduced_before_fix": "A 100 gross / 100 deduction plan raised a finance_transactions_amount_check error on mark-paid.",
+    "passed_scripts": ["verify-carrier-payout-safety.cjs", "verify-carrier-plan-workflow.cjs", "verify-carrier-plan-view.cjs"],
+    "database_scope": "Actual carrier table migration and service against isolated synthetic SQL records; no live writes.",
+    "api_build": "passed",
+    "finance_api_tests_passed": 25,
+    "access_and_current_account_api_tests_passed": 23,
+    "admin_build": "passed"
+  },
+  "limitations": ["Uncertain create recovery remains in the current screen session. After a full reload, inspect the plan list before entering another plan."],
+  "manual_checks_pending": ["Browser review of plan confirmation and role-specific controls after deployment."],
+  "deployment_requirement": "Deploy the API and panel together; new clients intentionally do not fall back to duplicate-prone legacy create routes.",
+  "live_environment_modified": false
+}
