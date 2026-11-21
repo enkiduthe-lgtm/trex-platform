@@ -11,7 +11,7 @@
     {"commit": "111ca98", "area": "Company income/expense excludes internal transfers", "evidence": "company-cash-summary-20261121.json"},
     {"commit": "502d81e", "area": "Account archive recovery and director-only single-shipment tracking queries", "evidence": "manager-archive-shipping-20261121.json"},
     {"commit": "c9138c1", "area": "Current-account posting, account-specific drafts and report periods", "evidence": "current-account-workspace-20261121.json"},
-    {"area": "Carrier payout plans, zero-net closure and reconciliation input errors", "evidence": "carrier-payout-workspace-20261121.json"}
+    {"commit": "57afe7c", "area": "Carrier payout plans, zero-net closure and reconciliation input errors", "evidence": "carrier-payout-workspace-20261121.json"}
   ],
   "verification_scope": {
     "data": "Synthetic isolated SQL databases and controlled API responses; no live financial, order, account or carrier mutations.",
@@ -19,6 +19,7 @@
     "permission_rules": "14 passed after adding separate current-account posting permission.",
     "rendered_views": "Actual components rendered against synthetic view-only, partial-error, pending-request and confirmation states. These are markup checks, not browser layout approval.",
     "final_admin_build": "passed: compiled, type checking and all 53 pages completed",
+    "built_api_routes": "verify-manager-operation-routes.cjs passed: four mandatory-key POST routes match the client URLs, preserve the original key and reject missing-key legacy fallback. Single-order carrier tracking retains director-only authorization.",
     "last_queue_control_adjustment": "Final stale-queue button guard checked by rendering the updated shipping component after the build; no additional full build was needed for this boolean UI condition."
   },
   "remaining_verification": [
