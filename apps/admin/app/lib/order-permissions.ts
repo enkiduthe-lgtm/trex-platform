@@ -32,5 +32,6 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     financeEdit: allowed('FINANCE', 'EDIT', []),
     financeDelete: allowed('FINANCE', 'DELETE', []),
     financeApprove: allowed('FINANCE', 'APPROVE', []),
+    currentCreate: allowed('CURRENT', 'CREATE', ['ADMIN','FINANCE']),
   };
 }

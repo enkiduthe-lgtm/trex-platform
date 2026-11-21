@@ -1,0 +1,23 @@
+{
+  "base_commit": "502d81e",
+  "deployment_status": "local_only",
+  "changes": [
+    "Create manual current-account entries, their audit records and recovery keys atomically.",
+    "Require an actor-scoped key on the new idempotent route and recover matching requests without a second ledger entry.",
+    "Keep existing callers compatible, validate exact cents and reject blank descriptions and document types.",
+    "Keep commission spending in the dealer's own order payment flow; manual current-account posting cannot simulate commission use.",
+    "Apply CURRENT view/create permissions, freeze unresolved submissions and expose original-request recovery outside the form.",
+    "Separate successful writes from failed balance refreshes, support read retries and ignore stale account responses.",
+    "Prevent draft amounts and descriptions from carrying to another party; keep exports numeric and tied to the displayed period."
+  ],
+  "verification": {
+    "api_tests_passed": 23,
+    "permission_rule_tests_passed": 14,
+    "passed_scripts": ["verify-current-account-idempotency.cjs", "verify-current-accounts.cjs", "verify-current-account-workflow.cjs", "verify-current-account-view.cjs"],
+    "api_build": "passed",
+    "admin_build": "pending_final_refresh"
+  },
+  "limitations": ["Recovery keys remain in the current screen session. After a full reload, inspect history before entering another transaction."],
+  "manual_checks_pending": ["Browser layout and separate director/view-only-manager checks after deployment."],
+  "live_environment_modified": false
+}

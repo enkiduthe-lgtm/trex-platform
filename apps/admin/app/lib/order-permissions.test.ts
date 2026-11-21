@@ -102,3 +102,12 @@ test('expense creation and deletion require independent finance grants',()=>{
  assert.equal(remove.createExpense,false);assert.equal(remove.deleteExpense,true);
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['FINANCE.DELETE']}).deleteExpense,false);
 });
+
+test('current-account posting requires its own view and create grants',()=>{
+ assert.equal(orderPermissions('SUPER_ADMIN').currentCreate,true);
+ assert.equal(orderPermissions('DEALER').currentCreate,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CURRENT.VIEW']}).currentCreate,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CURRENT.CREATE']}).currentCreate,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CURRENT.VIEW','CURRENT.CREATE']}).currentCreate,true);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['FINANCE.VIEW','FINANCE.CREATE']}).currentCreate,false);
+});
