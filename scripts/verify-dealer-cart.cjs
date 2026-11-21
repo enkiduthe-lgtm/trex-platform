@@ -1,5 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
 const ts=require(path.join(process.argv[2],'node_modules/typescript'));
+const validation={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../apps/admin/app/lib/dealer-order-validation.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,validation);
 const source=fs.readFileSync(path.join(__dirname,'../apps/admin/app/bayi-portal/page.tsx'),'utf8');
 const start=source.indexOf('  function addItem('),end=source.indexOf('  async function action(',start);
 const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
@@ -7,7 +9,7 @@ const tea={id:'tea',name:'Tea',amount:'100.00',currency:'TRY',packs:[{size:2,amo
 function run(quick,{count=7,size=5,override='9999',existing=[],editing=null,product=tea}={}) {
   let result=existing,message='';
   const context={
-    ready:true,actionLock:{current:false},product,editingItemId:editing,
+    ready:true,actionLock:{current:false},product,editingItemId:editing,validDealerMoney:validation.exports.validDealerMoney,
     form:{productId:product.id,quantity:count},packSize:size,priceOverride:override,items:existing,
     setMessage:value=>message=value,setItems:update=>result=update(result),
     setEditingItemId:()=>{},setPriceOverride:()=>{},setPackSize:()=>{},setForm:()=>{},setTab:()=>{},
@@ -28,6 +30,10 @@ for(const size of [2,3,5]){
 }
 result=run(false,{count:1,size:2,override:'179.99'});
 assert.equal(result.result.length,0);assert(result.message);
+for(const override of ['100.005','1e3','10000000000']){
+ result=run(false,{count:1,size:1,override});
+ assert.equal(result.result.length,0);assert(result.message,'Invalid precision or excessive prices must not be rounded into a cart item');
+}
 const original={productId:'tea',quantity:1,unitAmount:'110.00',baseAmount:'100.00',currency:'TRY'};
 const other={productId:'cap',quantity:2,unitAmount:'50.00',baseAmount:'45.00',currency:'TRY'};
 result=run(true,{existing:[original]});

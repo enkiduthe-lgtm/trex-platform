@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {dealerDeliveryErrors,normalizeDealerDelivery,validDealerMoney} from './dealer-order-validation';
+const delivery={recipientName:'  Deneme Alıcı  ',contactEmail:' TEST@EXAMPLE.COM ',phone:' 05320000000 ',city:' Bursa ',district:' Nilüfer ',addressLine:' Deneme Mah. No: 1 ',postalCode:' 16000 '};
+test('delivery normalization preserves phone leading zero, currency and payment method for stable retries',()=>{
+ const normalized=normalizeDealerDelivery({...delivery,currency:'USD',paymentMethod:'TRANSFER'});
+ assert.equal(normalized.recipientName,'Deneme Alıcı');assert.equal(normalized.contactEmail,'test@example.com');
+ assert.equal(normalized.phone,'05320000000');assert.equal(normalized.currency,'USD');assert.equal(normalized.paymentMethod,'TRANSFER');
+ assert.deepEqual(normalizeDealerDelivery(normalized),normalized);
+ assert.equal(delivery.phone,' 05320000000 ');
+});
+test('whitespace required fields and excessive delivery text are reported before submitting',()=>{
+ const errors=dealerDeliveryErrors({...delivery,recipientName:'  ',addressLine:'A'.repeat(501),city:'B'.repeat(101),postalCode:''});
+ assert.ok(errors.recipientName);assert.ok(errors.addressLine);assert.ok(errors.city);assert.equal(errors.postalCode,undefined);
+ assert.deepEqual(dealerDeliveryErrors({...delivery,addressLine:'A'.repeat(500),city:'B'.repeat(100)}),{});
+});
+test('money keeps exact cents and rejects silent rounding, negatives, non-finite and excessive values',()=>{
+ for(const amount of ['0','0.00','75','75.50','9999999999.99','0001.50'])assert(validDealerMoney(amount),amount);
+ for(const amount of ['', '-1','1.005','75,50','NaN','Infinity','1e2','10000000000','0.001'])assert.equal(validDealerMoney(amount),false,amount);
+});

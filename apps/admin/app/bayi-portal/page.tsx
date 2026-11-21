@@ -14,6 +14,8 @@ import { ProductCatalog, type PortalProduct } from './product-catalog';
 import { OrderDetails, type DealerOrderDetail } from './order-details';
 import { matchesDealerOrder, dealerOrderProductsLabel, type DealerOrderHistory } from '../lib/dealer-order-history';
 import { createRequestGate } from '../lib/async-controls';
+import { DeliveryField } from './delivery-field';
+import { deliveryFieldNames, deliveryFieldRules, dealerDeliveryErrors, normalizeDealerDelivery, validDealerMoney, type DealerDeliveryErrors } from '../lib/dealer-order-validation';
 
 type Summary = { company_name: string; code: string; level_name?:string|null; has_primary_iban?:boolean; dealer_balance: string; order_count: string; agreement_accepted_at: string | null };
 type Product = PortalProduct;
@@ -53,6 +55,8 @@ export default function DealerPortal() {
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [form, setForm] = useState(initial);
+  const [deliveryErrors,setDeliveryErrors]=useState<DealerDeliveryErrors>({});
+  const [feeError,setFeeError]=useState('');
   const [items, setItems] = useState<Item[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -97,7 +101,10 @@ export default function DealerPortal() {
     const base = row.baseAmount;
     return base === null || base === undefined ? [] : [{currency:row.currency,amount:lineTotal(row)},{currency:row.currency,amount:'-'+multiplyMoney(base,row.packSize?row.quantity/row.packSize:row.quantity)}];
   })), [items, options.products]);
-  const change = (key: keyof typeof initial, value: string | number) => setForm(current => ({ ...current, [key]: value }));
+  const change = (key: keyof typeof initial, value: string | number) => {
+    setForm(current => ({ ...current, [key]: value }));
+    if(key in deliveryFieldRules)setDeliveryErrors(current=>({...current,[key]:undefined}));
+  };
   async function changePayment(method:string,currency:string,clearCart=false) {
     if (!ready || actionLock.current) return;
     if (currency === form.currency) {
@@ -211,6 +218,7 @@ export default function DealerPortal() {
     if(count*size>100000)return setMessage('Toplam Ürün Adedi 100000 Sınırını Aşamaz.');
     const floor=size===1?selected.amount:selected.packs?.find(pack=>pack.size===size)?.amount;
     if(floor===undefined||floor===null)return setMessage('Bu Paket İçin Fiyat Tanımlanmamış.');
+    if(!quickProduct&&priceOverride&&!validDealerMoney(priceOverride))return setMessage('Satış fiyatını en fazla iki ondalık basamakla ve izin verilen tutar aralığında girin.');
     const amount = !quickProduct && priceOverride ? Number(priceOverride) : Number(floor);
     if (!Number.isFinite(amount) || amount < Number(floor)) return setMessage('Satış Fiyatı Bayi Fiyatının Altında Olamaz.');
     if (!Number.isInteger(count) || count < 1 || count > 100000) return setMessage('Geçerli Bir Adet Girin.');
@@ -274,12 +282,25 @@ export default function DealerPortal() {
       ]);
     }
   }
-  async function create(event: FormEvent) {
+  async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!ready) return setMessage('Sipariş Vermeden Önce Bilgileri Yenileyin.');
     if (currencyChange) return setMessage('Para birimi değişikliğini tamamlayın veya vazgeçin.');
     if (editingItemId) return setMessage('Siparişi oluşturmadan önce ürün değişikliğini kaydedin veya düzenlemeden vazgeçin.');
     if (!items.length) return setMessage('Siparişe En Az Bir Ürün Ekleyin.');
+    const errors=dealerDeliveryErrors(form);
+    setDeliveryErrors(errors);
+    const invalidField=deliveryFieldNames.find(field=>errors[field]);
+    if(invalidField){
+      setMessage('İşaretli teslimat bilgilerini kontrol edin.');
+      requestAnimationFrame(()=>document.getElementById(`bayi-${invalidField}`)?.focus());return;
+    }
+    if(form.paymentMethod.startsWith('COD_')&&!validDealerMoney(codServiceFee)){
+      setFeeError('Hizmet bedelini sıfır veya pozitif, en fazla iki ondalık basamaklı bir tutar olarak girin.');
+      requestAnimationFrame(()=>document.getElementById('bayi-cod-service-fee')?.focus());return;
+    }
+    setFeeError('');
+    if(!event.currentTarget.reportValidity())return;
     if (insufficientCommission) return setMessage('Primle ödeme için kullanılabilir priminiz siparişin tamamına yetmeli.');
     if (!items.every(item => item.currency === form.currency)) return setMessage('Sipariş ve ürün fiyatları aynı para biriminde olmalı.');
     const insufficient = items.find(item=>{
@@ -289,12 +310,14 @@ export default function DealerPortal() {
     if (insufficient) return setMessage('Sepette stok miktarını aşan ürün var. Adedi güncelleyip tekrar deneyin.');
     if (!options.warehouses[0]) return setMessage('Genel Stok Tanımı Bulunamadı. Yöneticiyle İletişime Geçin.');
     await action(async () => {
-      const {productId:_selection,quantity:_count,...delivery}=form;
+      const {productId:_selection,quantity:_count,...rawDelivery}=form;
+      const delivery=normalizeDealerDelivery(rawDelivery);
       const body = JSON.stringify({ ...delivery,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined, warehouseId: options.warehouses[0].id, currency: items[0].currency, items: items.map(({ productId, quantity, unitAmount,packSize,packAmount }) => ({ productId, quantity,packSize,packAmount:packSize?Number(packAmount):undefined, unitAmount:packSize?undefined:Number(unitAmount) })), priceChangeReason: 'Bayi Portalı Fiyatı' });
       if (pendingOrder.current?.body !== body) pendingOrder.current = { body, key: crypto.randomUUID() };
       const result = await api<CreatedOrder>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': pendingOrder.current.key }, body });
       pendingOrder.current = null;
       setCreatedOrder(result);
+      setDeliveryErrors({});setFeeError('');
       setEditingItemId(null);
       setItems([]); setForm({ ...initial, currency:form.currency, paymentMethod:form.paymentMethod, contactEmail: email }); setCodServiceFee('75'); setTab('Siparişlerim');
       await refreshAfterAction(`${result.order_number} Numaralı Sipariş Oluşturuldu.`);
@@ -339,8 +362,8 @@ export default function DealerPortal() {
 {!ready ? <section className={styles.box}><p>Bayi Bilgileri Bekleniyor.</p></section> : <>
     {tab === 'Siparişlerim' && orderDetail && <OrderDetails order={orderDetail} onClose={()=>setOrderDetail(null)}
       onTrack={()=>openTracking(orderDetail.id)} onOpenCommissions={()=>{setTab('Primlerim');requestAnimationFrame(()=>document.getElementById('bayi-prim-ekrani')?.focus());}}/>}
-    {tab === 'Yeni Sipariş' && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!ready ? <p role="status">Sipariş Bilgileri Hazır Değil. Bilgileri Yenile Düğmesini Kullanın.</p> : !summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await refreshAfterAction('Bayilik Sözleşmesi Kabul Edildi.'); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form onSubmit={event => void create(event)}><fieldset disabled={busy} className={styles.orderFields}>
-      <div className={styles.grid}>{([['recipientName', 'Alıcı Adı'], ['contactEmail', 'E-Posta'], ['phone', 'Telefon'], ['city', 'İl'], ['district', 'İlçe'], ['postalCode', 'Posta Kodu']] as const).map(([key, label]) => <label key={key}>{label}<input required={key !== 'postalCode'} type={key === 'contactEmail' ? 'email' : 'text'} value={form[key]} onChange={event => change(key, event.target.value)} /></label>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} disabled={busy} onChange={event => void changePayment(event.target.value,['TRANSFER','HAND_CASH'].includes(event.target.value)?form.currency:'TRY')}><option value="TRANSFER">Havale / EFT</option><option value="COMMISSION">Kesinleşmiş Primimle Öde</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label>Para Birimi<select disabled={busy||!['TRANSFER','HAND_CASH'].includes(form.paymentMethod)} value={form.currency} onChange={event=>void changePayment(form.paymentMethod,event.target.value)}><option value="TRY">TL</option><option value="EUR">Euro</option><option value="USD">Dolar</option></select></label>{form.currency!=='TRY'&&<p>Ortak Kur: 1 {form.currency} = {options.exchangeRate} TL · Sipariş Kaydında Güncel Kur Doğrulanır.</p>}{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input type="number" min="0" max="9999999999.99" step="0.01" required value={codServiceFee} onChange={e=>setCodServiceFee(e.target.value)}/></label>}{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<label className={styles.full}>Açık Adres<textarea required value={form.addressLine} onChange={event => change('addressLine', event.target.value)} /></label></div>{currencyChange && <div className="notice"><p>Para birimi {currencyChange.currency} olarak değiştiğinde sepetteki ürünler temizlenecek.</p><div className={styles.actions}><button type="button" onClick={() => void changePayment(currencyChange.method,currencyChange.currency,true)}>Değiştir ve sepeti temizle</button><button type="button" className="secondary" onClick={() => setCurrencyChange(null)}>Vazgeç</button></div></div>}
+    {tab === 'Yeni Sipariş' && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!ready ? <p role="status">Sipariş Bilgileri Hazır Değil. Bilgileri Yenile Düğmesini Kullanın.</p> : !summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await refreshAfterAction('Bayilik Sözleşmesi Kabul Edildi.'); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form noValidate onSubmit={event => void create(event)}><fieldset disabled={busy} className={styles.orderFields}>
+      <div className={styles.grid}>{deliveryFieldNames.filter(key=>key!=='addressLine').map(key=><DeliveryField key={key} name={key} value={form[key]} error={deliveryErrors[key]} onChange={value=>change(key,value)}/>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} disabled={busy} onChange={event => void changePayment(event.target.value,['TRANSFER','HAND_CASH'].includes(event.target.value)?form.currency:'TRY')}><option value="TRANSFER">Havale / EFT</option><option value="COMMISSION">Kesinleşmiş Primimle Öde</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label>Para Birimi<select disabled={busy||!['TRANSFER','HAND_CASH'].includes(form.paymentMethod)} value={form.currency} onChange={event=>void changePayment(form.paymentMethod,event.target.value)}><option value="TRY">TL</option><option value="EUR">Euro</option><option value="USD">Dolar</option></select></label>{form.currency!=='TRY'&&<p>Ortak Kur: 1 {form.currency} = {options.exchangeRate} TL · Sipariş Kaydında Güncel Kur Doğrulanır.</p>}{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input id="bayi-cod-service-fee" type="number" min="0" max="9999999999.99" step="0.01" required aria-invalid={feeError?true:undefined} aria-describedby={feeError?'bayi-cod-fee-error':undefined} value={codServiceFee} onChange={e=>{setCodServiceFee(e.target.value);setFeeError('');}}/>{feeError&&<small id="bayi-cod-fee-error" className={styles.fieldError}>{feeError}</small>}</label>}{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<div className={styles.full}><DeliveryField name="addressLine" value={form.addressLine} error={deliveryErrors.addressLine} onChange={value=>change('addressLine',value)}/></div></div>{currencyChange && <div className="notice"><p>Para birimi {currencyChange.currency} olarak değiştiğinde sepetteki ürünler temizlenecek.</p><div className={styles.actions}><button type="button" onClick={() => void changePayment(currencyChange.method,currencyChange.currency,true)}>Değiştir ve sepeti temizle</button><button type="button" className="secondary" onClick={() => setCurrencyChange(null)}>Vazgeç</button></div></div>}
       {product&&<section className={styles.box}><h3>{product.name} · Seviyene Özel Alım Fiyatları</h3>{product.available_quantity!==undefined&&<p>Satılabilir stok {product.available_quantity} adet</p>}<div className={styles.grid}><div><b>Tekli</b><p>{product.amount!==null?money(product.amount,product.currency || form.currency):'Tanımlanmamış'}</p></div>{product.packs?.map(pack=>{const currency=product.currency || form.currency;const summary=dealerPackSummary({...pack,currency},product.amount!==null?{amount:product.amount,currency}:undefined,pack.size);return <div key={pack.size}><b>{pack.size}’li Toplam</b><p>{money(pack.amount,currency)}</p>{summary&&<small>Adet Başına: {summary.unitPrice}{summary.saving&&<><br/>{summary.saving} Tasarruf</>}</small>}</div>;})}</div></section>}
       <h3 id="bayi-urun-secimi">{editingItemId?'Sepetteki Ürünü Düzenle':'Ürün Ekle'}</h3><div className={styles.grid}><label>Ürün<select value={form.productId} onChange={event => { change('productId', event.target.value); setPriceOverride('');setPackSize(1); }}><option value="">Ürün Seçin</option>{options.products.filter(row => row.amount !== null).map(row => <option key={row.id} value={row.id}>{row.name} · {money(row.amount!, row.currency || 'TRY')}</option>)}</select></label><label>Alım Seçeneği<select value={packSize} onChange={event=>{setPackSize(Number(event.target.value));setPriceOverride('');}}><option value="1">Tekli</option>{product?.packs?.map(pack=><option key={pack.size} value={pack.size}>{pack.size}’li · {money(pack.amount,product?.currency || form.currency)} Toplam</option>)}</select></label><label>{packSize===1?'Adet':'Paket Adedi'}<input type="number" min="1" max="100000" value={form.quantity} onChange={event => change('quantity', Number(event.target.value))} /></label><label>{packSize===1?'Satış Birim Fiyatı':'Satış Paket Toplam Fiyatı'}<input type="number" min={selectedBase ?? 0} step="0.01" value={priceOverride} placeholder={selectedBase ?? 'Önce Ürün Seçin'} onChange={event => setPriceOverride(event.target.value)} /></label><div className={styles.actions}>{packSize>1&&Number.isInteger(form.quantity)&&form.quantity>0&&<small>{form.quantity} Paket × {packSize} Adet = {form.quantity*packSize} Adet · Tek Sipariş</small>}<button type="button" disabled={busy} onClick={() => addItem()}>{editingItemId?'Değişikliği Kaydet':'Siparişe Ekle'}</button>{editingItemId&&<button type="button" className="secondary" onClick={cancelItemEdit}>Düzenlemeden Vazgeç</button>}</div></div>
       <div className={styles.table}><table><thead><tr><th>Ürün</th><th>Ürün Adedi</th><th>Satış Fiyatı</th><th>Satır Toplamı</th><th>İşlem</th></tr></thead><tbody>{items.map(row => <tr key={row.productId}><td>{options.products.find(p => p.id === row.productId)?.name}</td><td><input aria-label={`${options.products.find(p => p.id === row.productId)?.name ?? 'Ürün'} Adedi`} type="number" min={row.packSize??1} step={row.packSize??1} max="100000" value={row.quantity} disabled={busy||editingItemId===row.productId} onChange={event => updateQuantity(row.productId, Number(event.target.value))} />{row.packSize&&<small>{row.quantity/row.packSize} Paket × {row.packSize} Adet = {row.quantity} Adet</small>}</td><td>{row.packSize?`${row.packSize}’li Paket: `:''}{money(row.packAmount??row.unitAmount, row.currency)}</td><td>{money(lineTotal(row), row.currency)}</td><td><div className={styles.actions}><button type="button" className="secondary" disabled={busy} onClick={()=>editItem(row)}>Düzenle</button><button type="button" className="secondary" disabled={busy} onClick={() => {setItems(current => current.filter(item => item.productId !== row.productId));if(editingItemId===row.productId)cancelItemEdit();}}>Çıkar</button></div></td></tr>)}{!items.length && <tr><td colSpan={5}>Henüz Ürün Eklenmedi.</td></tr>}</tbody></table></div><div className={styles.actions}>{totals.map(row => <strong key={row.currency}>Ürünler: {money(row.amount, row.currency)} · Hizmet: {money(form.paymentMethod.startsWith('COD_')?codServiceFee:'0',row.currency)} · Toplam: {money((Number(row.amount)+(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0)).toFixed(2),row.currency)}</strong>)}{estimatedMargin.map(row => <strong key={row.currency}>Tahmini Bayi Primi: {money(row.amount,row.currency)}</strong>)}<small>Seviye Fiyatının Üstündeki Farktır. Prim Teslimatta Kesinleşir.</small>
