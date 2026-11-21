@@ -52,5 +52,6 @@ export class FinanceController {
   @Patch('transactions/:id') updateTransaction(@Param('id') id:string,@Body() dto: CreateFinanceTransactionDto,@Req() req:UserRequest) { return this.finance.updateTransaction(id,dto,req.user); }
   @Delete('transactions/:id') deleteTransaction(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.deleteTransaction(id,req.user); }
   @Post('marketplace-settlements') marketplaceSettlement(@Body() dto: CreateMarketplaceSettlementDto, @Req() req: UserRequest) { return this.finance.createMarketplaceSettlement(dto, req.user); }
-  @Post('transfers') transfer(@Body() dto: CreateFinanceTransferDto, @Req() req: UserRequest) { return this.finance.createTransfer(dto, req.user); }
+  @Post('transfers') transfer(@Body() dto: CreateFinanceTransferDto, @Req() req: UserRequest,@Headers('idempotency-key') key?:string) { return this.finance.createTransfer(dto, req.user,key); }
+  @Post('transfers/idempotent') idempotentTransfer(@Body() dto:CreateFinanceTransferDto,@Req() req:UserRequest,@Headers('idempotency-key') key?:string) { return this.finance.createTransfer(dto,req.user,key??''); }
 }

@@ -11,6 +11,14 @@ import { RolesGuard } from './roles.guard';
 
 const request = { user: { id: 'owner' } } as never;
 describe('Staff security', () => {
+  it.each(['/v1/admin/finance/transfers','/v1/admin/finance/transfers/idempotent'])('requires finance approval for %s',async path=>{
+    const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path})})} as never;
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.CREATE']}]});
+    const guard=new RolesGuard({getAllAndOverride:()=>[Roles.SUPER_ADMIN]} as never,{query} as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');
+    query.mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.APPROVE']}]});
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
   it('limits the dealer payout account picker to managers with approval and view grants', async () => {
     const context = {
       getHandler: () => undefined, getClass: () => undefined,

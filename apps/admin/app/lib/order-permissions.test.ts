@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { orderPermissions } from './order-permissions';
 
+test('finance workspace creation, editing, deletion and transfer approval stay separate',()=>{
+ const profile=(...grants:string[])=>orderPermissions('ADMIN',{configured:true,grants:['FINANCE.VIEW',...grants]});
+ const view=profile();assert.equal(view.financeCreate,false);assert.equal(view.financeEdit,false);assert.equal(view.financeDelete,false);assert.equal(view.financeApprove,false);
+ const create=profile('FINANCE.CREATE');assert.equal(create.financeCreate,true);assert.equal(create.financeApprove,false);
+ const approve=profile('FINANCE.APPROVE');assert.equal(approve.financeApprove,true);assert.equal(approve.financeCreate,false);
+ const edit=profile('FINANCE.EDIT','FINANCE.DELETE');assert.equal(edit.financeEdit,true);assert.equal(edit.financeDelete,true);assert.equal(edit.financeCreate,false);
+});
+
 test('view-only managers do not receive mutation or finance actions', () => {
   const result = orderPermissions('ADMIN', { configured: true, grants: ['ORDERS.VIEW'] });
   assert.equal(Object.values(result).some(Boolean), false);

@@ -78,6 +78,7 @@ async function main(){
  assert.equal(roundingNet.length,2);
  assert(roundingNet.every(row=>row.amount==='0.00'));
  const {FinanceService}=load(path.join(root,'apps/api/src/finance/finance.service.ts')),finance=new FinanceService(db);
+ await pg.exec(`ALTER TABLE finance_transactions ADD transfer_group_id uuid,ADD approved_at timestamptz;CREATE TABLE marketplace_settlements(finance_transaction_id uuid);CREATE TABLE carrier_settlements(finance_transaction_id uuid);CREATE TABLE return_refunds(finance_transaction_id uuid);CREATE TABLE dealer_prim_requests(finance_transaction_id uuid);`);
  assert.equal((await finance.listTransactions(executive)).length,0);
  assert.equal((await finance.listTransactions(master)).length,1);
  assert.equal((await finance.listTransactions({id:director,role:'ADMIN'})).length,1);

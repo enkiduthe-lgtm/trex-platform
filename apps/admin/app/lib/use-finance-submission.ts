@@ -3,8 +3,8 @@ import {useEffect,useRef,useState} from 'react';
 import {api,ApiError} from './api';
 
 type Intent={body:string;key:string};
-type Receipt={id:string;replayed?:boolean};
-export function useFinanceSubmission(){
+type Receipt={id?:string;transferGroupId?:string;replayed?:boolean};
+export function useFinanceSubmission(endpoint='/admin/finance/transactions/idempotent',receiptField:'id'|'transferGroupId'='id'){
  const intent=useRef<Intent|null>(null),lock=useRef(false),alive=useRef(true);
  const [pending,setPending]=useState<Intent|null>(null),[busy,setBusy]=useState(false);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -16,8 +16,8 @@ export function useFinanceSubmission(){
   try{
    if(!alive.current)throw new Error('Finans ekranı kapatıldı. Yeni işlem gönderilmedi.');
    attempt=intent.current??{body,key:crypto.randomUUID()};intent.current=attempt;
-   const result=await api<Receipt>('/admin/finance/transactions/idempotent',{method:'POST',headers:{'Idempotency-Key':attempt.key},body:attempt.body});
-   if(!result||typeof result.id!=='string'||!result.id)throw new Error('Para hareketinin yanıtı doğrulanamadı. Aynı işlemi yeniden kontrol edin.');
+   const result=await api<Receipt>(endpoint,{method:'POST',headers:{'Idempotency-Key':attempt.key},body:attempt.body});
+   if(!result||typeof result[receiptField]!=='string'||!result[receiptField])throw new Error('Para hareketinin yanıtı doğrulanamadı. Aynı işlemi yeniden kontrol edin.');
    intent.current=null;if(alive.current)setPending(null);return result;
   }catch(error){
    const rejected=error instanceof ApiError&&error.status>=400&&error.status<500&&![408,429,499].includes(error.status);

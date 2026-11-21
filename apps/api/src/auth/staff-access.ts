@@ -22,7 +22,7 @@ export function requestAccess(path:string,method:string):string|null {
  let action='VIEW';
  if(method==='DELETE')action='DELETE';
  else if(!['GET','HEAD','OPTIONS'].includes(method)) {
-  if(/\/(approve|reject|review|finalize|pay|paid|decision|refund|issue|mark-paid|receive|inspection)(\/|$)/.test(p)||/\/status$/.test(p)||p==='/admin/finance/transfers')action='APPROVE';
+  if(/\/(approve|reject|review|finalize|pay|paid|decision|refund|issue|mark-paid|receive|inspection)(\/|$)/.test(p)||/\/status$/.test(p)||/^\/admin\/finance\/transfers(?:\/idempotent)?$/.test(p))action='APPROVE';
   else if(['PATCH','PUT'].includes(method)||/\/(cancel|prepare|pack|publish|deactivate|level|parent|price-group|bulk-status|complete|scan|revisions|queue)(\/|$)/.test(p))action='EDIT';
   else action='CREATE';
  }

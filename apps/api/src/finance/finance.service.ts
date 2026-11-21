@@ -10,7 +10,7 @@ import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlem
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 import { StaffChannelService } from '../commissions/staff-channel.service';
-import { pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
+import { editableFinanceMovement, pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
 import { manualPaymentProviders, reportOrderStatus } from '../orders/report-order-status';
 import { cents } from '../orders/order-pricing';
 @Injectable()
@@ -45,6 +45,7 @@ export class FinanceService {
       GROUP BY a.id ORDER BY a.created_at DESC`,[canSeeAll,actor?.id??null])).rows;
   }
   async createAccount(dto: CreateFinanceAccountDto, actor: RequestUser) {
+    if(!dto.name.trim())throw new BadRequestException('Hesap adı zorunludur');
     return this.db.transaction(async client => {
       const result = await client.query<{ id: string }>('INSERT INTO finance_accounts(name,account_type,created_by,currency) VALUES ($1,$2,$3,$4) RETURNING id', [dto.name.trim(), dto.accountType, actor.id, dto.currency ?? 'TRY']);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'finance.account.created', 'finance_account', result.rows[0].id, JSON.stringify({ name: dto.name.trim(), accountType: dto.accountType, currency: dto.currency ?? 'TRY' })]);
@@ -52,6 +53,7 @@ export class FinanceService {
     });
   }
   async updateAccount(id:string,dto:CreateFinanceAccountDto,actor:RequestUser) {
+    if(!dto.name.trim())throw new BadRequestException('Hesap adı zorunludur');
     return this.db.transaction(async client=>{
       const previous=await client.query('SELECT id,name,account_type,currency FROM finance_accounts WHERE id=$1 FOR UPDATE',[id]);
       if(!previous.rowCount) throw new BadRequestException('Para hesabı bulunamadı');
@@ -76,7 +78,7 @@ export class FinanceService {
   }
   async listTransactions(actor?:RequestUser) {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
-    return (await this.db.query(`SELECT t.*, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC, t.id`,[canSeeAll,actor?.id??null])).rows;
+    return (await this.db.query(`SELECT t.*, ${editableFinanceMovement} AS can_edit, a.name AS account_name, a.currency, o.order_number, u.email AS approved_by_email FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=t.approved_by WHERE $1::boolean OR NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id AND e.staff_role='DIRECTOR' AND e.recipient_user_id<>$2::uuid) ORDER BY t.occurred_at DESC, t.created_at DESC, t.id`,[canSeeAll,actor?.id??null])).rows;
   }
   async reconciliation(dateFrom?:string,dateTo?:string,actor?:RequestUser) {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
@@ -216,13 +218,7 @@ export class FinanceService {
     });
   }
   private async editableTransaction(client: import('pg').PoolClient,id:string) {
-    const result=await client.query<{locked:boolean}>(`SELECT
-      (t.order_id IS NOT NULL OR t.transfer_group_id IS NOT NULL OR t.approved_at IS NOT NULL
-        OR EXISTS (SELECT 1 FROM marketplace_settlements m WHERE m.finance_transaction_id=t.id)
-        OR EXISTS (SELECT 1 FROM carrier_settlements s WHERE s.finance_transaction_id=t.id)
-        OR EXISTS (SELECT 1 FROM return_refunds r WHERE r.finance_transaction_id=t.id)
-        OR EXISTS (SELECT 1 FROM commission_entries e WHERE e.finance_transaction_id=t.id)
-        OR EXISTS (SELECT 1 FROM dealer_prim_requests p WHERE p.finance_transaction_id=t.id)) AS locked
+    const result=await client.query<{locked:boolean}>(`SELECT NOT (${editableFinanceMovement}) AS locked
       FROM finance_transactions t WHERE t.id=$1 FOR UPDATE OF t`,[id]);
     const transaction=result.rows[0];
     if(!transaction) throw new BadRequestException('Para hareketi bulunamadı');
@@ -256,9 +252,24 @@ export class FinanceService {
       return { id: settlement.rows[0].id, transactionId: transaction.rows[0].id, netCollectionAmount: net };
     });
   }
-  async createTransfer(dto: CreateFinanceTransferDto, actor: RequestUser) {
-    if (dto.fromAccountId === dto.toAccountId) throw new Error('Transfer source and target accounts must differ');
+  async createTransfer(dto: CreateFinanceTransferDto, actor: RequestUser,key?:string) {
+    if (dto.fromAccountId.toLowerCase() === dto.toAccountId.toLowerCase()) throw new BadRequestException('Transfer için farklı çıkış ve giriş hesapları seçin');
+    const description=dto.description.trim();if(!description)throw new BadRequestException('Transfer açıklaması zorunludur');
+    const amount=cents(dto.amount);if(amount<1n||amount>999999999999n)throw new BadRequestException('Geçerli transfer tutarı girin');
+    if(key!==undefined&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key))throw new BadRequestException('Geçerli transfer işlem anahtarı gerekli');
+    const identity=key?`finance-transfer:${actor.id}:${key.toLowerCase()}`:null;
+    const hash=identity?createHash('sha256').update(JSON.stringify({fromAccountId:dto.fromAccountId.toLowerCase(),toAccountId:dto.toAccountId.toLowerCase(),amount:amount.toString(),description})).digest('hex'):null;
     return this.db.transaction(async client => {
+      if(identity){
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[identity]);
+        const prior=await client.query<{request_hash:string;resource_id:string}>("SELECT request_hash,resource_id FROM idempotency_records WHERE key=$1 AND resource_type='finance_transfer'",[identity]);
+        if(prior.rows[0]){
+          if(prior.rows[0].request_hash!==hash)throw new ConflictException('Bu işlem anahtarı farklı transferde kullanılmış');
+          const saved=await client.query<{id:string;kind:string}>('SELECT id,kind FROM finance_transactions WHERE transfer_group_id=$1',[prior.rows[0].resource_id]);
+          if(saved.rows.length!==2||saved.rows.filter(row=>row.kind==='TRANSFER_IN').length!==1||saved.rows.filter(row=>row.kind==='TRANSFER_OUT').length!==1)throw new ConflictException('Önceki transferin iki yönlü kaydı doğrulanamadı. Yeni transfer oluşturmadan önce hesap hareketlerini kontrol edin.');
+          return {transferGroupId:prior.rows[0].resource_id,replayed:true};
+        }
+      }
       const accounts = await client.query<{id:string;currency:string}>("SELECT id,currency FROM finance_accounts WHERE id=ANY($1::uuid[]) AND is_active=true ORDER BY id FOR UPDATE",[[dto.fromAccountId,dto.toAccountId]]);
       if(accounts.rows.length!==2 || accounts.rows[0].currency!==accounts.rows[1].currency) throw new BadRequestException('Transfer için aynı para biriminde iki aktif hesap seçin; otomatik döviz dönüşümü yapılmaz');
       const group = await client.query<{ id: string }>('SELECT gen_random_uuid() AS id');
@@ -267,6 +278,7 @@ export class FinanceService {
       await client.query('INSERT INTO finance_transactions(account_id,kind,amount,description,transfer_group_id,created_by) VALUES ($1,\'TRANSFER_OUT\',$2,$3,$4,$5)', values(dto.fromAccountId));
       await client.query('INSERT INTO finance_transactions(account_id,kind,amount,description,transfer_group_id,created_by) VALUES ($1,\'TRANSFER_IN\',$2,$3,$4,$5)', values(dto.toAccountId));
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)', [actor.id, 'finance.transfer.created', 'finance_transfer', transferGroupId, JSON.stringify({ fromAccountId: dto.fromAccountId, toAccountId: dto.toAccountId, amount: dto.amount })]);
+      if(identity)await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES($1,$2,'finance_transfer',$3,now()+interval '365 days')",[identity,hash,transferGroupId]);
       return { transferGroupId };
     });
   }

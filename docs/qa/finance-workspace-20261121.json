@@ -1,0 +1,29 @@
+{
+  "base_commit": "e5296bd",
+  "deployment_status": "local_only",
+  "changes": [
+    "Resolve transaction editing and movement filters by account ID rather than duplicate account names.",
+    "Apply separate current finance create/edit/delete/approve grants to forms and action controls.",
+    "Serialize workspace writes, preserve unresolved transaction/transfer requests and recover their original body/key.",
+    "Create internal transfers idempotently as one paired ledger operation; keep FINANCE.APPROVE required on both transfer endpoints.",
+    "Expose the existing protected-transaction rule as read-only can_edit metadata and use the same SQL rule for actual mutations.",
+    "Retain inactive account history while limiting new entries and transfers to active accounts.",
+    "Use Istanbul calendar filters and numeric amounts in workspace exports.",
+    "Add an index for finance-linked commission lookup without changing existing entries."
+  ],
+  "verification": {
+    "api_tests": { "passed": 39, "suites": 2 },
+    "permission_rule_tests_passed": 13,
+    "passed_scripts": [
+      "verify-finance-workspace-actions.cjs", "verify-finance-workspace-read.cjs", "verify-finance-workspace-view.cjs",
+      "verify-finance-idempotency.cjs", "verify-finance-submission.cjs", "verify-finance-entry-actions.cjs", "verify-finance-entry-view.cjs",
+      "verify-finance-history.cjs", "verify-staff-pools.cjs"
+    ],
+    "api_build": "passed",
+    "admin_build": "passed",
+    "migration": "080_finance_commission_link_index.sql applied twice against isolated test data; record counts and privacy checks preserved."
+  },
+  "limitations": ["Uncertain request recovery remains in the current screen session's memory; review history after a full reload before entering another request."],
+  "manual_checks_pending": ["Browser review of finance permissions, same-name account selection and recovery notices after deployment."],
+  "live_environment_modified": false
+}
