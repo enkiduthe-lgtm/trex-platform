@@ -1,0 +1,20 @@
+{
+  "base_commit": "111ca98",
+  "deployment_status": "local_only",
+  "changes": [
+    "Make director-only account archive lists retryable after initial or post-action read failures.",
+    "Recheck director authorization on reload, disable mutations against unverified lists and retain confirmed success separately from refresh failures.",
+    "Offer a director-only per-shipment Aras tracking query using the existing query endpoint; never create or resend a shipment from this action.",
+    "Distinguish absent observations, failed queries, concurrent checks and confirmed updates.",
+    "Ignore stale shipping list/history responses and clear old expanded history after a reload.",
+    "Arrange six shipping summary cards in a balanced three-column grid, with existing two/one-column breakpoints."
+  ],
+  "verification": {
+    "passed_scripts": ["verify-account-archive-recovery.cjs", "verify-account-archive-view.cjs", "verify-manager-shipment-sync.cjs", "verify-manager-shipment-view.cjs"],
+    "shipping_api_tests_passed": 33,
+    "account_archive_api_tests_passed": 8,
+    "admin_build": "passed"
+  },
+  "manual_checks_pending": ["Browser layout review.", "Live carrier tracking query after deployment; no real delivery status was changed in this development run."],
+  "live_environment_modified": false
+}

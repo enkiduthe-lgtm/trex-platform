@@ -6,6 +6,7 @@ import { AdminNav } from '../../components/admin-nav';
 import styles from '../../components/removal.module.css';
 import { api } from '../../lib/api';
 import { financeDateTime } from '../../lib/finance-report';
+import { createRequestGate } from '../../lib/async-controls';
 
 type Account = {
   id: string;
@@ -22,60 +23,87 @@ export default function AccountArchives() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [allowed, setAllowed] = useState(false);
   const [kind, setKind] = useState<Account['kind']>('staff');
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const lock = useRef(false);
+  const alive = useRef(true);
+  const readyRef = useRef(false);
+  const gate = useRef(createRequestGate());
   const confirmHeading = useRef<HTMLHeadingElement>(null);
 
-  useEffect(() => {
-    let current = true;
-    setKind(new URLSearchParams(window.location.search).get('kind') === 'dealer' ? 'dealer' : 'staff');
-    void api<{ user: { role: string } }>('/auth/me').then(async ({ user }) => {
-      if (!current) return;
-      if (user.role !== 'SUPER_ADMIN') throw new Error('Bu alanı yalnız Müdür kullanabilir.');
-      const accounts = await api<Account[]>(endpoint);
-      if (current) {
-        setRows(accounts);
-        setAllowed(true);
+  async function load() {
+    const ticket = gate.current.begin();
+    readyRef.current = false;
+    setReady(false);
+    setAllowed(false);
+    setLoading(true);
+    setLoadError('');
+    setSelected(null);
+    try {
+      const { user } = await api<{ user: { role: string } }>('/auth/me');
+      if (!alive.current || !gate.current.isCurrent(ticket)) return false;
+      if (user?.role !== 'SUPER_ADMIN') {
+        setAllowed(false);
+        setRows([]);
+        throw new Error('Bu alanı yalnız Müdür kullanabilir.');
       }
-    }).catch(error => {
-      if (current) setMessage(error instanceof Error ? error.message : 'Hesaplar yüklenemedi.');
-    }).finally(() => {
-      if (current) setLoading(false);
-    });
-    return () => { current = false; };
+      setAllowed(true);
+      const accounts = await api<Account[]>(endpoint);
+      if (!alive.current || !gate.current.isCurrent(ticket)) return false;
+      if (!Array.isArray(accounts) || accounts.some(row => !row || typeof row.id !== 'string' || typeof row.name !== 'string' || !['staff', 'dealer'].includes(row.kind) || !(row.archived_at === null || typeof row.archived_at === 'string'))) throw new Error('Hesap listesi doğrulanamadı.');
+      setRows(accounts);
+      readyRef.current = true;
+      setReady(true);
+      return true;
+    } catch (error) {
+      if (alive.current && gate.current.isCurrent(ticket)) setLoadError(error instanceof Error ? error.message : 'Hesaplar yüklenemedi.');
+      return false;
+    } finally {
+      if (alive.current && gate.current.isCurrent(ticket)) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    alive.current = true;
+    setKind(new URLSearchParams(window.location.search).get('kind') === 'dealer' ? 'dealer' : 'staff');
+    void load();
+    return () => { alive.current = false; readyRef.current = false; gate.current.invalidate(); };
   }, []);
 
   useEffect(() => { if (selected) confirmHeading.current?.focus(); }, [selected]);
 
   async function save() {
-    if (!selected || lock.current) return;
-    const restore = Boolean(selected.archived_at);
+    if (!allowed || !readyRef.current || !selected || lock.current) return;
+    const target = rows.find(row => row.id === selected.id && row.kind === selected.kind && row.archived_at === selected.archived_at);
+    if (!target) return;
+    const restore = Boolean(target.archived_at);
     lock.current = true;
     setBusy(true);
     setMessage('');
     try {
-      await api(endpoint + '/' + selected.kind + '/' + selected.id, {
+      await api(endpoint + '/' + target.kind + '/' + target.id, {
         method: 'POST',
         body: JSON.stringify({ isActive: restore }),
       });
+      if (!alive.current) return;
       setSelected(null);
       const confirmation = restore
         ? 'Hesap listeye geri alındı. Giriş için yeniden etkinleştirin.'
         : 'Hesap listeden kaldırıldı ve oturumları kapatıldı.';
-      try {
-        setRows(await api<Account[]>(endpoint));
-        setMessage(confirmation);
-      } catch {
-        setRows(current => current.filter(row => row.id !== selected.id || row.kind !== selected.kind));
-        setMessage(confirmation + ' Güncel hesap listesini görmek için sayfayı yenileyin.');
-      }
+      setMessage(confirmation);
+      await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
+      if (!alive.current) return;
+      readyRef.current = false;
+      setReady(false);
+      setSelected(null);
+      setMessage((error instanceof Error ? error.message : 'İşlem sonucu doğrulanamadı.') + ' Yeniden işlem yapmadan önce hesap listesini yenileyin.');
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
       lock.current = false;
     }
   }
@@ -90,9 +118,12 @@ export default function AccountArchives() {
     <section>
       <Link className={styles.back} href={kind === 'dealer' ? '/bayiler' : '/personel'}>← {kind === 'dealer' ? 'Bayiler' : 'Personel'}</Link>
       <h1>{accountLabel} Hesapları</h1>
+      <button type="button" className="secondary" disabled={busy || loading} onClick={() => void load()}>{loading ? 'Yenileniyor…' : 'Hesap Listesini Yenile'}</button>
       {message && <p className="notice" role="status">{message}</p>}
+      {loadError && <p className="notice" role="alert">{loadError} Liste doğrulanana kadar silme ve geri alma işlemleri kapalıdır.</p>}
       {loading && <p role="status">Hesaplar yükleniyor…</p>}
-      {allowed && !loading && <>
+      {allowed && <>
+        {!ready && !loading && rows.length > 0 && <p role="status">Son yüklenen liste gösteriliyor. İşlem yapabilmek için güncel listeyi yenileyin.</p>}
         <div className={styles.toolbar}>
           <button type="button" disabled={busy} aria-pressed={kind === 'staff'} onClick={() => { setKind('staff'); setSelected(null); }}>Yöneticiler</button>
           <button type="button" disabled={busy} aria-pressed={kind === 'dealer'} onClick={() => { setKind('dealer'); setSelected(null); }}>Bayiler</button>
@@ -103,7 +134,7 @@ export default function AccountArchives() {
           <h2 id="archive-action" tabIndex={-1} ref={confirmHeading}>{selected.archived_at ? 'Hesabı geri al' : 'Hesabı sil'} · {selected.name}</h2>
           <p>{selected.archived_at ? 'Hesap listeye döner. Giriş için ayrıca etkinleştirme gerekir.' : 'Hesabın açık oturumları kapatılır. Sipariş, prim ve finans geçmişi saklanır.'}</p>
           <div className="button-row">
-            <button type="button" disabled={busy} className={selected.archived_at ? undefined : styles.danger} onClick={() => void save()}>{busy ? 'Kaydediliyor…' : selected.archived_at ? 'Geri Almayı Onayla' : 'Silmeyi Onayla'}</button>
+            <button type="button" disabled={busy || !ready} className={selected.archived_at ? undefined : styles.danger} onClick={() => void save()}>{busy ? 'Kaydediliyor…' : selected.archived_at ? 'Geri Almayı Onayla' : 'Silmeyi Onayla'}</button>
             <button type="button" className="secondary" disabled={busy} onClick={() => setSelected(null)}>Vazgeç</button>
           </div>
         </section>}
@@ -116,9 +147,9 @@ export default function AccountArchives() {
                 {visible.map(row => <tr key={row.kind + row.id}>
                   <td>{row.name}</td>
                   <td>{row.archived_at ? 'Silindi · ' + financeDateTime(row.archived_at) : 'Kayıtlı'}</td>
-                  <td><button type="button" disabled={busy} className={row.archived_at ? 'secondary' : styles.danger} onClick={() => setSelected(row)}>{row.archived_at ? 'Geri Al' : 'Sil'}</button></td>
+                  <td><button type="button" disabled={busy || !ready} className={row.archived_at ? 'secondary' : styles.danger} onClick={() => setSelected(row)}>{row.archived_at ? 'Geri Al' : 'Sil'}</button></td>
                 </tr>)}
-                {!visible.length && <tr><td colSpan={3}>Bu görünümde hesap bulunamadı.</td></tr>}
+                {!visible.length && <tr><td colSpan={3}>{loading ? 'Hesaplar yükleniyor…' : ready ? 'Bu görünümde hesap bulunamadı.' : 'Hesap listesi doğrulanamadı. Listeyi yenileyin.'}</td></tr>}
               </tbody>
             </table>
           </div>
