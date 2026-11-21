@@ -10,7 +10,7 @@ function setup(failPath,role='DEALER'){
  const calls=[];
  const responses={'/auth/me':{user:{role,email:'dealer@example.test'}},'/dealer-portal/summary':{order_count:'2'},'/dealer-portal/creation-options?currency=EUR':{products:[{id:'fresh'}],warehouses:[{id:'warehouse'}]},'/dealer-portal/orders':[{id:'order'}],'/dealer-portal/ledger':[{id:'ledger'}],'/dealer-portal/shipments':[{id:'shipment'}],'/dealer-portal/commission-balances':[{currency:'TRY',amount:'300.00'}]};
  const box=vm.createContext({Error,form:state.form,
-  accountSummaryGate:{current:{invalidate(){}}},
+  accountSummaryGate:{current:{invalidate(){}}},historyGate:{current:{invalidate(){}}},
   api:async route=>{calls.push(route);if(route===failPath)throw new Error('Unavailable '+route);return responses[route];},
   setReady:value=>state.ready=value,setAccountLoading:value=>state.loading=value,setOrderDetail:value=>state.detail=value,
   setEmail:value=>state.email=value,setSummary:value=>state.summary=value,setOptions:value=>state.options=value,setCreationError:value=>state.creationError=value,

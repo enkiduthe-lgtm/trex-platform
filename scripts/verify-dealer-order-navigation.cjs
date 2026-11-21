@@ -14,7 +14,7 @@ async function main(){
  const requests=[];
  const context=vm.createContext({Error,
   orderViewGate:{current:controls.exports.createRequestGate()},actionLock:{current:false},
-  portalAlive:{current:true},accountRefreshQueued:{current:false},refreshAccountSummary:async()=>{},
+  portalAlive:{current:true},historyGate:{current:controls.exports.createRequestGate()},accountSummaryGate:{current:controls.exports.createRequestGate()},accountRefreshQueued:{current:false},refreshAccountSummary:async()=>{},
   setTabState:value=>state.tab=value,setOrderDetail:value=>state.detail=value,
   setOrderDetailLoadedAt:value=>state.loadedAt=value,
   setTrackingOrder:value=>state.tracking=value,setMessage:value=>state.message=value,setBusy:value=>state.busy=value,

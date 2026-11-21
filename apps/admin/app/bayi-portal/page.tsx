@@ -48,12 +48,13 @@ export default function DealerPortal() {
   const [walletView,setWalletView]=useState(createWalletView);
   const orderViewGate=useRef(createRequestGate());
   const accountSummaryGate=useRef(createRequestGate());
+  const historyGate=useRef(createRequestGate());
   const accountRefreshQueued=useRef(false);
   const portalAlive=useRef(true);
   const setTab=(value:Tab)=>{orderViewGate.current.invalidate();setTabState(value);};
   useEffect(()=>{
     portalAlive.current=true;
-    return()=>{portalAlive.current=false;accountRefreshQueued.current=false;accountSummaryGate.current.invalidate();orderViewGate.current.invalidate();};
+    return()=>{portalAlive.current=false;accountRefreshQueued.current=false;accountSummaryGate.current.invalidate();historyGate.current.invalidate();orderViewGate.current.invalidate();};
   },[]);
   const [chartCurrency,setChartCurrency]=useState('TRY');
   const [email, setEmail] = useState('');
@@ -155,7 +156,7 @@ export default function DealerPortal() {
     setOptions(next);setCreationError('');setMessage('Bayi fiyatları ve stok bilgileri güncellendi.');
   }
   async function load() {
-    accountSummaryGate.current.invalidate();
+    accountSummaryGate.current.invalidate();historyGate.current.invalidate();
     setReady(false);setAccountLoading(true);
     setOrderDetail(null);
     try {
@@ -240,15 +241,15 @@ export default function DealerPortal() {
     if(!ready||!['Siparişlerim','Kargo Takibi'].includes(tab))return;
     let active=true,inFlight=false;
     const refresh=async()=>{
-      if(inFlight||document.visibilityState!=='visible'||actionLock.current)return;
-      inFlight=true;
+      if(!active||inFlight||document.visibilityState!=='visible'||actionLock.current)return;
+      inFlight=true;const ticket=historyGate.current.begin();
       try {
         const [listed,deliveries]=await Promise.all([
           api<Order[]>('/dealer-portal/orders'),api<Shipment[]>('/dealer-portal/shipments'),
         ]);
-        if(active&&!actionLock.current){setOrders(listed);setShipments(deliveries);setHistoryError('');}
+        if(active&&!actionLock.current&&historyGate.current.isCurrent(ticket)){setOrders(listed);setShipments(deliveries);setHistoryError('');}
       } catch(error) {
-        if(active)setHistoryError(error instanceof Error?error.message:'Sipariş ve kargo bilgileri yenilenemedi.');
+        if(active&&historyGate.current.isCurrent(ticket))setHistoryError(error instanceof Error?error.message:'Sipariş ve kargo bilgileri yenilenemedi.');
       } finally {inFlight=false;}
     };
     const timer=window.setInterval(()=>void refresh(),30_000);
@@ -257,7 +258,7 @@ export default function DealerPortal() {
     document.addEventListener('visibilitychange',visible);
     void refresh();
     return ()=>{
-      active=false;window.clearInterval(timer);
+      active=false;historyGate.current.invalidate();window.clearInterval(timer);
       window.removeEventListener('focus',visible);
       document.removeEventListener('visibilitychange',visible);
     };
@@ -267,7 +268,7 @@ export default function DealerPortal() {
     if(unconfirmedOrder)return setMessage('Sepeti değiştirmeden önce yanıtı alınamayan siparişi kontrol edin.');
     if (!ready) return setMessage('Ürün Ve Hesap Bilgilerini Önce Yenileyin.');
     if(creationError)return setMessage('Ürün fiyatları ve stok bilgilerini yeniledikten sonra ürün ekleyin.');
-    if(quickProduct&&editingItemId)return setMessage('Önce sepetteki ürün düzenlemesini kaydedin veya düzenlemeden vazgeçin.');
+    if(quickProduct&&productDraftPending())return setMessage('Önce ürün girişini sepete ekleyin, düzenlemeyi kaydedin veya Ürün Girişini Temizle ile vazgeçin.');
     const selected=quickProduct??product;
     const count=quickProduct?1:form.quantity;
     if (!selected || selected.amount === null || !selected.currency) return setMessage('Fiyatı Tanımlı Bir Ürün Seçin.');
@@ -289,9 +290,19 @@ export default function DealerPortal() {
     setPriceOverride(''); setPackSize(1);
     setForm(current => ({ ...current, productId: '', quantity: 1 })); setMessage(''); setTab('Yeni Sipariş');
   }
+  function productDraftPending() {
+    return !!(editingItemId||form.productId||priceOverride||form.quantity!==1||packSize!==1);
+  }
+  function selectCatalogPack(row:Product,size:number) {
+    if(actionLock.current||!ready||unconfirmedOrder)return;
+    if(productDraftPending())return setMessage('Önce ürün girişini sepete ekleyin, düzenlemeyi kaydedin veya Ürün Girişini Temizle ile vazgeçin.');
+    if(creationError)return setMessage('Paket seçmeden önce ürün fiyatlarını yenileyin.');
+    setEditingItemId(null);setForm(current=>({...current,productId:row.id,quantity:1}));setPackSize(size);setPriceOverride('');setTab('Yeni Sipariş');
+  }
   async function action(work: () => Promise<void>) {
     if (actionLock.current) return;
     actionLock.current = true;
+    historyGate.current.invalidate();accountSummaryGate.current.invalidate();
     setBusy(true); setMessage('');
     try { await work(); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem Tamamlanamadı.'); } finally {
       actionLock.current = false;setBusy(false);
@@ -486,7 +497,7 @@ export default function DealerPortal() {
 <button type="submit" disabled={busy || cartNeedsReview || !items.length || currencyChange !== null || insufficientCommission || editingItemId !== null}>{busy ? 'İşleniyor…' : 'Siparişi Oluştur'}</button></div></fieldset>
     </form>}</section>}
     {tab === 'Ürünler' && !creationError && <ProductCatalog products={options.products} currency={form.currency} busy={busy||unconfirmedOrder} onSingle={row=>addItem(row)}
-      onPack={(row,size)=>{setEditingItemId(null);setForm(current=>({...current,productId:row.id,quantity:1}));setPackSize(size);setPriceOverride('');setTab('Yeni Sipariş');}}/>}
+      onPack={selectCatalogPack}/>}
     {tab === 'Siparişlerim' && <div><div className="chart-controls"><label>Grafik Para Birimi<select value={chartCurrency} onChange={e=>setChartCurrency(e.target.value)}>{[...new Set(['TRY',...orders.map(row=>row.currency)])].map(c=><option key={c} value={c}>{c}</option>)}</select></label></div><div className="analytics-grid"><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Aylık Sipariş Tutarlarım" description="Son 6 Ay · Tablo Filtresi Uygulanır · Kısmi İadeler Düşülür · İptal Ve Tam İadeler Hariç" currency={chartCurrency} data={monthlySeries(shownOrders.filter(row=>!['CANCELLED','REFUNDED'].includes(row.status)).map(row=>({created_at:row.created_at,amount:row.net_amount??row.total_amount,currency:row.currency})),chartCurrency,dateTo?new Date(dateTo+'T12:00:00+03:00'):new Date())}/><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Sipariş Durumlarım" description="Tablodaki Tarih Filtresine Göre · Tüm Para Birimlerinde Sipariş Adedi" variant="ring" data={Object.entries(shownOrders.reduce<Record<string,number>>((map,row)=>{const label=statuses[row.status]??row.status;map[label]=(map[label]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div></div>}
     {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2>
       <div className={styles.table}><table className={styles.orderHistory}><thead><tr><th>Sipariş</th><th>Alıcı ve ürünler</th><th>Tutar</th><th>Durum</th><th>İşlemler</th></tr></thead><tbody>

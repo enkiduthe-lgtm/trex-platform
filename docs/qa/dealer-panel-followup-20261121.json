@@ -1,0 +1,26 @@
+{
+  "base_commit": "353b6d9",
+  "deployment_status": "local_only",
+  "changes": [
+    "Invalidate order, shipment and account-summary reads when an action starts, so late responses cannot restore pre-action data.",
+    "Ignore stale history failures and disposed refresh callbacks.",
+    "Preserve unfinished product entries and cart edits when catalog quick-add or package selection is used."
+  ],
+  "verification": {
+    "reproduced_before_fix": "The history regression restored PROCESSING after a completed cancellation; the same scenario passes after the fix.",
+    "workflow_scripts_passed": [
+      "verify-dealer-history-refresh.cjs",
+      "verify-dealer-account-refresh.cjs",
+      "verify-dealer-order-navigation.cjs",
+      "verify-dealer-checkout-validation.cjs",
+      "verify-dealer-portal-loading.cjs",
+      "verify-dealer-cart.cjs"
+    ],
+    "admin_build": "passed"
+  },
+  "manual_checks_pending": [
+    "Review catalog draft warnings with an authenticated dealer in a browser.",
+    "Verify real Aras delivery updates after deploying the pending changes."
+  ],
+  "live_environment_modified": false
+}

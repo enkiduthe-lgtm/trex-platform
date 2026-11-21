@@ -15,7 +15,7 @@ async function main(){
   items:[{productId:'tea',quantity:2,unitAmount:'500.00',currency:'TRY'}],options:{products:[{id:'tea',available_quantity:10}],warehouses:[{id:'warehouse'}]},
   totals:[{currency:'TRY',amount:'1000.00'}],
   actionLock:{current:false},pendingOrder:{current:null},crypto:{randomUUID:()=>`request-${requests.length}`},
-  portalAlive:{current:true},accountRefreshQueued:{current:false},refreshAccountSummary:async()=>{},
+  portalAlive:{current:true},historyGate:{current:{invalidate(){}}},accountSummaryGate:{current:{invalidate(){}}},accountRefreshQueued:{current:false},refreshAccountSummary:async()=>{},
   orderViewGate:{current:{begin:()=>1,isCurrent:()=>context.viewUnchanged!==false}},viewUnchanged:true,
   setDeliveryErrors:value=>state.errors=value,setFeeError:value=>state.fee=value,setMessage:value=>state.message=value,setBusy:value=>state.busy=value,
   setUnconfirmedOrder:value=>{state.unconfirmed=value;context.unconfirmedOrder=value;},

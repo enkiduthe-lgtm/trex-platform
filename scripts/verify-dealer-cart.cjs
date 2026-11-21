@@ -6,22 +6,28 @@ const source=fs.readFileSync(path.join(__dirname,'../apps/admin/app/bayi-portal/
 const start=source.indexOf('  function addItem('),end=source.indexOf('  async function action(',start);
 const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const tea={id:'tea',name:'Tea',amount:'100.00',currency:'TRY',packs:[{size:2,amount:'180.00'},{size:3,amount:'250.00'},{size:5,amount:'400.00'}]};
-function run(quick,{count=7,size=5,override='9999',existing=[],editing=null,product=tea,unconfirmed=false}={}) {
-  let result=existing,message='';
+function run(quick,{count=quick?1:7,size=quick?1:5,override=quick?'':'9999',existing=[],editing=null,product=tea,unconfirmed=false,draft=quick?'':product.id,selectPack=false}={}) {
+  let result=existing,message='',selected=null;
   const context={
     ready:true,unconfirmedOrder:unconfirmed,creationError:'',actionLock:{current:false},product,editingItemId:editing,validDealerMoney:validation.exports.validDealerMoney,
-    form:{productId:product.id,quantity:count},packSize:size,priceOverride:override,items:existing,
+    form:{productId:draft,quantity:count},packSize:size,priceOverride:override,items:existing,
     setMessage:value=>message=value,setItems:update=>result=update(result),
-    setEditingItemId:()=>{},setPriceOverride:()=>{},setPackSize:()=>{},setForm:()=>{},setTab:()=>{},
+    setEditingItemId:()=>{},setPriceOverride:()=>{},setPackSize:()=>{},setForm:update=>selected=update(context.form),setTab:()=>{},
   };
   vm.runInNewContext(code,context);
-  context.addItem(quick?product:undefined);
-  return {result,message};
+  if(selectPack)context.selectCatalogPack(product,5);else context.addItem(quick?product:undefined);
+  return {result,message,selected};
 }
 let result=run(true);
 assert.equal(result.result[0].quantity,1);
 assert.equal(result.result[0].unitAmount,'100.00');
 assert.equal(result.result[0].packSize,undefined);
+for(const draft of [{draft:'unfinished'},{count:3},{size:2},{override:'120.00'}]){
+ result=run(true,draft);assert.equal(result.result.length,0);assert(result.message,'Quick add must preserve unfinished product input');
+ result=run(true,{...draft,selectPack:true});assert.equal(result.selected,null);assert(result.message,'Package selection must preserve unfinished product input');
+}
+result=run(true,{selectPack:true,editing:'tea'});assert.equal(result.selected,null);assert(result.message);
+result=run(true,{selectPack:true});assert.equal(result.selected.productId,'tea');assert.equal(result.selected.quantity,1);
 for(const size of [2,3,5]){
   result=run(false,{count:2,size,override:''});
   assert.equal(result.result.length,1);

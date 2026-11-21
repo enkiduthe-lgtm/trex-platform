@@ -7,7 +7,7 @@ function extract(startText,endText){const start=source.indexOf(startText),end=so
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 async function main(){
  const state={summary:null,ledger:null,available:null,message:'',busy:false},requests=[];
- const box=vm.createContext({Error,portalAlive:{current:true},accountSummaryGate:{current:controls.exports.createRequestGate()},accountRefreshQueued:{current:false},actionLock:{current:false},
+ const box=vm.createContext({Error,portalAlive:{current:true},historyGate:{current:controls.exports.createRequestGate()},accountSummaryGate:{current:controls.exports.createRequestGate()},accountRefreshQueued:{current:false},actionLock:{current:false},
   api:route=>new Promise((resolve,reject)=>requests.push({route,resolve,reject})),setSummary:value=>state.summary=value,setLedger:value=>state.ledger=value,
   setAvailable:value=>state.available=value,setMessage:value=>state.message=value,setBusy:value=>state.busy=value,
  });
@@ -26,6 +26,11 @@ async function main(){
  assert.equal(state.available[0].amount,'300.00');assert(state.message.includes('yenilenemedi'));
  const closing=box.refreshAccountSummary();box.portalAlive.current=false;box.accountSummaryGate.current.invalidate();settle(15,'999.00');await closing;
  assert.equal(state.available[0].amount,'300.00');await box.refreshAccountSummary();assert.equal(requests.length,18);
+ box.portalAlive.current=true;
+ const beforeAction=box.refreshAccountSummary();
+ await box.action(async()=>{state.available=[{currency:'TRY',amount:'425.00'}];});
+ settle(18,'300.00');await beforeAction;
+ assert.equal(state.available[0].amount,'425.00','An old account read must not restore the balance before a completed order action');
  console.log('Dealer account summary passed: out-of-order balances, queued action refreshes, coalescing, full reload invalidation, preserved snapshots and unmounted views.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
