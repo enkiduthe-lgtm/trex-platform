@@ -1,0 +1,32 @@
+{
+  "base_commit": "edcdd6c",
+  "deployment_status": "local_only",
+  "changes": [
+    "Permission editor remains closable during loading and after a failed read, with an explicit retry action.",
+    "Permission saves use a synchronous lock and ignore late responses from closed editors.",
+    "Finance account lookup failures no longer hide management commission entries and rate settings.",
+    "Payment accounts can be retried independently; failed or unverified accounts cannot be used for payment recording.",
+    "Commission settings forms are disabled during saves to prevent silently losing edits made during an in-flight write.",
+    "Own-only commission views retain hidden recipient and director information; the empty table uses the correct column count."
+  ],
+  "verification": {
+    "reproduced_before_fix": "Failed finance lookup left commission entries unavailable; regression passes after isolating this lookup.",
+    "passed_scripts": [
+      "verify-staff-access-editor.cjs",
+      "verify-management-commission-loading.cjs",
+      "verify-management-commission-view.cjs",
+      "verify-staff-access.cjs",
+      "verify-staff-pools.cjs",
+      "verify-staff-export.cjs",
+      "verify-staff-summary.cjs"
+    ],
+    "database_scope": "Isolated synthetic databases; no live user, permission or payment writes.",
+    "markup_scope": "Rendered actual commission page with synthetic own-only, finance-failure and saving states. Browser layout remains unverified.",
+    "admin_build": "passed"
+  },
+  "manual_checks_pending": [
+    "Browser review of permission retry/close controls and commission payment-account warning.",
+    "Live verification using separate manager and director accounts after deployment."
+  ],
+  "live_environment_modified": false
+}
