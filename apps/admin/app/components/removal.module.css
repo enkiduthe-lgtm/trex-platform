@@ -3,3 +3,4 @@
 .toolbar > button[aria-pressed="true"] { background:#561681; color:#fff; border-color:#561681; }
 .page > section button.danger { background:#fff1f2; color:#991b1b; border:1px solid #b91c1c; }
 .page > section button.danger:hover:not(:disabled) { background:#ffe4e6; }
+.operationFields{margin:0;padding:0;border:0;min-width:0;width:100%}

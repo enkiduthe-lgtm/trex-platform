@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -47,7 +47,8 @@ export class FinanceController {
   @Get('budgets') budgets(@Query('period') period?: string) { return this.finance.budgets(period); }
   @Get('cash-flow') cashFlow(@Req() req:UserRequest) { return this.finance.cashFlowProjection(req.user); }
   @Post('budgets') budget(@Body() dto: CreateFinanceBudgetDto, @Req() req: UserRequest) { return this.finance.createBudget(dto, req.user); }
-  @Post('transactions') transaction(@Body() dto: CreateFinanceTransactionDto, @Req() req: UserRequest) { return this.finance.createTransaction(dto, req.user); }
+  @Post('transactions') transaction(@Body() dto: CreateFinanceTransactionDto, @Req() req: UserRequest,@Headers('idempotency-key') key?:string) { return this.finance.createTransaction(dto, req.user,key); }
+  @Post('transactions/idempotent') idempotentTransaction(@Body() dto:CreateFinanceTransactionDto,@Req() req:UserRequest,@Headers('idempotency-key') key?:string) { return this.finance.createTransaction(dto,req.user,key??''); }
   @Patch('transactions/:id') updateTransaction(@Param('id') id:string,@Body() dto: CreateFinanceTransactionDto,@Req() req:UserRequest) { return this.finance.updateTransaction(id,dto,req.user); }
   @Delete('transactions/:id') deleteTransaction(@Param('id') id:string,@Req() req:UserRequest) { return this.finance.deleteTransaction(id,req.user); }
   @Post('marketplace-settlements') marketplaceSettlement(@Body() dto: CreateMarketplaceSettlementDto, @Req() req: UserRequest) { return this.finance.createMarketplaceSettlement(dto, req.user); }

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { RequestUser } from '../auth/auth.types';
 import { DatabaseService } from '../database/database.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
@@ -188,14 +189,29 @@ export class FinanceService {
       FROM finance_accounts a LEFT JOIN finance_transactions t ON t.account_id=a.id AND ${visibleFinanceMovement(1,2)}
       GROUP BY a.currency ORDER BY a.currency`,[canSeeAll,actor.id])).rows;
   }
-  async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser) {
+  async createTransaction(dto: CreateFinanceTransactionDto, actor: RequestUser, key?:string) {
     const description=dto.description.trim();
     if(!description) throw new BadRequestException('İşlem açıklaması zorunludur');
+    if(key!==undefined&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key))throw new BadRequestException('Geçerli finans işlem anahtarı gerekli');
+    const amount=cents(dto.amount);if(amount<1n||amount>999999999999n)throw new BadRequestException('Tutar sıfırdan büyük ve izin verilen kayıt sınırında olmalıdır');
+    const identity=key?`finance-transaction:${actor.id}:${key.toLowerCase()}`:null;
+    const hash=identity?createHash('sha256').update(JSON.stringify({accountId:dto.accountId.toLowerCase(),kind:dto.kind,amount:amount.toString(),paymentStatus:dto.paymentStatus??null,counterpartyName:dto.counterpartyName?.trim()||null,referenceNumber:dto.referenceNumber?.trim()||null,expenseCategory:dto.expenseCategory?.trim()||null,costCenter:dto.costCenter?.trim()||null,documentUrl:dto.documentUrl?.trim()||null,description,occurredAt:dto.occurredAt?new Date(dto.occurredAt).toISOString():null})).digest('hex'):null;
     return this.db.transaction(async client=>{
+      if(identity){
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[identity]);
+        const prior=await client.query<{request_hash:string;resource_id:string}>("SELECT request_hash,resource_id FROM idempotency_records WHERE key=$1 AND resource_type='finance_transaction'",[identity]);
+        if(prior.rows[0]){
+          if(prior.rows[0].request_hash!==hash)throw new ConflictException('Bu işlem anahtarı farklı para hareketinde kullanılmış');
+          const saved=await client.query<{id:string}>('SELECT id FROM finance_transactions WHERE id=$1',[prior.rows[0].resource_id]);
+          if(!saved.rows[0])throw new ConflictException('Önceki para hareketinin kaydı kaldırılmış. Yeni kayıt oluşturmadan önce işlem geçmişini kontrol edin.');
+          return {...saved.rows[0],replayed:true};
+        }
+      }
       const account=await client.query('SELECT id FROM finance_accounts WHERE id=$1 AND is_active=true FOR KEY SHARE',[dto.accountId]);
       if(!account.rowCount) throw new BadRequestException('Aktif finans hesabı bulunamadı');
       const result = await client.query<{ id: string }>('INSERT INTO finance_transactions(account_id,kind,amount,payment_status,counterparty_name,reference_number,expense_category,cost_center,document_url,description,occurred_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),$12) RETURNING id', [dto.accountId, dto.kind, dto.amount, dto.paymentStatus ?? null, dto.counterpartyName?.trim() || null, dto.referenceNumber?.trim() || null, dto.expenseCategory?.trim() || null, dto.costCenter?.trim() || null, dto.documentUrl?.trim() || null, description, dto.occurredAt ?? null, actor.id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[actor.id,'finance.transaction.created','finance_transaction',result.rows[0].id,JSON.stringify({kind:dto.kind,amount:dto.amount,accountId:dto.accountId})]);
+      if(identity)await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES($1,$2,'finance_transaction',$3,now()+interval '365 days')",[identity,hash,result.rows[0].id]);
       return result.rows[0];
     });
   }

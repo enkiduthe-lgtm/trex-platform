@@ -1,0 +1,36 @@
+{
+  "base_commit": "2f60ce6",
+  "deployment_status": "local_only",
+  "changes": [
+    "Separate successful order archive/restore results from follow-up read failures and block mutations against stale lists.",
+    "Retain unfinished bulk archive selections and require exact confirmed test-order identity.",
+    "Introduce actor-scoped finance transaction replay keys using the existing idempotency_records table, with payload conflict checks and transactional audit recording.",
+    "Use a dedicated idempotent finance POST route so old API deployments reject new clients instead of silently accepting a duplicate-prone fallback.",
+    "Preserve unresolved collection/expense submissions and retry their original body and key; freeze the corresponding input form until resolved.",
+    "Make the incoming-transfer entry grid responsive instead of requiring a 1080px-wide form."
+  ],
+  "verification": {
+    "api_tests": { "passed": 51, "suites": 3 },
+    "passed_scripts": [
+      "verify-order-removal-actions.cjs",
+      "verify-order-removal-view.cjs",
+      "verify-finance-idempotency.cjs",
+      "verify-finance-submission.cjs",
+      "verify-finance-entry-actions.cjs",
+      "verify-finance-entry-view.cjs"
+    ],
+    "finance_history": "passed",
+    "api_build": "passed",
+    "admin_build": "passed",
+    "database_scope": "Synthetic isolated PostgreSQL-compatible database; test adapter serializes transactions. Production retry serialization uses the asserted PostgreSQL advisory lock."
+  },
+  "limitations": [
+    "Uncertain-submission recovery is in memory for the current screen session. After closing or reloading the page, review existing financial records before entering a new transaction.",
+    "Idempotency keys deduplicate retries by the same actor, not separate employees entering the same bank transaction with different keys."
+  ],
+  "manual_checks_pending": [
+    "Browser layout review of responsive finance entry and archive controls.",
+    "Designated test-account checks after API and panel deployment."
+  ],
+  "live_environment_modified": false
+}

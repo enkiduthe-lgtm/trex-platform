@@ -6,6 +6,8 @@ import { useOrderPermissions } from '../../lib/use-order-permissions';
 import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
 import { financeDateTime, financeTotals, inFinancePeriod } from '../../lib/finance-report';
+import {useFinanceSubmission,validFinanceAmount} from '../../lib/use-finance-submission';
+import {createRequestGate} from '../../lib/async-controls';
 
 type Account = { id: string; name: string; account_type: string; currency: string };
 type Transaction = { id: string; account_name: string; currency: string; kind: string; amount: string; expense_category: string | null; cost_center: string | null; counterparty_name: string | null; reference_number: string | null; document_url: string | null; description: string; occurred_at: string };
@@ -15,9 +17,11 @@ const money = (value: string, currency: string) => Number(value).toLocaleString(
 export default function ExpensesPage() {
   const {permissions,loading:accessLoading,error:accessError}=useOrderPermissions();
   const actionLock=useRef(false);
+  const submission=useFinanceSubmission(),gate=useRef(createRequestGate()),alive=useRef(true);
   const [busy,setBusy]=useState('');
   const [loading,setLoading]=useState(true);
   const [ready,setReady]=useState(false);
+  const [loadError,setLoadError]=useState('');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [message, setMessage] = useState('');
@@ -26,17 +30,18 @@ export default function ExpensesPage() {
   const [dateTo, setDateTo] = useState('');
   const [form, setForm] = useState({ accountId: '', amount: '', expenseCategory: 'Kargo', costCenter: '', counterpartyName: '', referenceNumber: '', documentUrl: '', description: '' });
   const load = async () => {
-    setLoading(true);setReady(false);
+    const ticket=gate.current.begin();setLoading(true);setReady(false);setLoadError('');
     try {
       const [loaded,items]=await Promise.all([api<Account[]>('/admin/finance/accounts'),api<Transaction[]>('/admin/finance/transactions')]);
+      if(!alive.current||!gate.current.isCurrent(ticket))return;
       setAccounts(loaded);setTransactions(items);setReady(true);
       setForm(current=>loaded.some(account=>account.id===current.accountId)?current:{...current,accountId:loaded[0]?.id??''});
-    } catch(error) { setAccounts([]);setTransactions([]);setMessage(error instanceof Error?error.message:'Masraf Kayıtları Yüklenemedi.'); }
-    finally { setLoading(false); }
+    } catch(error) { if(alive.current&&gate.current.isCurrent(ticket))setLoadError(error instanceof Error?error.message:'Masraf Kayıtları Yüklenemedi.'); }
+    finally { if(alive.current&&gate.current.isCurrent(ticket))setLoading(false); }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {alive.current=true;void load();return()=>{alive.current=false;gate.current.invalidate();};}, []);
   async function deleteExpense(id: string) {
-    if (actionLock.current || loading || !ready || accessLoading || !permissions.deleteExpense || !window.confirm('Bu Masraf Kaydı Silinsin Mi?')) return;
+    if (actionLock.current || submission.pending || loading || !ready || accessLoading || !permissions.deleteExpense || !window.confirm('Bu Masraf Kaydı Silinsin Mi?')) return;
     actionLock.current=true;setBusy(id);
     try {
       await api(`/admin/finance/transactions/${id}`, { method: 'DELETE' });
@@ -45,11 +50,26 @@ export default function ExpensesPage() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Masraf Silinemedi.'); } finally {actionLock.current=false;setBusy('');}
   }
   const expenses = useMemo(() => transactions.filter(item => item.kind === 'EXPENSE').filter(item => [item.expense_category, item.cost_center, item.counterparty_name, item.description, item.reference_number].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR'))).filter(item => inFinancePeriod(item.occurred_at, dateFrom, dateTo)), [transactions, query, dateFrom, dateTo]);
-  async function submit(event: FormEvent) { event.preventDefault();if(actionLock.current||loading||!ready||accessLoading||!permissions.createExpense)return;actionLock.current=true;setBusy('save'); try { await api('/admin/finance/transactions', { method: 'POST', body: JSON.stringify({ ...form, kind: 'EXPENSE', amount: Number(form.amount), paymentStatus: 'PAID', counterpartyName: form.counterpartyName || undefined, referenceNumber: form.referenceNumber || undefined, documentUrl: form.documentUrl || undefined, costCenter: form.costCenter || undefined }) }); setMessage('Masraf kaydedildi.'); setForm(current => JSON.stringify(current)===JSON.stringify(form)?{ ...current, amount: '', counterpartyName: '', referenceNumber: '', documentUrl: '', description: '' }:current); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Kaydedilemedi'); } finally {actionLock.current=false;setBusy('');} }
+  async function writeExpense(body?:string){
+    if(actionLock.current||loading||accessLoading||!permissions.createExpense)return;
+    actionLock.current=true;setBusy('save');
+    try{const result=body?await submission.send(body):await submission.retry();if(!alive.current)return;
+      setMessage(result.replayed?'Önceki masraf kaydı doğrulandı. Yeni para hareketi oluşturulmadı.':'Masraf kaydedildi.');
+      setForm(current=>({...current,amount:'',counterpartyName:'',referenceNumber:'',documentUrl:'',description:''}));await load();
+    }catch(error){if(alive.current)setMessage(error instanceof Error?error.message:'Kaydedilemedi');}
+    finally{actionLock.current=false;if(alive.current)setBusy('');}
+  }
+  async function submit(event:FormEvent){
+    event.preventDefault();if(actionLock.current||loading||!ready||accessLoading||!permissions.createExpense||submission.pending)return;
+    if(!accounts.some(account=>account.id===form.accountId)||!validFinanceAmount(form.amount)||!form.description.trim()||!form.expenseCategory.trim()){setMessage('Aktif hesabı, masraf kategorisini, geçerli tutarı ve açıklamayı girin.');return;}
+    await writeExpense(JSON.stringify({...form,kind:'EXPENSE',amount:Number(form.amount),paymentStatus:'PAID',description:form.description.trim(),expenseCategory:form.expenseCategory.trim(),counterpartyName:form.counterpartyName.trim()||undefined,referenceNumber:form.referenceNumber.trim()||undefined,documentUrl:form.documentUrl.trim()||undefined,costCenter:form.costCenter.trim()||undefined}));
+  }
   function exportExpenses() { if(loading||!ready)return; if (!expenses.length) { setMessage('Dışa Aktarılacak Masraf Bulunamadı.'); return; } const rows = [['Tarih', 'Kategori', 'Departman', 'Hesap', 'Para Birimi', 'Tutar', 'Firma / Kişi', 'Referans No', 'Açıklama'], ...expenses.map(item => [financeDateTime(item.occurred_at), item.expense_category ?? 'Masraf', item.cost_center ?? '', item.account_name, item.currency, Number(item.amount), item.counterparty_name ?? '', item.reference_number ?? '', item.description]), ...financeTotals(expenses).map(total => ['Toplam', '', '', '', total.currency, total.amount, '', '', ''])]; downloadXlsx('trex-masraflar.xlsx', 'Masraflar', rows); }
   return <main><AdminNav /><section className="expense-workspace">
     <p>FİNANS / MASRAFLAR</p><h1>Masraf Girişi</h1><p>Masrafı hangi hesaptan çıktığını, kategorisini ve belge bilgisini girerek kaydedin.</p>{accessError&&<p role="alert">{accessError}</p>}{message && <p role="status">{message}</p>}
-    {permissions.createExpense&&<form className="form-card" onSubmit={submit}><div className="form-grid">
+    {loadError&&<p role="alert">Masraf kayıtları yenilenemedi: {loadError} Son yüklenen bilgiler gösteriliyor. Yeni işlem yapmadan önce Kayıtları Yenile düğmesini kullanın.</p>}
+    {submission.pending&&<section className="form-card" role="status"><h2>Son masrafın sonucunu kontrol edin</h2><p>Yanıt alınamadı; masraf kaydedilmiş olabilir. Sonuç doğrulanana kadar formunuz korunur. Aynı kaydı aşağıdaki düğmeyle kontrol edin.</p><button type="button" disabled={Boolean(busy)||loading||accessLoading||!permissions.createExpense} onClick={()=>void writeExpense()}>Masraf Kaydını Doğrula / Yeniden Dene</button></section>}
+    {permissions.createExpense&&<form className="form-card" onSubmit={submit}><fieldset className="form-grid finance-entry-fields" disabled={Boolean(busy)||loading||!ready||!!submission.pending}>
       <label>Çıkış Hesabı<select required value={form.accountId} onChange={event => setForm(current => ({ ...current, accountId: event.target.value }))}><option value="">Seçin</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</select></label>
       <label>Masraf Kategorisi<input required list="expense-categories" value={form.expenseCategory} placeholder="Kategori yazın veya seçin" onChange={event => setForm(current => ({ ...current, expenseCategory: event.target.value }))} /><datalist id="expense-categories">{categories.map(category => <option key={category} value={category} />)}</datalist><small>Listeden seçebilir veya yeni bir kategori yazabilirsiniz.</small></label>
       <label>Tutar<input required min="0.01" step="0.01" type="number" value={form.amount} onChange={event => setForm(current => ({ ...current, amount: event.target.value }))} /></label>
@@ -58,8 +78,8 @@ export default function ExpensesPage() {
       <label>Dekont / Fatura No<input value={form.referenceNumber} onChange={event => setForm(current => ({ ...current, referenceNumber: event.target.value }))} /></label>
       <label className="wide">Belge Bağlantısı<input value={form.documentUrl} placeholder="Belge için erişilebilir bağlantı (isteğe bağlı)" onChange={event => setForm(current => ({ ...current, documentUrl: event.target.value }))} /></label>
       <label className="wide">Açıklama<textarea required value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} /></label>
-    </div><button disabled={Boolean(busy)||loading||!ready}>{busy==='save'?'Kaydediliyor…':'Masrafı Kaydet'}</button></form>}
+    </fieldset><button disabled={Boolean(busy)||loading||!ready||!!submission.pending}>{busy==='save'?'Kaydediliyor…':'Masrafı Kaydet'}</button></form>}
     <div className="period-toolbar"><h2>Masraf Geçmişi</h2><button type="button" className="secondary" disabled={loading||Boolean(busy)} onClick={()=>void load()}>{loading?'Yükleniyor…':'Kayıtları Yenile'}</button><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Kategori, masraf merkezi veya firma ara" /><label>Başlangıç<input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>Bitiş<input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label>{(dateFrom || dateTo) && <button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihi Temizle</button>}<button type="button" disabled={loading||!ready||!expenses.length} onClick={exportExpenses}>Excel&apos;e Aktar</button></div>
-    {dateFrom && dateTo && dateFrom > dateTo && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}<div className="cards">{financeTotals(expenses).map(total => <article key={total.currency}><p>Toplam Masraf · {total.currency}</p><strong>{money(String(total.amount), total.currency)}</strong></article>)}</div><div className="table-card"><div className="table-wrap"><table><thead><tr><th>Tarih</th><th>Kategori</th><th>Departman</th><th>Hesap</th><th>Firma / Kişi</th><th>Açıklama</th><th>Tutar</th><th>Belge / Referans</th><th>İşlemler</th></tr></thead><tbody>{expenses.map(item => <tr key={item.id}><td>{financeDateTime(item.occurred_at)}</td><td>{item.expense_category ?? '—'}</td><td>{item.cost_center ?? '—'}</td><td>{item.account_name}</td><td>{item.counterparty_name ?? '—'}</td><td>{item.description}</td><td><strong>{money(item.amount, item.currency)}</strong></td><td>{item.reference_number ?? '—'}{item.document_url && <a href={item.document_url} target="_blank" rel="noopener noreferrer"> · Belgeyi Aç</a>}</td><td>{permissions.deleteExpense?<button className="secondary" type="button" disabled={Boolean(busy)||loading||!ready||accessLoading} onClick={() => void deleteExpense(item.id)}>{busy===item.id?'Siliniyor…':'Masrafı Sil'}</button>:'—'}</td></tr>)}</tbody></table>{!expenses.length && <p className="empty-state">{loading?'Masraf Kayıtları Yükleniyor…':ready?'Bu Filtrede Masraf Kaydı Yok.':'Masraf Kayıtları Alınamadı. Kayıtları Yenileyin.'}</p>}</div></div>
+    {dateFrom && dateTo && dateFrom > dateTo && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}<div className="cards">{financeTotals(expenses).map(total => <article key={total.currency}><p>Toplam Masraf · {total.currency}</p><strong>{money(String(total.amount), total.currency)}</strong></article>)}</div><div className="table-card"><div className="table-wrap"><table><thead><tr><th>Tarih</th><th>Kategori</th><th>Departman</th><th>Hesap</th><th>Firma / Kişi</th><th>Açıklama</th><th>Tutar</th><th>Belge / Referans</th><th>İşlemler</th></tr></thead><tbody>{expenses.map(item => <tr key={item.id}><td>{financeDateTime(item.occurred_at)}</td><td>{item.expense_category ?? '—'}</td><td>{item.cost_center ?? '—'}</td><td>{item.account_name}</td><td>{item.counterparty_name ?? '—'}</td><td>{item.description}</td><td><strong>{money(item.amount, item.currency)}</strong></td><td>{item.reference_number ?? '—'}{item.document_url && <a href={item.document_url} target="_blank" rel="noopener noreferrer"> · Belgeyi Aç</a>}</td><td>{permissions.deleteExpense?<button className="secondary" type="button" disabled={Boolean(busy)||loading||!ready||accessLoading||!!submission.pending} onClick={() => void deleteExpense(item.id)}>{busy===item.id?'Siliniyor…':'Masrafı Sil'}</button>:'—'}</td></tr>)}</tbody></table>{!expenses.length && <p className="empty-state">{loading?'Masraf Kayıtları Yükleniyor…':ready?'Bu Filtrede Masraf Kaydı Yok.':'Masraf Kayıtları Alınamadı. Kayıtları Yenileyin.'}</p>}</div></div>
   </section></main>;
 }

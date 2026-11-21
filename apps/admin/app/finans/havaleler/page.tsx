@@ -8,6 +8,8 @@ import { orderPermissions } from '../../lib/order-permissions';
 import { api } from '../../lib/api';
 import { downloadXlsx } from '../../lib/xlsx';
 import { financeDateTime, financeTotals, inFinancePeriod } from '../../lib/finance-report';
+import {useFinanceSubmission,validFinanceAmount} from '../../lib/use-finance-submission';
+import {createRequestGate} from '../../lib/async-controls';
 
 type Collection = { id: string; account_name: string; currency: string; amount: string; payment_status: string | null; counterparty_name: string | null; reference_number: string | null; description: string; occurred_at: string };
 type Transfer = Collection & { kind: string; order_number: string | null; order_id: string | null; approved_at: string | null };
@@ -27,6 +29,8 @@ function CollectionsContent() {
   const [pendingReady, setPendingReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const actionLock = useRef(false);
+  const submission=useFinanceSubmission();
+  const loadGate=useRef(createRequestGate()),pageAlive=useRef(true);
   const [tab, setTab] = useState<'PENDING' | 'ENTRY' | 'HISTORY'>('PENDING');
   const [history, setHistory] = useState<Transfer[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
@@ -38,11 +42,14 @@ function CollectionsContent() {
   const { transfers: canView, createTransfer: canEnter, approveTransfer: canApprove, transferHistory: canHistory } = permissions;
 
   const load = async (confirmation = '') => {
+    const ticket=loadGate.current.begin();
     setLoading(true);setPendingReady(false);setHistoryReady(false);
     try {
       const me = await api<User>('/auth/me');
       const profile = me.user.role === 'ADMIN'
         ? await api<{ configured: boolean; grants: string[] | null }>('/admin/access/me') : undefined;
+      if(!pageAlive.current||!loadGate.current.isCurrent(ticket))return;
+      if(me.user.role==='ADMIN'&&(!profile||typeof profile.configured!=='boolean'||!(profile.grants===null||Array.isArray(profile.grants)&&profile.grants.every(grant=>typeof grant==='string'))))throw new Error('Havale işlem yetkileri doğrulanamadı.');
       const access = orderPermissions(me.user.role, profile);
       setPermissions(access);
       if (!access.transfers) { setMessage('Havale İşlemlerini Görüntüleme Yetkiniz Yok.'); return; }
@@ -51,6 +58,7 @@ function CollectionsContent() {
         access.createTransfer ? api<Account[]>('/admin/finance/accounts') : Promise.resolve([] as Account[]),
         access.transferHistory ? api<Transfer[]>('/admin/finance/transactions') : Promise.resolve([] as Transfer[]),
       ]);
+      if(!pageAlive.current||!loadGate.current.isCurrent(ticket))return;
       setItems(pending.status === 'fulfilled' ? pending.value : []);
       setPendingReady(pending.status === 'fulfilled');
       const active = accountList.status === 'fulfilled' ? accountList.value.filter(item => item.is_active) : [];
@@ -62,11 +70,12 @@ function CollectionsContent() {
         result.status === 'rejected' ? [['Bekleyen Havaleler', 'Banka Hesapları', 'Havale Geçmişi'][index]] : []);
       setMessage([confirmation, failures.length ? failures.join(', ') + ' Yüklenemedi. Sayfayı Yenileyin.' : ''].filter(Boolean).join(' '));
     } catch (error) {
+      if(!pageAlive.current||!loadGate.current.isCurrent(ticket))return;
       setPermissions(orderPermissions(''));
       setMessage([confirmation, error instanceof Error ? error.message : 'Havale Kayıtları Yüklenemedi.'].filter(Boolean).join(' '));
-    } finally { setLoading(false); }
+    } finally { if(pageAlive.current&&loadGate.current.isCurrent(ticket))setLoading(false); }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {pageAlive.current=true;void load();return()=>{pageAlive.current=false;loadGate.current.invalidate();};}, []);
   useEffect(() => { const sync = () => { if (window.location.hash === '#giris') setTab('ENTRY'); }; sync(); window.addEventListener('hashchange', sync); return () => window.removeEventListener('hashchange', sync); }, []);
   useEffect(() => { if (!loading && ((tab === 'ENTRY' && !canEnter) || (tab === 'HISTORY' && !canHistory))) setTab('PENDING'); }, [loading, canEnter, canHistory, tab]);
   useEffect(() => {
@@ -94,44 +103,47 @@ function CollectionsContent() {
     setBusy(true);
     try {
       const result = await api<Approval>(`/admin/finance/collections/${id}/approve`, { method: 'POST', body: JSON.stringify({ orderId }) });
+      if(!pageAlive.current)return;
       const currency = items.find(item => item.id === id)?.currency;
       await load(result.outstandingAmount > 0 && currency
         ? `Havale eşleştirildi. Siparişin kalan tutarı ${money(String(result.outstandingAmount), currency)}.`
         : 'Havale onaylandı ve siparişle eşleştirildi.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Onaylanamadı.'); }
-    finally { actionLock.current = false;setBusy(false); }
+    } catch (error) { if(pageAlive.current)setMessage(error instanceof Error ? error.message : 'Onaylanamadı.'); }
+    finally { actionLock.current = false;if(pageAlive.current)setBusy(false); }
   }
 
-  async function addCollection(event: FormEvent) {
-    event.preventDefault();
+  async function writeCollection(body?:string) {
     if (actionLock.current || !canEnter || loading) return;
     actionLock.current = true;
     setBusy(true);
     try {
-      await api('/admin/finance/transactions', { method: 'POST', body: JSON.stringify({
-        accountId: entry.accountId, kind: 'COLLECTION', amount: Number(entry.amount), paymentStatus: 'PENDING',
-        counterpartyName: entry.counterpartyName || undefined, referenceNumber: entry.referenceNumber || undefined,
-        description: entry.description,
-      }) });
-      setEntry((current) => JSON.stringify(current)===JSON.stringify(entry)?{ ...current, amount: '', counterpartyName: '', referenceNumber: '', description: '' }:current);
-      await load('Gelen Havale Kaydedildi. Eşleştirme Ve Onay İçin Hazır.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Havale kaydedilemedi.'); }
-    finally { actionLock.current = false;setBusy(false); }
+      const result=body?await submission.send(body):await submission.retry();
+      if(!pageAlive.current)return;
+      setEntry(current=>({...current,amount:'',counterpartyName:'',referenceNumber:'',description:''}));
+      await load(result.replayed?'Önceki havale kaydı doğrulandı. Yeni para hareketi oluşturulmadı.':'Gelen Havale Kaydedildi. Eşleştirme Ve Onay İçin Hazır.');
+    } catch (error) { if(pageAlive.current)setMessage(error instanceof Error ? error.message : 'Havale kaydedilemedi.'); }
+    finally { actionLock.current = false;if(pageAlive.current)setBusy(false); }
+  }
+  async function addCollection(event:FormEvent){
+    event.preventDefault();if(actionLock.current||!canEnter||loading||submission.pending)return;
+    if(!accounts.some(account=>account.id===entry.accountId)||!validFinanceAmount(entry.amount)||!entry.description.trim()){setMessage('Aktif hesabı seçin; geçerli tutarı ve açıklamayı girin. Tutar en fazla iki ondalık basamaklı olmalıdır.');return;}
+    await writeCollection(JSON.stringify({accountId:entry.accountId,kind:'COLLECTION',amount:Number(entry.amount),paymentStatus:'PENDING',counterpartyName:entry.counterpartyName.trim()||undefined,referenceNumber:entry.referenceNumber.trim()||undefined,description:entry.description.trim()}));
   }
 
   return <main><AdminNav /><section>
     <p>SİPARİŞLER / HAVALE EŞLEŞTİRME</p><h1>Havale İşlemleri</h1>
     <p>Gelen Havaleleri Verilen Yetkilere Göre Kaydedin, Görüntüleyin Ve Siparişlerle Eşleştirin.</p>
     {selectedOrder && <p className="selected-order">Onay için seçilen sipariş: <strong>{selectedOrder}</strong>. Aşağıdan ilgili gelen havaleyi seçip eşleştirin.</p>}
+    {submission.pending&&<section className="form-card" role="status"><h2>Son havalenin sonucunu kontrol edin</h2><p>Yanıt alınamadı; havale kaydedilmiş olabilir. Aynı kaydı doğrulamak için aşağıdaki düğmeyi kullanın. Sonuç doğrulanana kadar giriş bilgileriniz korunur.</p><button type="button" disabled={busy||loading||!canEnter} onClick={()=>void writeCollection()}>Havale Kaydını Doğrula / Yeniden Dene</button></section>}
     <div className="button-row"><Link href="/siparisler">← Siparişlere Dön</Link><button type="button" className="secondary" disabled={loading||busy} onClick={()=>void load()}>{loading?'Yükleniyor…':'Havale Bilgilerini Yenile'}</button></div>{message && <p role="status">{message}</p>}
-    <div className="period-toolbar" role="tablist" aria-label="Havale İşlemleri"><button type="button" role="tab" aria-selected={tab === 'PENDING'} onClick={() => setTab('PENDING')}>Bekleyen Havale Eşleştirme</button>{canEnter && <button type="button" role="tab" aria-selected={tab === 'ENTRY'} onClick={() => setTab('ENTRY')}>Gelen Havale Girişi</button>}{canHistory && <button type="button" role="tab" aria-selected={tab === 'HISTORY'} onClick={() => setTab('HISTORY')}>Gelen Havale Geçmişi</button>}</div>{canEnter && tab === 'ENTRY' && <form id="giris" className="transfer-entry" onSubmit={addCollection}><div className="transfer-entry-head"><h2>Hesaba gelen havale girişi</h2><p>Havale kaydedilince aşağıdaki bekleyen kayıtlar arasına eklenir.</p></div><div className="transfer-entry-grid">
+    <div className="period-toolbar" role="tablist" aria-label="Havale İşlemleri"><button type="button" role="tab" aria-selected={tab === 'PENDING'} onClick={() => setTab('PENDING')}>Bekleyen Havale Eşleştirme</button>{canEnter && <button type="button" role="tab" aria-selected={tab === 'ENTRY'} onClick={() => setTab('ENTRY')}>Gelen Havale Girişi</button>}{canHistory && <button type="button" role="tab" aria-selected={tab === 'HISTORY'} onClick={() => setTab('HISTORY')}>Gelen Havale Geçmişi</button>}</div>{canEnter && tab === 'ENTRY' && <form id="giris" className="transfer-entry" onSubmit={addCollection}><div className="transfer-entry-head"><h2>Hesaba gelen havale girişi</h2><p>Havale kaydedilince aşağıdaki bekleyen kayıtlar arasına eklenir.</p></div><fieldset className="transfer-entry-grid finance-entry-fields" disabled={busy||loading||!!submission.pending}>
       <label>Banka / kasa hesabı<select required value={entry.accountId} onChange={(event) => setEntry((current) => ({ ...current, accountId: event.target.value }))}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</select></label>
       <label>Tutar<input required min="0.01" step="0.01" type="number" value={entry.amount} onChange={(event) => setEntry((current) => ({ ...current, amount: event.target.value }))} /></label>
       <label>Gönderen adı<input value={entry.counterpartyName} onChange={(event) => setEntry((current) => ({ ...current, counterpartyName: event.target.value }))} /></label>
       <label>Dekont / banka referansı<input value={entry.referenceNumber} onChange={(event) => setEntry((current) => ({ ...current, referenceNumber: event.target.value }))} /></label>
       <label>Açıklama<input required value={entry.description} placeholder="Örn. müşteri havalesi" onChange={(event) => setEntry((current) => ({ ...current, description: event.target.value }))} /></label>
       <button disabled={busy || loading || !accounts.length}>{busy ? 'Kaydediliyor…' : 'Bekleyen Havaleyi Kaydet'}</button>
-    </div></form>}
+    </fieldset></form>}
     {canView && tab !== 'ENTRY' && <><div className="period-toolbar"><h2>{tab === 'HISTORY' ? 'Gelen Havale Geçmişi' : 'Bekleyen Havale Kayıtları'}</h2><label>Başlangıç<input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label>Bitiş<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>{(dateFrom || dateTo) && <button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihi Temizle</button>}<button type="button" disabled={loading || !reportItems.length || (tab === 'HISTORY' && !historyReady)} onClick={exportCollections}>Excel&apos;e Aktar</button></div>
     {dateFrom && dateTo && dateFrom > dateTo && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}<div className="cards">{financeTotals(reportItems).map(total => <article key={total.currency}><p>Toplam Havale · {total.currency}</p><strong>{money(String(total.amount), total.currency)}</strong></article>)}</div>{tab === 'HISTORY' ? <div className="table-card"><div className="table-wrap"><table><thead><tr><th>Tarih</th><th>Banka Hesabı</th><th>Gönderen</th><th>Tutar</th><th>Durum</th><th>İlgili Sipariş</th><th>Dekont / Referans</th><th>Açıklama</th></tr></thead><tbody>{shownHistory.map(item => <tr key={item.id}><td>{financeDateTime(item.occurred_at)}</td><td>{item.account_name}</td><td>{item.counterparty_name ?? '—'}</td><td>{money(item.amount, item.currency)}</td><td>{statusLabels[item.payment_status ?? ''] ?? item.payment_status ?? 'Belirtilmemiş'}</td><td>{item.order_number ? <Link href={`/siparisler/${item.order_id}`}>{item.order_number}</Link> : '—'}</td><td>{item.reference_number ?? '—'}</td><td>{item.description}</td></tr>)}</tbody></table>{!shownHistory.length && <p className="empty-state">{loading?'Havale Geçmişi Yükleniyor…':historyReady ? 'Bu Tarih Aralığında Havale Yok.' : 'Havale Geçmişi Yüklenemedi.'}</p>}</div></div> : <div className="table-card"><div className="table-wrap"><table><thead><tr><th>Tarih</th><th>Hesap</th><th>Gönderen</th><th>Tutar</th><th>Dekont / Referans</th><th>Açıklama</th><th>Siparişle Eşleştir</th></tr></thead><tbody>{shownItems.map(item => <tr key={item.id}><td>{financeDateTime(item.occurred_at)}</td><td>{item.account_name}</td><td>{item.counterparty_name ?? '—'}</td><td>{money(item.amount, item.currency)}</td><td>{item.reference_number ?? '—'}</td><td>{item.description}</td><td>{canApprove ? <form onSubmit={event => approve(event, item.id)}><label>Sipariş Numarası<input required placeholder="Örn. TRX-10025" value={orders[item.id] ?? ''} onChange={event => setOrders(value => ({...value, [item.id]: event.target.value}))}/></label><button disabled={busy || loading}>{busy ? 'İşleniyor…' : 'Havaleyi Eşleştir Ve Onayla'}</button></form> : 'Onay Yetkisi Yok'}</td></tr>)}</tbody></table>{!shownItems.length && <p className="empty-state">{loading ? 'Yükleniyor…' : !pendingReady ? 'Bekleyen Havaleler Yüklenemedi.' : 'Bu Tarih Aralığında Bekleyen Havale Yok.'}</p>}</div></div>}</>}
   </section></main>;
