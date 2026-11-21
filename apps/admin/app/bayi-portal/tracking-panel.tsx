@@ -6,6 +6,7 @@ import { financeDateTime } from '../lib/finance-report';
 import styles from './portal.module.css';
 
 type Tracking = {
+  order_id?:string;
   order_number: string; provider: string; status: string; tracking_number: string | null;
   tracking_checked_at: string | null; tracking_error: string | null;
   dispatched_at: string | null; delivered_at: string | null;
@@ -20,16 +21,18 @@ export function TrackingPanel({orderId,onClose}:{orderId:string;onClose:()=>void
   const [data,setData]=useState<Tracking|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [updatedAt,setUpdatedAt]=useState<string|null>(null);
   const refreshRef=useRef<(()=>Promise<void>)|null>(null);
   useEffect(()=>{
     let active=true,inFlight=false;
-    setData(null);setError('');
+    setData(null);setError('');setUpdatedAt(null);
     const refresh=async()=>{
       if(!active||inFlight)return;
       inFlight=true;setBusy(true);
       try {
         const result=await api<Tracking>(`/dealer-portal/orders/${orderId}/tracking`);
-        if(active){setData(result);setError('');}
+        if(result.order_id&&result.order_id!==orderId)throw new Error('Beklenen siparişin kargo kaydı alınamadı. Takibi yeniden açın.');
+        if(active){setData(result);setError('');setUpdatedAt(new Date().toISOString());}
       } catch(reason) {
         if(active)setError(reason instanceof Error?reason.message:'Kargo hareketleri yüklenemedi.');
       } finally {inFlight=false;if(active)setBusy(false);}
@@ -39,10 +42,12 @@ export function TrackingPanel({orderId,onClose}:{orderId:string;onClose:()=>void
     void refresh();
     const timer=window.setInterval(refreshVisible,30_000);
     window.addEventListener('focus',refreshVisible);
+    document.addEventListener('visibilitychange',refreshVisible);
     return ()=>{
       active=false;
       window.clearInterval(timer);
       window.removeEventListener('focus',refreshVisible);
+      document.removeEventListener('visibilitychange',refreshVisible);
       if(refreshRef.current===refresh)refreshRef.current=null;
     };
   },[orderId]);
@@ -56,6 +61,7 @@ export function TrackingPanel({orderId,onClose}:{orderId:string;onClose:()=>void
         <button type="button" className="secondary" onClick={onClose}>Kapat</button>
       </div>
     </div>
+    {updatedAt&&<p className={styles.refreshInfo}>Son ekran yenilemesi {financeDateTime(updatedAt)} · Panelde kayıtlı kargo hareketleri gösterilir.</p>}
     {error&&<p className="notice" role="alert">{error}{data&&' Son yüklenen bilgiler gösteriliyor.'}</p>}
     {!data&&busy&&<p role="status">Kargo bilgileri yükleniyor…</p>}
     {data&&<>

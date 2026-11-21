@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { OrderDetails, type DealerOrderDetail } from './order-details';
 
-type Props={order:DealerOrderDetail;loadedAt:string|null;onClose:()=>void;onTrack:()=>void;onOpenCommissions:()=>void};
+type Props={order:DealerOrderDetail;loadedAt:string|null;onClose:()=>void;onTrack:()=>void;onOpenCommissions:()=>void;onUseDelivery?:(order:DealerOrderDetail)=>void};
 export function OrderDetailPanel({order,loadedAt,...actions}:Props) {
  const [snapshot,setSnapshot]=useState({source:order,order,updatedAt:loadedAt});
  const [busy,setBusy]=useState(false);

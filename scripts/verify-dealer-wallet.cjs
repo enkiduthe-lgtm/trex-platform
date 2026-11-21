@@ -90,6 +90,7 @@ async function main(){
  await db.query('INSERT INTO dealer_prim_refunds(dealer_id,order_id,return_id,amount,created_by) VALUES($1,$2,$3,100,$4)',[dealer,olderOrder,returnA,user]);assert.equal((await dealerWallet(db,dealer)).available,'550.00');
  const report=await payouts.portal(user);assert.equal(report.balance.available,'550.00');assert.equal(report.requests.find(row=>row.id===request.id).status,'PAID');assert.equal(report.deductions.length,1);assert.equal(report.earnings.length,4);assert.equal(report.sales.length,0);
  assert(report.earnings.every(row=>row.order_id));
+ assert.equal(report.requests.find(row=>row.id===request.id).request_key,uuid(30));
  assert.equal(report.deductions[0].order_id,order);
  assert(report.spends.every(row=>row.order_id));
  const staffEntry=(await db.query("INSERT INTO commission_entries(dealer_id,recipient_user_id,recipient_kind,order_id,order_item_id,amount,status,available_at) VALUES($1,$2,'MANAGER',$3,$4,999,'CONFIRMED',now()-interval '2 months') RETURNING id",[dealer,user,olderOrder,olderItem])).rows[0];
@@ -362,6 +363,16 @@ async function main(){
  await db.query("INSERT INTO order_invoices VALUES($1,'PENDING_PROVIDER')",[paymentEditOrder.id]);
  await assert.rejects(()=>adminOrders.updatePrices(paymentEditOrder.id,{reason:'Fatura kontrolü',items:editBody.items},staffActor),/Paraşüt gönderimi/);
  await assert.rejects(()=>adminOrders.update(paymentEditOrder.id,{...editBody,version:cashEdit.version,paymentMethod:'TRANSFER'},staffActor),/Fatura, tahsilat/);
- await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration and atomic shipping delivery confirmation.');
+ const outsiderUser=uuid(8100),outsiderDealer=uuid(8101),outsiderKey=uuid(8102);
+ await db.query('INSERT INTO users(id) VALUES($1)',[outsiderUser]);
+ await db.query("INSERT INTO dealers(id,company_name,code,status) VALUES($1,'Other Dealer','OTHER','ACTIVE')",[outsiderDealer]);
+ await db.query('INSERT INTO dealer_user_accounts(user_id,dealer_id) VALUES($1,$2)',[outsiderUser,outsiderDealer]);
+ await db.query("INSERT INTO dealer_prim_requests(request_key,dealer_id,amount,account_holder,iban,requested_by,due_date) VALUES($1,$2,10,'Other Account','TR00000000000000000000000000',$3,'2026-12-05')",[outsiderKey,outsiderDealer,outsiderUser]);
+ const ownRequests=(await payouts.portal(user)).requests;
+ assert(!ownRequests.some(row=>row.request_key===outsiderKey));
+ const otherRequests=(await payouts.portal(outsiderUser)).requests;
+ assert.equal(otherRequests.length,1);assert.equal(otherRequests[0].request_key,outsiderKey);
+ await assert.rejects(()=>payouts.request(outsiderUser,uuid(30),200),/Başka Talepte/);
+ await pg.close();console.log('Dealer wallet PostgreSQL checks passed: margin, monthly cutoff, partial returns, duplicate protection, payout day, spending, refunds, fees, reports, actual order creation, insufficient-balance rollback, cancellation, non-cash return restoration, atomic shipping delivery confirmation and payout-key ownership.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

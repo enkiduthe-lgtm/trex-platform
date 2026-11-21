@@ -33,6 +33,10 @@ assert(html.includes(formatted('12.00','EUR')),'Currencies must remain separate'
 assert(html.includes('Havale / EFT')&&html.includes('Ödeme doğrulandı'));
 assert(html.includes('Deneme Ürünü')&&html.includes('Prim ters kaydı'));
 assert(html.includes('Kargo Hareketleri'));
+assert(!html.includes('Bu Alıcıya Yeni Sipariş'));
+const reuse=render({...order,address:{recipient_name:'Example',phone:'05320000000',city:'Bursa',district:'Nilüfer',address_line:'Test',postal_code:null}},{onUseDelivery(){}});
+assert(reuse.includes('Bu Alıcıya Yeni Sipariş'));
+assert(!render(order,{onUseDelivery(){}}).includes('Bu Alıcıya Yeni Sipariş'),'Missing delivery data must not offer reuse');
 const stale=render(order,{onRefresh(){},refreshing:false,refreshError:'Bağlantı kesildi.',refreshedAt:'2026-11-21T08:00:00Z'});
 assert(stale.includes('Detayı Yenile')&&stale.includes('Son yüklenen sipariş bilgileri gösteriliyor.')&&stale.includes('Son ekran yenilemesi'));
 const legacy=render({...order,has_shipment:false,payment_method:null,payment_status:null,payment_amount:null,commissions:undefined,deductions:undefined});

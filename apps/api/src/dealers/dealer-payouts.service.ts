@@ -21,7 +21,7 @@ export class DealerPayoutsService {
   const id=await this.dealerForUser(userId);
   const [balance,requests,deductions,earnings,sales,spends]=await Promise.all([
    dealerWallet(this.db,id),
-   this.db.query(`SELECT r.id,r.amount,r.currency,r.status,r.due_date,r.created_at,r.paid_at,r.reference_number,r.note,
+   this.db.query(`SELECT r.id,r.request_key,r.amount,r.currency,r.status,r.due_date,r.created_at,r.paid_at,r.reference_number,r.note,
      ${scheduledDate} AS scheduled_date FROM dealer_prim_requests r WHERE r.dealer_id=$1 ORDER BY r.created_at DESC`,[id]),
    this.db.query('SELECT f.id,f.amount,f.currency,f.note,f.created_at,o.id AS order_id,o.order_number FROM dealer_prim_deductions f JOIN returns r ON r.id=f.return_id JOIN orders o ON o.id=r.order_id WHERE f.dealer_id=$1 ORDER BY f.created_at DESC',[id]),
    this.db.query(`SELECT e.id,e.amount,e.currency,e.status,e.entry_kind,e.created_at,e.available_at,e.note,

@@ -29,3 +29,12 @@ export function dealerDeliveryErrors(delivery:DealerDelivery):DealerDeliveryErro
 export function validDealerMoney(value:string) {
  return /^\d+(?:\.\d{1,2})?$/.test(value)&&Number.isFinite(Number(value))&&Number(value)<=9999999999.99;
 }
+export function dealerCheckoutTotal(products:string,paymentMethod:string,codFee:string) {
+ if(!/^\d+(?:\.\d{1,2})?$/.test(products))return null;
+ const fee=paymentMethod.startsWith('COD_')?codFee:'0';
+ if(!validDealerMoney(fee))return null;
+ const cents=(value:string)=>{const [whole,fraction='']=value.split('.');return BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0'));};
+ const format=(value:bigint)=>`${value/100n}.${String(value%100n).padStart(2,'0')}`;
+ const productCents=cents(products),feeCents=cents(fee),total=productCents+feeCents;
+ return {products:format(productCents),fee:format(feeCents),total:format(total),positiveProducts:productCents>0n,withinLimit:total<=999999999999n};
+}

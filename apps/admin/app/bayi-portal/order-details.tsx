@@ -22,9 +22,10 @@ const paymentStatuses:Record<string,string>={PENDING:'Ödeme bekliyor',INITIATED
 const returnStatuses:Record<string,string>={REQUESTED:'Talep alındı',APPROVED:'Onaylandı',REJECTED:'Reddedildi',RECEIVED:'Teslim alındı',INSPECTED:'İncelendi',REFUNDED:'Geri ödeme tamamlandı',CANCELLED:'İptal edildi'};
 const commissionStatuses:Record<string,string>={PENDING:'Teslimat bekliyor',CONFIRMED:'Kesinleşti',AVAILABLE:'Kullanılabilir',PAID:'Ödendi',REVERSED:'Geri alındı',USED:'Kullanıldı',RESERVED:'Ayrıldı'};
 
-export function OrderDetails({order,onClose,onTrack,onOpenCommissions,onRefresh,refreshing,refreshError,refreshedAt}:{
+export function OrderDetails({order,onClose,onTrack,onOpenCommissions,onUseDelivery,onRefresh,refreshing,refreshError,refreshedAt}:{
   order:DealerOrderDetail;onClose:()=>void;onTrack:()=>void;onOpenCommissions:()=>void;
   onRefresh?:()=>void;refreshing?:boolean;refreshError?:string;refreshedAt?:string|null;
+  onUseDelivery?:(order:DealerOrderDetail)=>void;
 }) {
   const commissions=order.commissions??[];
   const deductions=order.deductions??[];
@@ -41,6 +42,7 @@ export function OrderDetails({order,onClose,onTrack,onOpenCommissions,onRefresh,
         {onRefresh&&<button type="button" disabled={refreshing} onClick={onRefresh}>{refreshing?'Yenileniyor…':'Detayı Yenile'}</button>}
         {order.has_shipment&&<button type="button" onClick={onTrack}>Kargo Hareketleri</button>}
         <button type="button" className="secondary" onClick={onOpenCommissions}>Primlerimi Aç</button>
+        {onUseDelivery&&order.address&&<button type="button" className="secondary" onClick={()=>onUseDelivery(order)}>Bu Alıcıya Yeni Sipariş</button>}
         <button type="button" className="secondary" onClick={onClose}>Detayı Kapat</button>
       </div>
     </div>

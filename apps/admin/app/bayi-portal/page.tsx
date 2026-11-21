@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { MetricChart } from '../components/metric-chart';
 import { monthlySeries } from '../lib/chart-data';
-import { api, clearToken, logout } from '../lib/api';
+import { api, ApiError, clearToken, logout } from '../lib/api';
 import { currencyTotals, multiplyMoney } from '../lib/report-totals';
 import { dealerPackSummary } from '../lib/dealer-pack-summary';
 import { downloadXlsx } from '../lib/xlsx';
@@ -13,16 +13,20 @@ import { TrackingPanel } from './tracking-panel';
 import { ProductCatalog, type PortalProduct } from './product-catalog';
 import type { DealerOrderDetail } from './order-details';
 import { OrderDetailPanel } from './order-detail-panel';
-import { matchesDealerOrder, dealerOrderProductsLabel, type DealerOrderHistory } from '../lib/dealer-order-history';
+import { matchesDealerOrder, dealerOrderProductsLabel, dealerOrderProductLines, type DealerOrderHistory } from '../lib/dealer-order-history';
 import { createRequestGate } from '../lib/async-controls';
 import { DeliveryField } from './delivery-field';
-import { deliveryFieldNames, deliveryFieldRules, dealerDeliveryErrors, normalizeDealerDelivery, validDealerMoney, type DealerDeliveryErrors } from '../lib/dealer-order-validation';
+import { AccountSummary } from './account-summary';
+import { dealerCartIssue } from '../lib/dealer-cart-review';
+import { DeliveryReuseDialog } from './delivery-reuse-dialog';
+import { dealerDeliveryFromAddress, type DealerDeliveryCandidate } from '../lib/dealer-delivery-reuse';
+import { deliveryFieldNames, deliveryFieldRules, dealerDeliveryErrors, normalizeDealerDelivery, validDealerMoney, dealerCheckoutTotal, type DealerDeliveryErrors } from '../lib/dealer-order-validation';
 
 type Summary = { company_name: string; code: string; level_name?:string|null; has_primary_iban?:boolean; dealer_balance: string; order_count: string; agreement_accepted_at: string | null };
 type Product = PortalProduct;
 type Options = { exchangeRate?:number; products: Product[]; warehouses: { id: string; name: string }[] };
 type Order = DealerOrderHistory & { id: string; can_cancel?: boolean; order_number: string; status: string; total_amount: string; refunded_amount?: string; net_amount?: string; cod_service_fee?:string; currency: string; created_at: string };
-type CreatedOrder = Pick<Order,'id'|'order_number'|'status'|'total_amount'|'currency'>;
+type CreatedOrder = Pick<Order,'id'|'order_number'|'status'|'total_amount'|'currency'> & {replayed?:boolean};
 type OrderDetail = DealerOrderDetail;
 type Ledger = { id: string; direction: string; amount: string; currency: string; description: string; reference_type: string; created_at: string };
 type Shipment = { id: string; order_id?:string; order_number: string; provider: string; tracking_number: string | null; status: string; created_at:string; tracking_checked_at:string|null;tracking_error?:string|null };
@@ -43,17 +47,27 @@ export default function DealerPortal() {
   const [tab, setTabState] = useState<Tab>('Yeni Sipariş');
   const [walletView,setWalletView]=useState(createWalletView);
   const orderViewGate=useRef(createRequestGate());
+  const accountSummaryGate=useRef(createRequestGate());
+  const accountRefreshQueued=useRef(false);
+  const portalAlive=useRef(true);
   const setTab=(value:Tab)=>{orderViewGate.current.invalidate();setTabState(value);};
-  useEffect(()=>()=>orderViewGate.current.invalidate(),[]);
+  useEffect(()=>{
+    portalAlive.current=true;
+    return()=>{portalAlive.current=false;accountRefreshQueued.current=false;accountSummaryGate.current.invalidate();orderViewGate.current.invalidate();};
+  },[]);
   const [chartCurrency,setChartCurrency]=useState('TRY');
   const [email, setEmail] = useState('');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [options, setOptions] = useState<Options>({ products: [], warehouses: [] });
+  const [creationError,setCreationError]=useState('');
+  const [accountLoading,setAccountLoading]=useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [orderDetailLoadedAt,setOrderDetailLoadedAt]=useState<string|null>(null);
   const [createdOrder,setCreatedOrder]=useState<CreatedOrder|null>(null);
+  const [unconfirmedOrder,setUnconfirmedOrder]=useState(false);
   const [cancelCandidate,setCancelCandidate]=useState<Order|null>(null);
+  const [deliveryCandidate,setDeliveryCandidate]=useState<DealerDeliveryCandidate|null>(null);
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [form, setForm] = useState(initial);
@@ -87,6 +101,11 @@ export default function DealerPortal() {
     (historyStatus==='ALL'||(shipmentOrderStatuses[row.status]??row.status)===historyStatus));
   const shownLedger = ledger.filter(row => inRange(row.created_at));
   const product = options.products.find(row => row.id === form.productId);
+  const cartIssues=useMemo(()=>Object.fromEntries(items.flatMap(item=>{
+    const issue=dealerCartIssue(item,options.products.find(product=>product.id===item.productId));
+    return issue?[[item.productId,issue]]:[];
+  })),[items,options.products]);
+  const cartNeedsReview=Object.keys(cartIssues).length>0;
   const selectedPack = product?.packs?.find(pack=>pack.size===packSize);
   const selectedBase = packSize===1 ? product?.amount : selectedPack?.amount;
   const lineTotal = (row:Item) => row.packSize ? multiplyMoney(row.packAmount!,row.quantity/row.packSize) : multiplyMoney(row.unitAmount,row.quantity);
@@ -109,6 +128,7 @@ export default function DealerPortal() {
   };
   async function changePayment(method:string,currency:string,clearCart=false) {
     if (!ready || actionLock.current) return;
+    if(unconfirmedOrder)return setMessage('Önce yanıtı alınamayan siparişi Doğrula / Yeniden Dene düğmesiyle kontrol edin.');
     if (currency === form.currency) {
       setForm(current => ({ ...current, paymentMethod: method }));
       setCurrencyChange(null);
@@ -117,11 +137,12 @@ export default function DealerPortal() {
     }
     if (items.length && !clearCart) {
       setCurrencyChange({method,currency});
+      requestAnimationFrame(()=>document.getElementById('bayi-para-birimi-onayi')?.focus());
       return;
     }
     await action(async()=>{
       const next=await api<Options>('/dealer-portal/creation-options?currency='+currency);
-      setOptions(next);setPriceOverride('');setPackSize(1);
+      setOptions(next);setCreationError('');setPriceOverride('');setPackSize(1);
       setEditingItemId(null);
       if (clearCart) setItems([]);
       setCurrencyChange(null);
@@ -129,17 +150,28 @@ export default function DealerPortal() {
       setMessage('Ürün fiyatları yeni para biriminde gösteriliyor.');
     });
   }
+  async function refreshCreationOptions() {
+    const next=await api<Options>('/dealer-portal/creation-options?currency='+form.currency);
+    setOptions(next);setCreationError('');setMessage('Bayi fiyatları ve stok bilgileri güncellendi.');
+  }
   async function load() {
-    setReady(false);
+    accountSummaryGate.current.invalidate();
+    setReady(false);setAccountLoading(true);
     setOrderDetail(null);
-    const me = await api<{ user: { email: string; role: string } }>('/auth/me');
-    if (me.user.role !== 'DEALER') throw new Error('Bu Alan Yalnızca Bayi Hesapları İçindir.');
-    const [account, products, listed, movements, deliveries, commissionBalances] = await Promise.all([
-      api<Summary>('/dealer-portal/summary'), api<Options>('/dealer-portal/creation-options?currency='+form.currency), api<Order[]>('/dealer-portal/orders'),
-      api<Ledger[]>('/dealer-portal/ledger'), api<Shipment[]>('/dealer-portal/shipments'), api<{ currency: string; amount: string }[]>('/dealer-portal/commission-balances'),
-    ]);
-    setEmail(me.user.email); setSummary(account); setOptions(products); setOrders(listed); setLedger(movements); setShipments(deliveries); setAvailable(commissionBalances);
-    setForm(current => ({ ...current, contactEmail: current.contactEmail || me.user.email })); setReady(true);
+    try {
+      const me = await api<{ user: { email: string; role: string } }>('/auth/me');
+      if (me.user.role !== 'DEALER') throw new Error('Bu Alan Yalnızca Bayi Hesapları İçindir.');
+      const pricing=api<Options>('/dealer-portal/creation-options?currency='+form.currency).then(
+        value=>({value,error:''}),error=>({value:null,error:error instanceof Error?error.message:'Ürün fiyatları ve stok bilgileri alınamadı.'}),
+      );
+      const [account, products, listed, movements, deliveries, commissionBalances] = await Promise.all([
+        api<Summary>('/dealer-portal/summary'), pricing, api<Order[]>('/dealer-portal/orders'),
+        api<Ledger[]>('/dealer-portal/ledger'), api<Shipment[]>('/dealer-portal/shipments'), api<{ currency: string; amount: string }[]>('/dealer-portal/commission-balances'),
+      ]);
+      setEmail(me.user.email);setSummary(account);setOptions(products.value??{products:[],warehouses:[]});setCreationError(products.error);
+      setOrders(listed);setLedger(movements);setShipments(deliveries);setAvailable(commissionBalances);
+      setForm(current => ({ ...current, contactEmail: current.contactEmail || me.user.email }));setReady(true);
+    }finally{setAccountLoading(false);}
   }
   async function refreshAfterAction(confirmation: string) {
     try {
@@ -150,13 +182,16 @@ export default function DealerPortal() {
     }
   }
   async function refreshAccountSummary() {
+    if(!portalAlive.current)return;
+    if(actionLock.current){accountRefreshQueued.current=true;return;}
+    const ticket=accountSummaryGate.current.begin();
     try {
       const [account,movements,commissionBalances]=await Promise.all([
         api<Summary>('/dealer-portal/summary'),api<Ledger[]>('/dealer-portal/ledger'),
         api<{currency:string;amount:string}[]>('/dealer-portal/commission-balances'),
       ]);
-      setSummary(account);setLedger(movements);setAvailable(commissionBalances);
-    } catch {setMessage('Hesap özeti yenilenemedi. Bilgileri Yenile düğmesini kullanın.');}
+      if(portalAlive.current&&accountSummaryGate.current.isCurrent(ticket)){setSummary(account);setLedger(movements);setAvailable(commissionBalances);}
+    } catch {if(portalAlive.current&&accountSummaryGate.current.isCurrent(ticket))setMessage('Hesap özeti yenilenemedi. Bilgileri Yenile düğmesini kullanın.');}
   }
   async function openOrder(id:string) {
     await action(async()=>{
@@ -179,6 +214,22 @@ export default function DealerPortal() {
       setCancelCandidate(null);
       await refreshAfterAction(number+' numaralı sipariş iptal edildi.');
     });
+  }
+  function useOrderDelivery(order:OrderDetail) {
+    if(!ready||actionLock.current)return;
+    if(unconfirmedOrder)return setMessage('Alıcıyı değiştirmeden önce yanıtı alınamayan siparişi kontrol edin.');
+    const delivery=dealerDeliveryFromAddress(order.address,email);
+    if(!delivery)return setMessage('Bu siparişin alıcı bilgileri bulunamadı.');
+    setCurrencyChange(null);setCancelCandidate(null);
+    setDeliveryCandidate({sourceOrderNumber:order.order_number,delivery});
+    requestAnimationFrame(()=>document.getElementById('bayi-alici-kullan')?.focus());
+  }
+  function confirmOrderDelivery() {
+    if(!deliveryCandidate||!ready||actionLock.current||unconfirmedOrder)return;
+    setForm(current=>({...current,...deliveryCandidate.delivery}));
+    setDeliveryErrors({});setDeliveryCandidate(null);setCreatedOrder(null);
+    setTab('Yeni Sipariş');setMessage('Alıcı bilgileri yeni siparişe alındı. Adres ve e-postayı kontrol ederek siparişinizi tamamlayın.');
+    requestAnimationFrame(()=>document.getElementById('bayi-recipientName')?.focus());
   }
   function openTracking(id:string) {
     setTrackingOrder(id);
@@ -213,7 +264,10 @@ export default function DealerPortal() {
   },[ready,tab]);
   function addItem(quickProduct?: Product) {
     if (actionLock.current) return;
+    if(unconfirmedOrder)return setMessage('Sepeti değiştirmeden önce yanıtı alınamayan siparişi kontrol edin.');
     if (!ready) return setMessage('Ürün Ve Hesap Bilgilerini Önce Yenileyin.');
+    if(creationError)return setMessage('Ürün fiyatları ve stok bilgilerini yeniledikten sonra ürün ekleyin.');
+    if(quickProduct&&editingItemId)return setMessage('Önce sepetteki ürün düzenlemesini kaydedin veya düzenlemeden vazgeçin.');
     const selected=quickProduct??product;
     const count=quickProduct?1:form.quantity;
     if (!selected || selected.amount === null || !selected.currency) return setMessage('Fiyatı Tanımlı Bir Ürün Seçin.');
@@ -239,16 +293,19 @@ export default function DealerPortal() {
     if (actionLock.current) return;
     actionLock.current = true;
     setBusy(true); setMessage('');
-    try { await work(); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem Tamamlanamadı.'); } finally { actionLock.current = false; setBusy(false); }
+    try { await work(); } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem Tamamlanamadı.'); } finally {
+      actionLock.current = false;setBusy(false);
+      if(portalAlive.current&&accountRefreshQueued.current){accountRefreshQueued.current=false;void refreshAccountSummary();}
+    }
   }
   function updateQuantity(productId: string, quantity: number) {
-    if (actionLock.current) return;
+    if (actionLock.current||unconfirmedOrder) return;
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000 || items.some(row=>row.productId===productId&&row.packSize&&quantity%row.packSize!==0)) return setMessage('Adet 1 İle 100000 Arasında Olmalı Ve Seçilen Paket Adedinin Katı Olmalı.');
     setItems(current => current.map(row => row.productId === productId ? { ...row, quantity } : row));
     setMessage('');
   }
   function editItem(row:Item) {
-    if(actionLock.current||!ready)return;
+    if(actionLock.current||!ready||unconfirmedOrder)return;
     setEditingItemId(row.productId);setPackSize(row.packSize??1);
     setPriceOverride(row.packAmount??row.unitAmount);
     setForm(current=>({...current,productId:row.productId,quantity:row.quantity/(row.packSize??1)}));
@@ -256,6 +313,7 @@ export default function DealerPortal() {
     document.getElementById('bayi-urun-secimi')?.scrollIntoView({block:'center',behavior:'smooth'});
   }
   function cancelItemEdit() {
+    if(actionLock.current||unconfirmedOrder)return;
     setEditingItemId(null);setPackSize(1);setPriceOverride('');
     setForm(current=>({...current,productId:'',quantity:1}));
   }
@@ -285,11 +343,47 @@ export default function DealerPortal() {
       ]);
     }
   }
+  async function sendOrderRequest(body:string,key:string) {
+    setCreatedOrder(null);
+    try {
+      const result=await api<CreatedOrder>('/dealer-portal/orders',{method:'POST',headers:{'Idempotency-Key':key},body});
+      if(!result||typeof result.id!=='string'||!result.id||typeof result.order_number!=='string'||!result.order_number||typeof result.status!=='string'||!result.status||!['TRY','EUR','USD'].includes(result.currency)||typeof result.total_amount!=='string'||!validDealerMoney(result.total_amount)||Number(result.total_amount)<=0)throw new Error('Sipariş yanıtı doğrulanamadı. Aynı siparişi yeniden kontrol edin.');
+      return result;
+    }catch(error){
+      if(error instanceof ApiError&&error.status>=400&&error.status<500&&![408,429,499].includes(error.status)){pendingOrder.current=null;setUnconfirmedOrder(false);}
+      else setUnconfirmedOrder(true);
+      throw error;
+    }
+  }
+  async function finishCreatedOrder(result:CreatedOrder,viewTicket:number,currency:string,paymentMethod:string) {
+    pendingOrder.current=null;setUnconfirmedOrder(false);setCreatedOrder(result);
+    setDeliveryErrors({});setFeeError('');setEditingItemId(null);setItems([]);
+    setForm({...initial,currency,paymentMethod,contactEmail:email});setCodServiceFee('75');
+    if(orderViewGate.current.isCurrent(viewTicket))setTab('Siparişlerim');
+    await refreshAfterAction(`${result.order_number} Numaralı Sipariş ${result.replayed?'Kaydı Doğrulandı':'Oluşturuldu'}.`);
+  }
+  async function retryUnconfirmedOrder() {
+    const pending=pendingOrder.current;
+    if(!pending||!unconfirmedOrder||actionLock.current)return;
+    const original=JSON.parse(pending.body) as {currency:string;paymentMethod:string};
+    await action(async()=>{
+      const ticket=orderViewGate.current.begin();
+      const result=await sendOrderRequest(pending.body,pending.key);
+      await finishCreatedOrder(result,ticket,original.currency,original.paymentMethod);
+    });
+  }
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if(unconfirmedOrder)return setMessage('Önce yanıtı alınamayan siparişi Doğrula / Yeniden Dene düğmesiyle kontrol edin.');
     if (!ready) return setMessage('Sipariş Vermeden Önce Bilgileri Yenileyin.');
+    if(creationError)return setMessage('Sipariş vermeden önce ürün fiyatları ve stok bilgilerini yenileyin.');
     if (currencyChange) return setMessage('Para birimi değişikliğini tamamlayın veya vazgeçin.');
     if (editingItemId) return setMessage('Siparişi oluşturmadan önce ürün değişikliğini kaydedin veya düzenlemeden vazgeçin.');
+    if(form.productId||priceOverride||form.quantity!==1||packSize!==1){
+      setMessage('Ürün girişini Siparişe Ekle ile sepete ekleyin veya Ürün Girişini Temizle ile vazgeçin.');
+      requestAnimationFrame(()=>document.getElementById('bayi-urun-secimi')?.focus());return;
+    }
+    if(cartNeedsReview)return setMessage('Sepette işaretli ürünlerin fiyat veya stok bilgilerini düzeltin. Satış fiyatınız otomatik değiştirilmez.');
     if (!items.length) return setMessage('Siparişe En Az Bir Ürün Ekleyin.');
     const errors=dealerDeliveryErrors(form);
     setDeliveryErrors(errors);
@@ -304,6 +398,9 @@ export default function DealerPortal() {
     }
     setFeeError('');
     if(!event.currentTarget.reportValidity())return;
+    const checkout=dealerCheckoutTotal(totals[0]?.amount??'0',form.paymentMethod,codServiceFee);
+    if(!checkout||!checkout.positiveProducts)return setMessage('Ürün toplamı sıfırdan büyük olmalı. Satış fiyatlarını kontrol edin.');
+    if(!checkout.withinLimit)return setMessage('Sipariş toplamı kayıt sınırını aşıyor. Ürün adetlerini veya satış fiyatlarını azaltın.');
     if (insufficientCommission) return setMessage('Primle ödeme için kullanılabilir priminiz siparişin tamamına yetmeli.');
     if (!items.every(item => item.currency === form.currency)) return setMessage('Sipariş ve ürün fiyatları aynı para biriminde olmalı.');
     const insufficient = items.find(item=>{
@@ -315,20 +412,26 @@ export default function DealerPortal() {
     await action(async () => {
       const {productId:_selection,quantity:_count,...rawDelivery}=form;
       const delivery=normalizeDealerDelivery(rawDelivery);
+      const viewTicket=orderViewGate.current.begin();
       const body = JSON.stringify({ ...delivery,codServiceFee:form.paymentMethod.startsWith('COD_')?Number(codServiceFee):undefined, warehouseId: options.warehouses[0].id, currency: items[0].currency, items: items.map(({ productId, quantity, unitAmount,packSize,packAmount }) => ({ productId, quantity,packSize,packAmount:packSize?Number(packAmount):undefined, unitAmount:packSize?undefined:Number(unitAmount) })), priceChangeReason: 'Bayi Portalı Fiyatı' });
       if (pendingOrder.current?.body !== body) pendingOrder.current = { body, key: crypto.randomUUID() };
-      const result = await api<CreatedOrder>('/dealer-portal/orders', { method: 'POST', headers: { 'Idempotency-Key': pendingOrder.current.key }, body });
-      pendingOrder.current = null;
-      setCreatedOrder(result);
-      setDeliveryErrors({});setFeeError('');
-      setEditingItemId(null);
-      setItems([]); setForm({ ...initial, currency:form.currency, paymentMethod:form.paymentMethod, contactEmail: email }); setCodServiceFee('75'); setTab('Siparişlerim');
-      await refreshAfterAction(`${result.order_number} Numaralı Sipariş Oluşturuldu.`);
+      const result=await sendOrderRequest(body,pendingOrder.current.key);
+      await finishCreatedOrder(result,viewTicket,delivery.currency,delivery.paymentMethod);
     });
   }
   return <main className={styles.page}>
-    <header className={styles.header}><div><p>Bayi Paneli</p><h1>{summary?.company_name || 'Bayi Paneli'}</h1><p>{summary?.code} · {email}</p>{summary?.level_name&&<span className={styles.levelBadge}><span aria-hidden="true">★</span> {summary.level_name}</span>}</div><div className={styles.actions}><button type="button" className="secondary" disabled={busy} onClick={() => void action(load)}>Bilgileri Yenile</button><button type="button" className="secondary" onClick={() => void action(async () => { try { await logout(); } finally { clearToken(); window.location.assign('/giris'); } })}>Güvenli Çıkış</button></div></header>
+    <header className={styles.header}><div><p>Bayi Paneli</p><h1>{summary?.company_name || 'Bayi Paneli'}</h1><p>{summary?.code} · {email}</p>{summary?.level_name&&<span className={styles.levelBadge}><span aria-hidden="true">★</span> {summary.level_name}</span>}</div><div className={styles.actions}><button type="button" className="secondary" disabled={busy||accountLoading} onClick={() => void action(load)}>Bilgileri Yenile</button><button type="button" className="secondary" onClick={() => void action(async () => { try { await logout(); } finally { clearToken(); window.location.assign('/giris'); } })}>Güvenli Çıkış</button></div></header>
     {message && <p role="status" className="notice">{message}</p>}
+    {unconfirmedOrder&&<section className={styles.orderResult} aria-label="Sipariş sonucu doğrulanamadı">
+      <h2>Son siparişin sonucunu kontrol edin</h2><p>Yanıt alınamadı. Siparişiniz kaydedilmiş olabilir. Aynı siparişi tekrar kontrol ederek tamamlayabilirsiniz; sonuç doğrulanana kadar ürün ve teslimat bilgileri korunur.</p>
+      <div className={styles.actions}><button type="button" disabled={busy} onClick={()=>void retryUnconfirmedOrder()}>{busy?'Kontrol Ediliyor…':'Siparişi Doğrula / Yeniden Dene'}</button><button type="button" className="secondary" disabled={busy} onClick={()=>setTab('Siparişlerim')}>Siparişlerimi Göster</button></div>
+    </section>}
+    {deliveryCandidate&&<DeliveryReuseDialog candidate={deliveryCandidate} busy={busy} onConfirm={confirmOrderDelivery} onCancel={()=>setDeliveryCandidate(null)}/>}
+    {currencyChange&&<section id="bayi-para-birimi-onayi" className={styles.box} role="alertdialog" aria-labelledby="bayi-para-birimi-baslik" aria-describedby="bayi-para-birimi-aciklama" tabIndex={-1}>
+      <h2 id="bayi-para-birimi-baslik">Sipariş para birimini değiştir</h2>
+      <p id="bayi-para-birimi-aciklama">Para birimi {currencyChange.currency} olarak değiştiğinde sepetteki ürünler temizlenecek. Teslimat bilgileriniz korunur.</p>
+      <div className={styles.actions}><button type="button" disabled={busy||!ready} onClick={()=>void changePayment(currencyChange.method,currencyChange.currency,true)}>Değiştir ve sepeti temizle</button><button type="button" className="secondary" disabled={busy} onClick={()=>setCurrencyChange(null)}>Vazgeç</button></div>
+    </section>}
     {createdOrder&&<section className={styles.orderResult} aria-label="Son oluşturulan sipariş">
   <div><h2>Siparişiniz kaydedildi</h2><p><strong>{createdOrder.order_number}</strong> · {money(createdOrder.total_amount,createdOrder.currency)} · {statuses[createdOrder.status]??createdOrder.status}</p></div>
   <div className={styles.actions}>
@@ -346,8 +449,8 @@ export default function DealerPortal() {
     <button type="button" className="secondary" disabled={busy} onClick={()=>setCancelCandidate(null)}>Vazgeç</button>
   </div>
 </section>}
-<section className={styles.cards} aria-label="Hesap Özeti"><article><h2>Siparişlerim</h2><strong>{summary?.order_count ?? '—'}</strong></article><article><h2>Kullanılabilir Prim</h2>{available.length ? available.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}<small>Tüm Kesinleşen Ve Kullanılabilir Kayıtlar</small></article><article><h2>Cari Bakiye</h2>{balances.length ? balances.map(row => <strong key={row.currency}>{money(row.amount, row.currency)}</strong>) : <p>Kayıt Bulunmuyor.</p>}</article></section>
-    <nav className={styles.tabs} aria-label="Bayi Paneli Bölümleri">{tabs.map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => {setTab(value);setHistoryStatus('ALL');}}>{value}</button>)}</nav>
+<AccountSummary ready={ready} loading={accountLoading} orderCount={summary?.order_count} available={available} balances={balances}/>
+    <nav className={styles.tabs} aria-label="Bayi Paneli Bölümleri">{tabs.map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => {setDeliveryCandidate(null);setCurrencyChange(null);setCancelCandidate(null);setTab(value);setHistoryStatus('ALL');}}>{value}</button>)}</nav>
     {['Siparişlerim', 'Cari Hesabım', 'Kargo Takibi'].includes(tab) && <section className={styles.box} aria-label="Tarih Filtresi"><div className={styles.grid}><label>Başlangıç Tarihi<input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>Bitiş Tarihi<input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label><button type="button" className="secondary" onClick={() => { setDateFrom(''); setDateTo(''); }}>Tarihleri Temizle</button><button type="button" onClick={exportHistory} disabled={!ready || busy || !validRange || (tab === 'Siparişlerim' ? !shownOrders.length : tab==='Kargo Takibi' ? !shownShipments.length : !shownLedger.length)}>Excel&apos;e Aktar</button></div><p>Filtreler tablolara, sipariş grafiklerine ve Excel raporuna uygulanır. Üstteki hesap bakiyeleri tüm dönemleri kapsar.</p>{!validRange && <p role="alert">Başlangıç Tarihi Bitiş Tarihinden Sonra Olamaz.</p>}</section>}
     {['Siparişlerim','Kargo Takibi'].includes(tab)&&<section className={styles.box} aria-label="Sipariş arama ve durum filtresi">
   <div className={styles.grid}>
@@ -361,23 +464,28 @@ export default function DealerPortal() {
   <p>{tab==='Siparişlerim'?shownOrders.length:shownShipments.length} kayıt gösteriliyor. Açık ekran 30 saniyede bir yenilenir.</p>
   {historyError&&<p className="notice" role="alert">{historyError} Son yüklenen kayıtlar gösteriliyor.</p>}
 </section>}
-{ready&&trackingOrder&&['Siparişlerim','Kargo Takibi'].includes(tab)&&<TrackingPanel orderId={trackingOrder} onClose={()=>setTrackingOrder(null)}/>}
-{!ready ? <section className={styles.box}><p>Bayi Bilgileri Bekleniyor.</p></section> : <>
-    {tab === 'Siparişlerim' && orderDetail && <OrderDetailPanel order={orderDetail} loadedAt={orderDetailLoadedAt} onClose={()=>setOrderDetail(null)}
+{ready&&trackingOrder&&['Siparişlerim','Kargo Takibi'].includes(tab)&&<TrackingPanel key={trackingOrder} orderId={trackingOrder} onClose={()=>setTrackingOrder(null)}/>}
+{!ready ? <section className={styles.box}><p role="status">{accountLoading?'Bayi bilgileri yükleniyor…':'Bayi bilgileri alınamadı. Tekrar yüklemeyi deneyin.'}</p><button type="button" disabled={busy||accountLoading} onClick={()=>void action(load)}>Bilgileri Yenile</button></section> : <>
+    {creationError&&['Yeni Sipariş','Ürünler'].includes(tab)&&<section className={styles.box} aria-label="Ürün fiyatları alınamadı">
+      <h2>Fiyat ve stok bilgileri alınamadı</h2><p className="notice" role="alert">{creationError}</p>
+      <p>Siparişlerim, Kargo Takibi ve Primlerim bölümlerini kullanabilirsiniz. Yeni sipariş için bayi fiyatlarını ve stok bilgilerini yenileyin.</p>
+      <div className={styles.actions}><button type="button" disabled={busy} onClick={()=>void action(refreshCreationOptions)}>Fiyatları ve Stoku Yenile</button>{form.currency!=='TRY'&&<button type="button" className="secondary" disabled={busy} onClick={()=>void changePayment('TRANSFER','TRY')}>TL Fiyatlarına Dön</button>}</div>
+    </section>}
+    {tab === 'Siparişlerim' && orderDetail && <OrderDetailPanel order={orderDetail} loadedAt={orderDetailLoadedAt} onClose={()=>setOrderDetail(null)} onUseDelivery={useOrderDelivery}
       onTrack={()=>openTracking(orderDetail.id)} onOpenCommissions={()=>{setTab('Primlerim');requestAnimationFrame(()=>document.getElementById('bayi-prim-ekrani')?.focus());}}/>}
-    {tab === 'Yeni Sipariş' && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!ready ? <p role="status">Sipariş Bilgileri Hazır Değil. Bilgileri Yenile Düğmesini Kullanın.</p> : !summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await refreshAfterAction('Bayilik Sözleşmesi Kabul Edildi.'); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form noValidate onSubmit={event => void create(event)}><fieldset disabled={busy} className={styles.orderFields}>
-      <div className={styles.grid}>{deliveryFieldNames.filter(key=>key!=='addressLine').map(key=><DeliveryField key={key} name={key} value={form[key]} error={deliveryErrors[key]} onChange={value=>change(key,value)}/>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} disabled={busy} onChange={event => void changePayment(event.target.value,['TRANSFER','HAND_CASH'].includes(event.target.value)?form.currency:'TRY')}><option value="TRANSFER">Havale / EFT</option><option value="COMMISSION">Kesinleşmiş Primimle Öde</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label>Para Birimi<select disabled={busy||!['TRANSFER','HAND_CASH'].includes(form.paymentMethod)} value={form.currency} onChange={event=>void changePayment(form.paymentMethod,event.target.value)}><option value="TRY">TL</option><option value="EUR">Euro</option><option value="USD">Dolar</option></select></label>{form.currency!=='TRY'&&<p>Ortak Kur: 1 {form.currency} = {options.exchangeRate} TL · Sipariş Kaydında Güncel Kur Doğrulanır.</p>}{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input id="bayi-cod-service-fee" type="number" min="0" max="9999999999.99" step="0.01" required aria-invalid={feeError?true:undefined} aria-describedby={feeError?'bayi-cod-fee-error':undefined} value={codServiceFee} onChange={e=>{setCodServiceFee(e.target.value);setFeeError('');}}/>{feeError&&<small id="bayi-cod-fee-error" className={styles.fieldError}>{feeError}</small>}</label>}{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<div className={styles.full}><DeliveryField name="addressLine" value={form.addressLine} error={deliveryErrors.addressLine} onChange={value=>change('addressLine',value)}/></div></div>{currencyChange && <div className="notice"><p>Para birimi {currencyChange.currency} olarak değiştiğinde sepetteki ürünler temizlenecek.</p><div className={styles.actions}><button type="button" onClick={() => void changePayment(currencyChange.method,currencyChange.currency,true)}>Değiştir ve sepeti temizle</button><button type="button" className="secondary" onClick={() => setCurrencyChange(null)}>Vazgeç</button></div></div>}
+    {tab === 'Yeni Sipariş' && !creationError && <section className={styles.box}><h2>Yeni Bayi Siparişi</h2>{!ready ? <p role="status">Sipariş Bilgileri Hazır Değil. Bilgileri Yenile Düğmesini Kullanın.</p> : !summary?.agreement_accepted_at ? <><p>Sipariş Vermek İçin Bayilik Sözleşmesini Kabul Edin. IBAN Bilgisi İsteğe Bağlıdır.</p><button disabled={busy} onClick={() => void action(async () => { await api('/dealer-portal/agreement/accept', { method: 'POST' }); await refreshAfterAction('Bayilik Sözleşmesi Kabul Edildi.'); })}>Sözleşmeyi Kabul Ediyorum</button></> : <form noValidate onSubmit={event => void create(event)}><fieldset disabled={busy||unconfirmedOrder} className={styles.orderFields}>
+      <div className={styles.grid}>{deliveryFieldNames.filter(key=>key!=='addressLine').map(key=><DeliveryField key={key} name={key} value={form[key]} error={deliveryErrors[key]} onChange={value=>change(key,value)}/>)}<label>Ödeme Yöntemi<select value={form.paymentMethod} disabled={busy} onChange={event => void changePayment(event.target.value,['TRANSFER','HAND_CASH'].includes(event.target.value)?form.currency:'TRY')}><option value="TRANSFER">Havale / EFT</option><option value="COMMISSION">Kesinleşmiş Primimle Öde</option><option value="COD_CASH">Kapıda Nakit</option><option value="COD_CARD">Kapıda Kart</option><option value="HAND_CASH">Elden Tahsilat</option></select></label><label>Para Birimi<select disabled={busy||!['TRANSFER','HAND_CASH'].includes(form.paymentMethod)} value={form.currency} onChange={event=>void changePayment(form.paymentMethod,event.target.value)}><option value="TRY">TL</option><option value="EUR">Euro</option><option value="USD">Dolar</option></select></label>{form.currency!=='TRY'&&<p>Ortak Kur: 1 {form.currency} = {options.exchangeRate} TL · Sipariş Kaydında Güncel Kur Doğrulanır.</p>}{form.paymentMethod.startsWith('COD_')&&<label>Kapıda Ödeme Hizmet Bedeli (TL)<input id="bayi-cod-service-fee" type="number" min="0" max="9999999999.99" step="0.01" required aria-invalid={feeError?true:undefined} aria-describedby={feeError?'bayi-cod-fee-error':undefined} value={codServiceFee} onChange={e=>{setCodServiceFee(e.target.value);setFeeError('');}}/>{feeError&&<small id="bayi-cod-fee-error" className={styles.fieldError}>{feeError}</small>}</label>}{form.paymentMethod.startsWith('COD_')&&<div role="note" style={{gridColumn:'1 / -1',padding:16,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',color:'#0f172a'}}><strong>Aras Kapıda Ödeme</strong><p>Tahsilat: {form.paymentMethod==='COD_CARD'?'Kredi Kartı':'Nakit'} · Kargo Ücreti: Gönderici Ödemeli</p><p>Ürünler Ve Hizmet Bedeli Müşteriden Birlikte Tahsil Edilir.</p></div>}<div className={styles.full}><DeliveryField name="addressLine" value={form.addressLine} error={deliveryErrors.addressLine} onChange={value=>change('addressLine',value)}/></div></div>
       {product&&<section className={styles.box}><h3>{product.name} · Seviyene Özel Alım Fiyatları</h3>{product.available_quantity!==undefined&&<p>Satılabilir stok {product.available_quantity} adet</p>}<div className={styles.grid}><div><b>Tekli</b><p>{product.amount!==null?money(product.amount,product.currency || form.currency):'Tanımlanmamış'}</p></div>{product.packs?.map(pack=>{const currency=product.currency || form.currency;const summary=dealerPackSummary({...pack,currency},product.amount!==null?{amount:product.amount,currency}:undefined,pack.size);return <div key={pack.size}><b>{pack.size}’li Toplam</b><p>{money(pack.amount,currency)}</p>{summary&&<small>Adet Başına: {summary.unitPrice}{summary.saving&&<><br/>{summary.saving} Tasarruf</>}</small>}</div>;})}</div></section>}
-      <h3 id="bayi-urun-secimi">{editingItemId?'Sepetteki Ürünü Düzenle':'Ürün Ekle'}</h3><div className={styles.grid}><label>Ürün<select value={form.productId} onChange={event => { change('productId', event.target.value); setPriceOverride('');setPackSize(1); }}><option value="">Ürün Seçin</option>{options.products.filter(row => row.amount !== null).map(row => <option key={row.id} value={row.id}>{row.name} · {money(row.amount!, row.currency || 'TRY')}</option>)}</select></label><label>Alım Seçeneği<select value={packSize} onChange={event=>{setPackSize(Number(event.target.value));setPriceOverride('');}}><option value="1">Tekli</option>{product?.packs?.map(pack=><option key={pack.size} value={pack.size}>{pack.size}’li · {money(pack.amount,product?.currency || form.currency)} Toplam</option>)}</select></label><label>{packSize===1?'Adet':'Paket Adedi'}<input type="number" min="1" max="100000" value={form.quantity} onChange={event => change('quantity', Number(event.target.value))} /></label><label>{packSize===1?'Satış Birim Fiyatı':'Satış Paket Toplam Fiyatı'}<input type="number" min={selectedBase ?? 0} step="0.01" value={priceOverride} placeholder={selectedBase ?? 'Önce Ürün Seçin'} onChange={event => setPriceOverride(event.target.value)} /></label><div className={styles.actions}>{packSize>1&&Number.isInteger(form.quantity)&&form.quantity>0&&<small>{form.quantity} Paket × {packSize} Adet = {form.quantity*packSize} Adet · Tek Sipariş</small>}<button type="button" disabled={busy} onClick={() => addItem()}>{editingItemId?'Değişikliği Kaydet':'Siparişe Ekle'}</button>{editingItemId&&<button type="button" className="secondary" onClick={cancelItemEdit}>Düzenlemeden Vazgeç</button>}</div></div>
-      <div className={styles.table}><table><thead><tr><th>Ürün</th><th>Ürün Adedi</th><th>Satış Fiyatı</th><th>Satır Toplamı</th><th>İşlem</th></tr></thead><tbody>{items.map(row => <tr key={row.productId}><td>{options.products.find(p => p.id === row.productId)?.name}</td><td><input aria-label={`${options.products.find(p => p.id === row.productId)?.name ?? 'Ürün'} Adedi`} type="number" min={row.packSize??1} step={row.packSize??1} max="100000" value={row.quantity} disabled={busy||editingItemId===row.productId} onChange={event => updateQuantity(row.productId, Number(event.target.value))} />{row.packSize&&<small>{row.quantity/row.packSize} Paket × {row.packSize} Adet = {row.quantity} Adet</small>}</td><td>{row.packSize?`${row.packSize}’li Paket: `:''}{money(row.packAmount??row.unitAmount, row.currency)}</td><td>{money(lineTotal(row), row.currency)}</td><td><div className={styles.actions}><button type="button" className="secondary" disabled={busy} onClick={()=>editItem(row)}>Düzenle</button><button type="button" className="secondary" disabled={busy} onClick={() => {setItems(current => current.filter(item => item.productId !== row.productId));if(editingItemId===row.productId)cancelItemEdit();}}>Çıkar</button></div></td></tr>)}{!items.length && <tr><td colSpan={5}>Henüz Ürün Eklenmedi.</td></tr>}</tbody></table></div><div className={styles.actions}>{totals.map(row => <strong key={row.currency}>Ürünler: {money(row.amount, row.currency)} · Hizmet: {money(form.paymentMethod.startsWith('COD_')?codServiceFee:'0',row.currency)} · Toplam: {money((Number(row.amount)+(form.paymentMethod.startsWith('COD_')?Number(codServiceFee):0)).toFixed(2),row.currency)}</strong>)}{estimatedMargin.map(row => <strong key={row.currency}>Tahmini Bayi Primi: {money(row.amount,row.currency)}</strong>)}<small>Seviye Fiyatının Üstündeki Farktır. Prim Teslimatta Kesinleşir.</small>
+      <h3 id="bayi-urun-secimi" tabIndex={-1}>{editingItemId?'Sepetteki Ürünü Düzenle':'Ürün Ekle'}</h3><div className={styles.grid}><label>Ürün<select value={form.productId} onChange={event => { change('productId', event.target.value); setPriceOverride('');setPackSize(1); }}><option value="">Ürün Seçin</option>{options.products.filter(row => row.amount !== null).map(row => <option key={row.id} value={row.id}>{row.name} · {money(row.amount!, row.currency || 'TRY')}</option>)}</select></label><label>Alım Seçeneği<select value={packSize} onChange={event=>{setPackSize(Number(event.target.value));setPriceOverride('');}}><option value="1">Tekli</option>{product?.packs?.map(pack=><option key={pack.size} value={pack.size}>{pack.size}’li · {money(pack.amount,product?.currency || form.currency)} Toplam</option>)}</select></label><label>{packSize===1?'Adet':'Paket Adedi'}<input type="number" min="1" max="100000" value={form.quantity} onChange={event => change('quantity', Number(event.target.value))} /></label><label>{packSize===1?'Satış Birim Fiyatı':'Satış Paket Toplam Fiyatı'}<input type="number" min={selectedBase ?? 0} step="0.01" value={priceOverride} placeholder={selectedBase ?? 'Önce Ürün Seçin'} onChange={event => setPriceOverride(event.target.value)} /></label><div className={styles.actions}>{packSize>1&&Number.isInteger(form.quantity)&&form.quantity>0&&<small>{form.quantity} Paket × {packSize} Adet = {form.quantity*packSize} Adet · Tek Sipariş</small>}<button type="button" disabled={busy} onClick={() => addItem()}>{editingItemId?'Değişikliği Kaydet':'Siparişe Ekle'}</button>{(editingItemId||form.productId||priceOverride||form.quantity!==1||packSize!==1)&&<button type="button" className="secondary" onClick={cancelItemEdit}>{editingItemId?'Düzenlemeden Vazgeç':'Ürün Girişini Temizle'}</button>}{form.productId&&!editingItemId&&<small>Seçili ürün henüz sepete eklenmedi. Siparişe Ekle düğmesini kullanın.</small>}</div></div>
+      <div className={styles.table}><table><thead><tr><th>Ürün</th><th>Ürün Adedi</th><th>Satış Fiyatı</th><th>Satır Toplamı</th><th>İşlem</th></tr></thead><tbody>{items.map(row => <tr key={row.productId}><td>{options.products.find(p => p.id === row.productId)?.name}{cartIssues[row.productId]&&<p className={styles.fieldError} role="status">{cartIssues[row.productId].message}</p>}</td><td><input aria-label={`${options.products.find(p => p.id === row.productId)?.name ?? 'Ürün'} Adedi`} type="number" min={row.packSize??1} step={row.packSize??1} max="100000" value={row.quantity} disabled={busy||editingItemId===row.productId} onChange={event => updateQuantity(row.productId, Number(event.target.value))} />{row.packSize&&<small>{row.quantity/row.packSize} Paket × {row.packSize} Adet = {row.quantity} Adet</small>}</td><td>{row.packSize?`${row.packSize}’li Paket: `:''}{money(row.packAmount??row.unitAmount, row.currency)}</td><td>{money(lineTotal(row), row.currency)}</td><td><div className={styles.actions}><button type="button" className="secondary" disabled={busy} onClick={()=>editItem(row)}>Düzenle</button><button type="button" className="secondary" disabled={busy} onClick={() => {setItems(current => current.filter(item => item.productId !== row.productId));if(editingItemId===row.productId)cancelItemEdit();}}>Çıkar</button></div></td></tr>)}{!items.length && <tr><td colSpan={5}>Henüz Ürün Eklenmedi.</td></tr>}</tbody></table></div><div className={styles.actions}>{totals.map(row=>{const checkout=dealerCheckoutTotal(row.amount,form.paymentMethod,codServiceFee);return <strong key={row.currency}>Ürünler: {money(row.amount,row.currency)} · Hizmet: {checkout?money(checkout.fee,row.currency):'Geçerli bedel girin'} · Toplam: {checkout?(checkout.withinLimit?money(checkout.total,row.currency):'Tutar sınırı aşıldı'):'Bedeli kontrol edin'}</strong>;})}{!cartNeedsReview&&estimatedMargin.map(row => <strong key={row.currency}>Tahmini Bayi Primi: {money(row.amount,row.currency)}</strong>)}<small>{cartNeedsReview?'Prim tahmini için işaretli sepet satırlarını gözden geçirin.':'Seviye fiyatının üstündeki farktır. Prim teslimatta kesinleşir.'}</small>
 {form.paymentMethod==='COMMISSION'&&<div className={styles.paymentSummary} role="status">
   <strong>Kullanılabilir prim {money(commissionBalance)}</strong>
   {insufficientCommission?<p>Bu sipariş için {money(commissionRemainder.slice(1))} prim eksik. Başka bir ödeme yöntemi seçebilirsiniz.</p>:<p>Sipariş sonrası kullanılabilir prim {money(commissionRemainder)}</p>}
   <small>Kaydetme sırasında güncel bakiye yeniden kontrol edilir.</small>
 </div>}
-<button type="submit" disabled={busy || !items.length || currencyChange !== null || insufficientCommission || editingItemId !== null}>{busy ? 'İşleniyor…' : 'Siparişi Oluştur'}</button></div></fieldset>
+<button type="submit" disabled={busy || cartNeedsReview || !items.length || currencyChange !== null || insufficientCommission || editingItemId !== null}>{busy ? 'İşleniyor…' : 'Siparişi Oluştur'}</button></div></fieldset>
     </form>}</section>}
-    {tab === 'Ürünler' && <ProductCatalog products={options.products} currency={form.currency} busy={busy} onSingle={row=>addItem(row)}
+    {tab === 'Ürünler' && !creationError && <ProductCatalog products={options.products} currency={form.currency} busy={busy||unconfirmedOrder} onSingle={row=>addItem(row)}
       onPack={(row,size)=>{setEditingItemId(null);setForm(current=>({...current,productId:row.id,quantity:1}));setPackSize(size);setPriceOverride('');setTab('Yeni Sipariş');}}/>}
     {tab === 'Siparişlerim' && <div><div className="chart-controls"><label>Grafik Para Birimi<select value={chartCurrency} onChange={e=>setChartCurrency(e.target.value)}>{[...new Set(['TRY',...orders.map(row=>row.currency)])].map(c=><option key={c} value={c}>{c}</option>)}</select></label></div><div className="analytics-grid"><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Aylık Sipariş Tutarlarım" description="Son 6 Ay · Tablo Filtresi Uygulanır · Kısmi İadeler Düşülür · İptal Ve Tam İadeler Hariç" currency={chartCurrency} data={monthlySeries(shownOrders.filter(row=>!['CANCELLED','REFUNDED'].includes(row.status)).map(row=>({created_at:row.created_at,amount:row.net_amount??row.total_amount,currency:row.currency})),chartCurrency,dateTo?new Date(dateTo+'T12:00:00+03:00'):new Date())}/><MetricChart loading={!ready&&!message} unavailable={!ready&&!!message} title="Sipariş Durumlarım" description="Tablodaki Tarih Filtresine Göre · Tüm Para Birimlerinde Sipariş Adedi" variant="ring" data={Object.entries(shownOrders.reduce<Record<string,number>>((map,row)=>{const label=statuses[row.status]??row.status;map[label]=(map[label]??0)+1;return map;},{})).map(([label,value])=>({label,value}))}/></div></div>}
     {tab === 'Siparişlerim' && <section className={styles.box}><h2>Siparişlerim</h2>
@@ -385,13 +493,13 @@ export default function DealerPortal() {
         {shownOrders.map(row=><tr key={row.id}>
           <td><button type="button" className="secondary" disabled={busy} onClick={()=>void openOrder(row.id)}>{row.order_number} · Detay</button><small>{date(row.created_at)}</small></td>
           <td><strong>{row.recipient_name||'Alıcı bilgisi bulunamadı'}</strong>
-            {row.items?.length?<ul className={styles.orderProducts}>{row.items.map(item=><li key={item.id}><span>{item.product_name}</span><b>{item.quantity} adet</b></li>)}</ul>:<small>Ürün bilgileri için detayı açın.</small>}
+            {row.items?.length?<ul className={styles.orderProducts}>{dealerOrderProductLines(row).map(item=><li key={item.key}><span>{item.product_name}</span><b>{item.quantity} adet</b></li>)}</ul>:<small>Ürün bilgileri için detayı açın.</small>}
           </td>
           <td>{money(row.total_amount,row.currency)}{refundSummary(row)}</td>
           <td><span className={styles.statusBadge}>{statuses[row.status]??row.status}</span>{row.tracking_number&&<small>Takip: {row.tracking_number}</small>}</td>
           <td><div className={styles.orderActions}>
             {['REGISTERED','SHIPPED','DELIVERED','CARRIER_RETURN'].includes(row.status)&&<button type="button" className="secondary" onClick={()=>openTracking(row.id)}>Kargo Hareketleri</button>}
-            {row.can_cancel&&<button type="button" disabled={busy} onClick={()=>{setCancelCandidate(row);requestAnimationFrame(()=>document.getElementById('bayi-iptal-onayi')?.focus());}}>Siparişi İptal Et</button>}
+            {row.can_cancel&&<button type="button" disabled={busy} onClick={()=>{setDeliveryCandidate(null);setCurrencyChange(null);setCancelCandidate(row);requestAnimationFrame(()=>document.getElementById('bayi-iptal-onayi')?.focus());}}>Siparişi İptal Et</button>}
           </div></td>
         </tr>)}
         {!shownOrders.length&&<tr><td colSpan={5}>Seçilen filtrelere uygun sipariş bulunmuyor.</td></tr>}

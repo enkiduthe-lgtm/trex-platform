@@ -43,10 +43,11 @@ export function ProductCatalog({products,currency,busy,onSingle,onPack}:{
                 const advantage=pack?dealerPackSummary({...pack,currency:priceCurrency},product.amount!==null?{amount:product.amount,currency:priceCurrency}:undefined,size):null;
                 return <div key={size}><span>{size}’li paket toplamı</span><strong>{pack?money(pack.amount,priceCurrency):'Fiyat tanımlanmamış'}</strong>
                   {advantage&&<small>Adet başına {advantage.unitPrice}{advantage.saving&&<><br/>{advantage.saving} tasarruf</>}</small>}
-                  {pack&&<button type="button" disabled={busy||!hasStock||product.available_quantity!==undefined&&product.available_quantity<size} onClick={()=>onPack(product,size)}>{size}’li Paketi Seç</button>}
+                  {pack&&<button type="button" disabled={busy||product.amount===null||!hasStock||product.available_quantity!==undefined&&product.available_quantity<size} onClick={()=>onPack(product,size)}>{size}’li Paketi Seç</button>}
                 </div>;
               })}
             </div>
+            {product.amount===null&&<p className={styles.stockLabel}>Sipariş için tekli bayi seviye fiyatı da tanımlanmalıdır. Fiyat tanımı için yöneticiyle iletişime geçin.</p>}
             <details className={styles.productDescription}><summary>Ürün bilgileri</summary><p>{product.description?.trim()||'Bu ürün için açıklama eklenmemiş.'}</p></details>
           </div>
         </article>;

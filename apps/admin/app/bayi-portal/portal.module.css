@@ -43,3 +43,4 @@
 @media(max-width:760px){.commissionFilters{grid-template-columns:1fr}}
 .page .fieldError{color:#a32232;font-size:13px;line-height:1.5}
 .page input[aria-invalid=true],.page textarea[aria-invalid=true]{border-color:#b42336;box-shadow:0 0 0 1px #b42336}
+.grid>p{min-width:0;overflow-wrap:anywhere;line-height:1.6}

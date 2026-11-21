@@ -1,0 +1,65 @@
+{
+  "scope": "Dealer portal reliability and workflow improvements",
+  "base_commit": "e417c1d",
+  "started_at_utc": "2026-11-21T08:18:12Z",
+  "requested_work_minutes": 60,
+  "deployment_status": "local_only",
+  "live_environment_modified": false,
+  "changes": [
+    "Tracking refreshes on tab visibility changes and isolates selected-order snapshots.",
+    "Unavailable product or FX pricing no longer blocks order, tracking and commission history.",
+    "Account cards distinguish unavailable data from an empty account.",
+    "Currency-change review is available outside the new-order form.",
+    "Cart lines require review when current stock, currency or level prices change.",
+    "Checkout totals use exact cents and enforce the existing order storage limit.",
+    "Unsubmitted product drafts cannot be silently omitted from a new order.",
+    "Uncertain order submissions preserve their original body and idempotency key for deliberate retry.",
+    "Uncertain payout requests preserve their original amount and key across portal section changes.",
+    "Saved payout requests reconcile only against the authenticated dealer's request keys.",
+    "Older account-summary reads cannot overwrite newer balances; reads during actions are queued.",
+    "Repeat-customer delivery reuse requires review and does not copy historical prices or payments.",
+    "Package allocation rows are grouped by product and SKU for history display and export.",
+    "Account changes in another tab invalidate the old page before another account's token can be used."
+  ],
+  "verification": {
+    "data": "Synthetic fixtures and isolated PostgreSQL-compatible databases; no live order or money writes",
+    "api_tests": { "passed": 79, "suites": 7 },
+    "frontend_unit_tests": { "passed": 17 },
+    "workflow_scripts": [
+      "verify-admin-api-errors.cjs",
+      "verify-dealer-account-refresh.cjs",
+      "verify-dealer-portal-loading.cjs",
+      "verify-dealer-checkout-validation.cjs",
+      "verify-dealer-payout-retry.cjs",
+      "verify-dealer-wallet-refresh.cjs",
+      "verify-dealer-order-refresh.cjs",
+      "verify-dealer-tracking-refresh.cjs",
+      "verify-dealer-order-navigation.cjs",
+      "verify-dealer-order-detail.cjs",
+      "verify-dealer-delivery-reuse.cjs",
+      "verify-dealer-cart.cjs"
+    ],
+    "database_scripts": [
+      "verify-dealer-wallet.cjs",
+      "verify-dealer-sales-report.cjs",
+      "verify-pack-orders.cjs"
+    ],
+    "static_markup": "Seven synthetic component states rendered; blocked checkout and payout replay controls checked. This is not a browser visual review.",
+    "api_build": "passed",
+    "admin_build": "passed"
+  },
+  "manual_checks_pending": [
+    "Browser interaction and visual review using a dealer account on the deployed version.",
+    "Real Aras delivery updates and final delivery classification on the deployed version."
+  ],
+  "browser_acceptance_scenarios": [
+    "Open own orders, commissions and tracking after pricing fails; retry prices without losing the checkout draft.",
+    "Change a level price or stock, refresh the catalog and confirm the affected cart line requires review.",
+    "Simulate a lost order response; confirm the form stays locked and retry reuses the original submission.",
+    "Simulate a lost payout response; switch sections and confirm the original request is recovered or replayed.",
+    "Reuse a previous recipient and confirm only reviewed delivery fields change, while cart prices stay intact.",
+    "Switch accounts in another tab and confirm the old page returns to login without submitting under the new account.",
+    "On an actual delivered shipment, compare the dealer tracking panel with Aras and the manager's order classification."
+  ],
+  "retry_scope": "Recovery state stays in memory for the current panel session. After a full browser reload or logout, existing orders and payout requests must be checked before resubmission."
+}
