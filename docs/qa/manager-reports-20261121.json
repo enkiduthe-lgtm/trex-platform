@@ -1,0 +1,17 @@
+{
+  "base_commit": "a0ab91c",
+  "deployment_status": "local_only",
+  "changes": [
+    "Keep successful financial and operations summaries visible when the other report endpoint fails.",
+    "Label the loaded operation period separately from the selected currency.",
+    "Disable management/special report exports until the selected dates and currency match the displayed report.",
+    "Keep drill-down links aligned with the displayed report snapshot rather than unsaved filters."
+  ],
+  "verification": {
+    "passed_scripts": ["verify-report-read-isolation.cjs", "verify-report-export-selection.cjs", "verify-report-period.cjs"],
+    "admin_build": "passed",
+    "database_calculations_modified": false
+  },
+  "manual_checks_pending": ["Browser review of partial report failures and changed-filter notices after deployment."],
+  "live_environment_modified": false
+}
