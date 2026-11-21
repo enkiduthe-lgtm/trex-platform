@@ -60,7 +60,7 @@ export default function Reports() {
   ['Tarih','Sipariş Sayısı','Net Sipariş Tutarı'],...data.daily.map(r=>[r.label??'',r.count,Number(r.amount)]),[],['Satış Kanalı','Sipariş Sayısı','Net Sipariş Tutarı'],...data.channels.map(r=>[channel(r.sales_channel??''),r.count,Number(r.amount)]),[],['Sipariş Durumu','Sipariş Sayısı','Sipariş Tutarı'],...data.statuses.map(r=>[statusName(r.status??''),r.count,Number(r.amount)]),[],['Ürün','SKU','Net Adet','Ürün Tutarı'],...data.topProducts.map(r=>[r.label??'',r.sku??'',r.count,Number(r.amount)])]);}
  const shownCatalog=reportCatalog.filter(([name,description,category])=>`${name} ${description} ${category}`.toLocaleLowerCase('tr-TR').includes(reportSearch.toLocaleLowerCase('tr-TR')));
  return <main><AdminNav/><section className={styles.page}>
-  <h1>Yönetim Raporları</h1><p>Seçilen Para Birimindeki Siparişler Ve Gerçekleşen Para Hareketleri. Bekleyen Tahsilatlar Nakit Girişine Dahil Edilmez.</p>
+  <h1>Yönetim Raporları</h1><p>Seçilen para birimindeki siparişler ve şirket dışı gerçekleşen para hareketleri. Bekleyen tahsilatlar ve hesaplar arası transferler gelir/gider özetinden ayrı tutulur.</p>
   <form className="form-card dealer-toolbar" onSubmit={event=>{event.preventDefault();void load({...filters});}}>
    <label>Başlangıç Tarihi<input required type="date" value={filters.dateFrom} onChange={e=>setFilters(f=>({...f,dateFrom:e.target.value}))}/></label>
    <label>Bitiş Tarihi<input required type="date" value={filters.dateTo} onChange={e=>setFilters(f=>({...f,dateTo:e.target.value}))}/></label>

@@ -10,7 +10,7 @@ import { CreateMarketplaceSettlementDto } from './dto/create-marketplace-settlem
 import { CreateFinanceBudgetDto } from './dto/create-finance-budget.dto';
 import { CreateCarrierSettlementDto } from './dto/create-carrier-settlement.dto';
 import { StaffChannelService } from '../commissions/staff-channel.service';
-import { editableFinanceMovement, pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
+import { companyExpense, companyIncome, editableFinanceMovement, pendingCollection, realizedCash, visibleFinanceMovement } from './finance-cash-sql';
 import { manualPaymentProviders, reportOrderStatus } from '../orders/report-order-status';
 import { cents } from '../orders/order-pricing';
 @Injectable()
@@ -141,8 +141,8 @@ export class FinanceService {
     const canSeeAll=actor?(await new StaffChannelService(this.db).access(actor)).canSeeAll:true;
     const result = await this.db.query<{ income: string; expense: string; net: string; pending_collection: string }>(`WITH totals AS (
       SELECT
-        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND t.kind IN ('INCOME','COLLECTION','TRANSFER_IN')),0) AS income,
-        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND t.kind IN ('EXPENSE','REFUND','COMMISSION','PRIME_EXPENSE','TRANSFER_OUT')),0) AS expense,
+        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND ${companyIncome}),0) AS income,
+        COALESCE(SUM(t.amount) FILTER (WHERE today AND ${realizedCash} AND ${companyExpense}),0) AS expense,
         COALESCE(SUM(t.amount) FILTER (WHERE ${pendingCollection}),0) AS pending_collection
       FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id
       CROSS JOIN LATERAL (SELECT (t.occurred_at AT TIME ZONE 'Europe/Istanbul')::date=(now() AT TIME ZONE 'Europe/Istanbul')::date AS today) day

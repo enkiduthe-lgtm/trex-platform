@@ -1,0 +1,20 @@
+{
+  "base_commit": "2f51759",
+  "deployment_status": "local_only",
+  "changes": [
+    "Exclude paired internal transfers from company-wide income and expense in finance dashboards and management report summaries.",
+    "Preserve both transfer legs in account balances, statements and account reconciliation.",
+    "Clarify dashboard scope and label exported movement totals as transaction amount totals rather than net balances."
+  ],
+  "verification": {
+    "regression_before_fix": "100 income, 30 expense and a 25 internal transfer incorrectly reported company income as 125.",
+    "verify-external-cash-totals.cjs": "passed: company income 100, expense 30, net 70; bank balance 45, cash balance 25; account reconciliation includes both transfer legs",
+    "verify-finance-history.cjs": "passed",
+    "verify-finance-workspace-read.cjs": "passed",
+    "verify-report-export-selection.cjs": "passed",
+    "api_build": "passed",
+    "admin_build": "passed"
+  },
+  "live_environment_modified": false,
+  "manual_checks_pending": ["Review the revised company totals and export labels after deployment."]
+}

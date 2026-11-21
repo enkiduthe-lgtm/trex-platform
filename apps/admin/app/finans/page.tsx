@@ -202,7 +202,8 @@ export default function Finance() {
         t.counterparty_name ?? "",
         t.description,
       ]),
-      ...currencyTotals(shownTransactions).map(total => ["", "", total.currency, "Toplam", total.amount, "", ""]),
+      ...currencyTotals(shownTransactions).map(total => ["", "", total.currency, "İşlem Tutarı Toplamı", total.amount, "", ""]),
+      ["Not", "", "", "İşlem tutarları hareket büyüklüğüdür; net hesap bakiyesi değildir.", "", "", ""],
     ];
     downloadXlsx("trex-finans-hareketleri.xlsx", "Para Hareketleri", rows);
   }
@@ -225,6 +226,7 @@ export default function Finance() {
           Özet kartları yalnız TL hesaplarını içerir. Euro ve dolar bakiyeleri
           hesap bazında ayrı gösterilir.
         </p>
+        <p>Gelir ve gider özetleri şirket dışı gerçekleşen hareketleri kapsar. Hesaplar arası transferleri hareket listesinde ve hesap bakiyelerinde izleyebilirsiniz.</p>
         <div className="button-row"><button type="button" disabled={loading||!!busy} onClick={()=>void load()}>{loading?'Finans Bilgileri Yükleniyor…':'Finans Bilgilerini Yenile'}</button></div>
         {accessError&&<div role="alert" className="notice"><p>{accessError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
         {loadError&&<p role="alert" className="notice">{loadError} yüklenemedi. Alınabilen kayıtlar gösteriliyor. Hesap veya hareket listesi doğrulanamadıysa işlemler kapalıdır; Finans Bilgilerini Yenile düğmesini kullanın.</p>}
