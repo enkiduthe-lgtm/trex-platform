@@ -119,6 +119,7 @@ function OrdersContent() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listFailed, setListFailed] = useState(false);
+  const [listError,setListError]=useState('');
   const [hasOlder,setHasOlder]=useState(false);
   const [loadingOlder,setLoadingOlder]=useState(false);
   const olderLock=useRef(false);
@@ -175,6 +176,7 @@ function OrdersContent() {
       .then((loadedOrders) => {
         if (generation !== listGeneration.current || url !== currentUrl.current) return false;
         setListFailed(false);
+        setListError('');
         setLoadedUrl(url);
         setOrders(loadedOrders);
         setSelected(current=>current.filter(id=>loadedOrders.some(order=>order.id===id)));
@@ -185,7 +187,7 @@ function OrdersContent() {
       .catch((e) => {
         if (generation === listGeneration.current && url === currentUrl.current) {
           setOrders([]); setSelected([]); setHasOlder(false); setLoadedUrl(null); setListFailed(true);
-          setMessage(e instanceof Error ? e.message : "Siparişler yüklenemedi");
+          setListError(e instanceof Error ? e.message : "Siparişler yüklenemedi");
         }
         return false;
       }).finally(() => {
@@ -421,7 +423,7 @@ function OrdersContent() {
           </p>
         )}
         {permissionsError&&<div className={styles.notice} role="alert"><p>{permissionsError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
-        {listFailed && <div className={styles.cardActions} role="alert"><span>Sipariş listesi güncel değil. Ekran açıkken bağlantı yeniden kontrol edilir.</span><button type="button" disabled={listLoading || !validDates} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
+        {listFailed && <div className={styles.cardActions} role="alert"><span>{listError || 'Sipariş listesi güncel değil.'} Ekran açıkken bağlantı yeniden kontrol edilir.</span><button type="button" disabled={listLoading || !validDates} onClick={() => { void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
         <div className={styles.toolbar}>
           <button
             type="button"
