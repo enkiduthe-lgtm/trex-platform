@@ -203,7 +203,7 @@ function OrdersContent() {
   useEffect(()=>{
     const refresh=()=>{
       if(document.visibilityState!=='visible'||listLoading||loadingOlder||orders.length>100||
-        actionLock.current||noteLocks.current.size||!validDates||loadedUrl!==currentUrl.current)return;
+        actionLock.current||noteLocks.current.size||!validDates||loadedUrl!==currentUrl.current&&!listFailed)return;
       void load(currentUrl.current,true,true);
     };
     const timer=window.setInterval(refresh,30_000);
@@ -214,7 +214,7 @@ function OrdersContent() {
       window.removeEventListener('focus',refresh);
       document.removeEventListener('visibilitychange',refresh);
     };
-  },[listLoading,loadingOlder,orders.length,loadedUrl,validDates]);
+  },[listLoading,loadingOlder,orders.length,loadedUrl,validDates,listFailed]);
   async function syncTracking() {
     if(actionLock.current)return;
     actionLock.current=true;setSyncingTracking(true);
@@ -421,7 +421,7 @@ function OrdersContent() {
           </p>
         )}
         {permissionsError&&<div className={styles.notice} role="alert"><p>{permissionsError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
-        {listFailed && <div className={styles.cardActions}><button type="button" disabled={listLoading || !validDates} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
+        {listFailed && <div className={styles.cardActions} role="alert"><span>Sipariş listesi güncel değil. Ekran açıkken bağlantı yeniden kontrol edilir.</span><button type="button" disabled={listLoading || !validDates} onClick={() => { setMessage(''); void load(); }}>{listLoading ? 'Liste Yükleniyor…' : 'Sipariş Listesini Tekrar Yükle'}</button></div>}
         <div className={styles.toolbar}>
           <button
             type="button"

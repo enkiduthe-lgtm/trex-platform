@@ -1,0 +1,7 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Visible order lists resume their read-only background refresh after a temporary failure.", "A failed read clears unsafe actions and shows recovery guidance without discarding unsaved notes.", "Existing guards retain date validation, filter isolation, pagination and mutation exclusion."],
+  "verification": {"script": "verify-manager-order-recovery.cjs", "admin_build": "Passed: production compilation, lint/types and all 53 static pages.", "scope": "Actual loader/effect with controlled responses, including delivered-state recovery, failed counts, focus coalescing, hidden tabs and listener cleanup."},
+  "manual_checks_pending": ["Browser visual inspection and live carrier-delivery verification after deployment."],
+  "live_environment_modified": false
+}
