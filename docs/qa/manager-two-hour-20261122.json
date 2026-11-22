@@ -1,0 +1,54 @@
+{
+  "request": "Continue manager-panel development for two hours without waiting for approval.",
+  "started_at_utc": "2026-11-22T13:47:46Z",
+  "requested_until_utc": "2026-11-22T15:47:46Z",
+  "completed_at_utc": "2026-11-22T15:47:58Z",
+  "baseline_commit": "cd51e82",
+  "implementation_head": "64a119f",
+  "deployment_status": "local_only",
+  "local_implementation_commits": [
+    {"commit":"bf0fd92","scope":"PayTR setting baselines, edit grants and equivalent-route permission boundaries"},
+    {"commit":"57e6425","scope":"Director-only dealer credential creation and validated input"},
+    {"commit":"eeb7125","scope":"Session-bound refresh promises and private responses"},
+    {"commit":"1c95015","scope":"Order list recovery after temporary read failures"},
+    {"commit":"570ca7d","scope":"Atomic logout and device closure for rotated login families"},
+    {"commit":"edf37ff","scope":"Independent security workspace and atomic MFA state changes"},
+    {"commit":"5eedae5","scope":"Stable business-time audit filters and page-scoped Excel reports"},
+    {"commit":"42e01b2","scope":"Reset-link lifecycle, attempt limits and private notification history"},
+    {"commit":"aa319ab","scope":"Duplicate and uncertain password-reset submission handling"},
+    {"commit":"5216717","scope":"Profitability workspace and zero-price loss classification"},
+    {"commit":"78d0758","scope":"Private daily registration aggregates with report-only grants"},
+    {"commit":"4b36569","scope":"Late transport/JSON failure isolation and confirmed dealer logout"},
+    {"commit":"64a119f","scope":"Order read errors separated from confirmed operation results"}
+  ],
+  "verification": {
+    "api_build":"Passed: manager-registration-api-build-20261122.log; no later API changes.",
+    "admin_build":"Passed: manager-two-hour-release-admin-build-20261122.log; optimized compilation, lint/types and all 53 static pages. No later implementation changes.",
+    "unit_tests":"Focused PayTR/access, credential, session, MFA DTO, audit, throttle, notification and registration tests passed; details are in the per-feature QA records.",
+    "broad_regression":"Twelve auth/notification suites passed before the longer combined run was stopped. The remaining five suites then passed separately (21 tests). This is not recorded as a single uninterrupted full-suite pass.",
+    "permission_checks":"Actual Express-router normalization harness, actual RolesGuard registration grant checks and 17 client permission cases passed.",
+    "isolated_sql":"Session migration replay, reset lifecycle, MFA/AES/TOTP transitions, notification privacy and delivery boundaries, PayTR settings and Istanbul registration boundaries passed with synthetic data.",
+    "ui_checks":"Actual handlers, response validation, export contents, race/error ordering and server-rendered markup passed. No browser visual pass is claimed.",
+    "source_checks":"Whitespace/diff checks passed; generated Next/type files were preserved and excluded from commits."
+  },
+  "rollout_requirements": [
+    "Apply migration 083_session_families.sql before starting the updated API. The repository Blueprint uses start:render, whose startup.ts runs db:migrate before dist/main.js; the live service command was not inspected in this window. Existing pre-upgrade session rotations cannot be retrospectively linked; new rotations use their login family.",
+    "Earlier unpublished migrations, including 081 and 082, must also be present if not already deployed.",
+    "Publish the API before the panel: the panel's new member report requires the aggregate registration-report endpoint.",
+    "Use disposable accounts for post-deploy role separation, logout, MFA and reset-link checks; do not send test changes to real users."
+  ],
+  "pending_external_checks": [
+    "Browser visual review: earlier browser control could not reliably verify the local preview URL; no workaround was used.",
+    "Live Aras delivery/order/commission reconciliation and real role-panel review after deployment remain unverified in this work window.",
+    "Warehouse label dimensions remain dependent on the requested printer/label measurement.",
+    "Marketplace work remains deferred until the earlier panel items and live checks are completed."
+  ],
+  "next_code_review_targets": [
+    "Review legacy UUID parameters in auth.controller.ts session revocation and admin.controller.ts archive/staff mutation routes; the newly secured dealer-account route already has UUID validation.",
+    "The Daily Visitor Summary catalogue item in raporlar/page.tsx remains unavailable; decide its purpose before adding analytics or remove the unused placeholder. Do not fabricate visitor counts.",
+    "Review historical carrier/order state mismatches only with a fresh carrier observation before any financial reconciliation. No historical commission or shipping amounts were rewritten here."
+  ],
+  "live_environment_modified": false,
+  "real_messages_sent": false,
+  "real_financial_order_or_shipping_records_modified": false
+}
