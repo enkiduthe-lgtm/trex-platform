@@ -32,13 +32,15 @@ export class CampaignsService {
       const campaign=(await client.query<{status:string}>('SELECT status FROM campaigns WHERE id=$1 FOR SHARE',[campaignId])).rows[0];
       if(!campaign)throw new NotFoundException('Kampanya bulunamadı.');
       if(campaign.status==='ARCHIVED')throw new BadRequestException('Arşivlenen kampanyaya yeni çek eklenemez.');
+      if((await client.query('SELECT id FROM coupons WHERE upper(trim(code))=$1 LIMIT 1 FOR KEY SHARE',[code])).rowCount)throw new ConflictException('Bu çek kodu zaten kayıtlı. Mevcut çekleri kontrol edin.');
       const row=(await client.query<{id:string}>('INSERT INTO coupons(campaign_id,code,discount_type,discount_value,usage_limit,starts_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[campaignId,code,input.discountType,input.discountValue,input.usageLimit??null,window.startsAt,window.endsAt])).rows[0];
       await this.audit(client,actorId,'coupon.created','coupon',row.id,{campaignId,code});return row;
     });
   }
   async previewCoupon(code:string,subtotal:number){
     if(!Number.isFinite(subtotal)||subtotal<0)throw new BadRequestException('Ara toplam sıfır veya daha büyük olmalı.');
-    const result=await this.db.query<CouponRow>("SELECT c.id,c.discount_type,c.discount_value,c.usage_limit,c.used_count FROM coupons c JOIN campaigns p ON p.id=c.campaign_id WHERE upper(c.code)=upper($1) AND p.status='ACTIVE' AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>now()) AND (p.starts_at IS NULL OR p.starts_at<=now()) AND (p.ends_at IS NULL OR p.ends_at>now()) LIMIT 1",[code.trim()]);
+    const result=await this.db.query<CouponRow>("SELECT c.id,c.discount_type,c.discount_value,c.usage_limit,c.used_count FROM coupons c JOIN campaigns p ON p.id=c.campaign_id WHERE upper(trim(c.code))=upper($1) AND p.status='ACTIVE' AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>now()) AND (p.starts_at IS NULL OR p.starts_at<=now()) AND (p.ends_at IS NULL OR p.ends_at>now()) LIMIT 2",[code.trim()]);
+    if(result.rows.length>1)throw new ConflictException('Çek kodu birden fazla kayıtla eşleşiyor. Kullanımdan önce kampanya kayıtlarını kontrol edin.');
     const coupon=result.rows[0];
     if(!coupon||(coupon.usage_limit!==null&&coupon.used_count>=coupon.usage_limit))throw new NotFoundException('Çek kullanıma uygun değil.');
     const raw=coupon.discount_type==='PERCENT'?subtotal*Number(coupon.discount_value)/100:Number(coupon.discount_value);

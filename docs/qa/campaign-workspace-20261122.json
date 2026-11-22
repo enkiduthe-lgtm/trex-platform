@@ -10,6 +10,7 @@
     "Remove repeated local navigation and use inline boxed forms, compact aligned actions, readable tables, filters and responsive summary cards."
   ],
   "verification": {
+    "legacy_coupon_followup": "10 campaign tests and verify-campaign-workflow.cjs passed after adding normalized legacy-code collision checks and ambiguous-code rejection; API rebuilt successfully.",
     "campaign_and_staff_security_unit_tests_passed": 32,
     "passed_scripts": ["verify-campaign-workflow.cjs", "verify-campaign-workspace.cjs", "verify-campaign-view.cjs"],
     "api_build": "passed; manager-campaign-api-build-20261122.log",

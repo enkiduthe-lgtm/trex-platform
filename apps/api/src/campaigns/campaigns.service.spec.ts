@@ -30,4 +30,9 @@ describe('CampaignsService', () => {
     const service = new CampaignsService(db as never);
     await expect(service.previewCoupon('trex', 40)).resolves.toMatchObject({ discount: '40.00', total: '0.00', currency: 'TRY' });
   });
+  it('rejects ambiguous legacy coupon codes rather than choosing a random discount',async()=>{
+    const db={query:jest.fn().mockResolvedValue({rows:[{id:'first'},{id:'second'}]})};
+    await expect(new CampaignsService(db as never).previewCoupon(' legacy ',100)).rejects.toThrow('birden fazla kayıt');
+    expect(db.query.mock.calls[0][1]).toEqual(['legacy']);expect(db.query.mock.calls[0][0]).toContain('upper(trim(c.code))');
+  });
 });
