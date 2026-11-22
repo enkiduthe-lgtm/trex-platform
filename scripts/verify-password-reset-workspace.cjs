@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),source=fs.readFileSync(path.join(root,'apps/admin/app/sifre-sifirla/password-reset-workspace.tsx'),'utf8').replace(/\r\n/g,'\n');
+const start=source.indexOf('  useEffect(()=>{alive.current=true;'),end=source.indexOf('  return <main',start);assert(start>=0&&end>start);
+const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+class ApiError extends Error{constructor(message,status){super(message);this.status=status;}}
+const event={preventDefault(){}};
+function setup(){
+ const state={email:' synthetic@example.invalid ',password:'synthetic-password',confirmation:'synthetic-password',message:'',error:'',busy:false,completed:false,needsCheck:false},requests=[],navigation=[],effects=[],timers=new Map();let timerId=0;
+ const box=vm.createContext({Error,ApiError,String,JSON,...state,token:'synthetic-token',currentToken:{current:'synthetic-token'},lock:{current:false},alive:{current:true},redirectTimer:{current:null},router:{replace:path=>navigation.push(path)},window:{setTimeout:(callback,time)=>{assert.equal(time,1500);timers.set(++timerId,callback);return timerId;},clearTimeout:id=>timers.delete(id)},useEffect:fn=>effects.push(fn),api:(route,init)=>new Promise((resolve,reject)=>requests.push({route,init,resolve,reject}))});
+ for(const key of Object.keys(state))box['set'+key[0].toUpperCase()+key.slice(1)]=value=>{state[key]=typeof value==='function'?value(state[key]):value;box[key]=state[key];};
+ vm.runInContext(code,box);return {state,requests,navigation,effects,timers,box};
+}
+async function main(){
+ const mail=setup(),sending=mail.box.request(event);await mail.box.request(event);assert.equal(mail.requests.length,1);assert.deepEqual(JSON.parse(mail.requests[0].init.body),{email:'synthetic@example.invalid'});mail.requests[0].resolve({message:'Generic recovery request'});await sending;assert.equal(mail.state.message,'Generic recovery request');assert.equal(mail.state.busy,false);
+ const invalid=setup();invalid.box.password='short';await invalid.box.confirm(event);assert.equal(invalid.requests.length,0);invalid.box.password='synthetic-password';invalid.box.confirmation='different';await invalid.box.confirm(event);assert.equal(invalid.requests.length,0);assert(invalid.state.error.includes('aynı'));
+ const success=setup(),confirmed=success.box.confirm(event);await success.box.confirm(event);assert.equal(success.requests.length,1);assert.deepEqual(JSON.parse(success.requests[0].init.body),{token:'synthetic-token',password:'synthetic-password'});success.requests[0].resolve({message:'Password updated'});await confirmed;assert.equal(success.state.completed,true);assert.equal(success.state.password,'');assert.equal(success.state.confirmation,'');await success.box.confirm(event);assert.equal(success.requests.length,1);assert.equal(success.timers.size,1);[...success.timers.values()][0]();assert.deepEqual(success.navigation,['/giris']);
+ const unknown=setup(),lost=unknown.box.confirm(event);unknown.requests[0].reject(new Error('Response lost'));await lost;assert.equal(unknown.state.needsCheck,true);assert(unknown.state.error.includes('yeni şifrenizle'));await unknown.box.confirm(event);assert.equal(unknown.requests.length,1,'An unknown password change must not be blindly replayed');
+ const rejected=setup(),bad=rejected.box.confirm(event);rejected.requests[0].reject(new ApiError('Link expired',400));await bad;assert.equal(rejected.state.needsCheck,false);assert.equal(rejected.state.error,'Link expired');
+ const malformed=setup(),unverified=malformed.box.confirm(event);malformed.requests[0].resolve({message:null});await unverified;assert.equal(malformed.state.needsCheck,true);assert.equal(malformed.timers.size,0);
+ const replaced=setup(),old=replaced.box.confirm(event);replaced.box.currentToken.current='new-link';replaced.requests[0].resolve({message:'Old link updated'});await old;assert.equal(replaced.state.completed,false);assert.equal(replaced.state.password,'synthetic-password');assert.equal(replaced.timers.size,0,'An old link response must not redirect the new link view');
+ const timer=setup(),timerCleanup=timer.effects[0](),pending=timer.box.confirm(event);timer.requests[0].resolve({message:'Updated'});await pending;timerCleanup();assert.equal(timer.timers.size,0);assert.equal(timer.box.alive.current,false);
+ const closed=setup(),closing=closed.box.request(event);closed.box.alive.current=false;closed.requests[0].resolve({message:'Old response'});await closing;assert.equal(closed.state.message,'');
+ console.log('Password reset UI passed: synchronous duplicate exclusion, exact validation, generic request message, single confirmed redirect, cleared passwords, uncertain-write no replay, known rejection, stale-link response isolation and timer disposal. No recovery email sent.');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});
