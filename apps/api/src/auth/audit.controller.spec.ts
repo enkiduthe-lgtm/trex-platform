@@ -39,10 +39,23 @@ describe('Read-only audit API', () => {
   it('accepts bounded ISO date filters as query parameters', () => {
     expect(validateSync(plainToInstance(ListAuditDto, { from: '2026-10-14T08:00:00.000Z', to: '2026-10-15T08:00:00.000Z' }))).toHaveLength(0);
   });
+  it.each(['2026-02-30T10:00:00.000Z','2026-13-01T10:00:00.000Z'])('rejects impossible calendar dates %s',from=>{
+    expect(validateSync(plainToInstance(ListAuditDto,{from})).some(error=>error.property==='from')).toBe(true);
+  });
   it('handles empty results and stops at the page cap', async () => {
     const query = jest.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: Array(51).fill({ id: 'x' }) });
     const controller = new AuditController({ query } as never);
     await expect(controller.list(new ListAuditDto())).resolves.toEqual({ items: [], page: 1, hasMore: false });
     await expect(controller.list(plainToInstance(ListAuditDto, { page: 2000 }))).resolves.toMatchObject({ hasMore: false });
+  });
+  it.each([
+    {from:'2026-11-22T12:00:00Z',to:'2026-11-22T12:00:00Z'},
+    {from:'2026-11-22T13:00:00Z',to:'2026-11-22T12:00:00Z'},
+    {from:'invalid'},
+    {to:'invalid'},
+  ])('rejects invalid or reversed date boundaries before SQL',async filter=>{
+    const query=jest.fn();
+    await expect(new AuditController({query} as never).list(Object.assign(new ListAuditDto(),filter))).rejects.toMatchObject({status:400});
+    expect(query).not.toHaveBeenCalled();
   });
 });

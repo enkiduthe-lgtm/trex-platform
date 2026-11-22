@@ -5,7 +5,7 @@ export class ListAuditDto {
   @IsOptional() @IsString() @MaxLength(120) action?: string;
   @IsOptional() @IsString() @MaxLength(120) entityType?: string;
   @IsOptional() @IsString() @MaxLength(200) entityId?: string;
-  @IsOptional() @IsDateString() from?: string;
-  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsDateString({strict:true}) from?: string;
+  @IsOptional() @IsDateString({strict:true}) to?: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(2000) page: number = 1;
 }

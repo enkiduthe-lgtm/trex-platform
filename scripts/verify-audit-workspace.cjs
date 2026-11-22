@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),source=fs.readFileSync(path.join(root,'apps/admin/app/islem-kayitlari/audit-workspace.tsx'),'utf8').replace(/\r\n/g,'\n');
+const transpile=value=>ts.transpileModule(value,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+function extract(a,b){const start=source.indexOf(a),end=source.indexOf(b,start);assert(start>=0&&end>start);return source.slice(start,end);}
+const dates={exports:{},Date,Intl};vm.runInNewContext(transpile(fs.readFileSync(path.join(root,'apps/admin/app/lib/finance-report.ts'),'utf8')),dates);
+const row={id:'audit',action:'=synthetic.action',entity_type:'order',entity_id:'entity',created_at:'2026-11-21T21:30:00Z',actor_role:'SUPER_ADMIN',actor_user_id:'actor'},filter={action:'',entityType:'',entityId:'',from:'',to:''},flush=()=>new Promise(resolve=>setImmediate(resolve));
+function setup(){
+ const state={filter:{...filter},applied:{...filter},page:1,result:null,error:'',loading:true,revision:0},requests=[],exports=[];let effect,cleanup;
+ const box=vm.createContext({Error,Array,Boolean,Number,String,Date,Set,Object,URLSearchParams,Promise,...state,...dates.exports,ready:true,query:'page=1',filterError:'',sequence:{current:0},loadedQuery:{current:null},useEffect:fn=>effect=fn,api:route=>new Promise((resolve,reject)=>requests.push({route,resolve,reject})),downloadXlsx:(...args)=>exports.push(args)});
+ for(const key of Object.keys(state))box['set'+key[0].toUpperCase()+key.slice(1)]=value=>{state[key]=typeof value==='function'?value(state[key]):value;box[key]=state[key];};
+ vm.runInContext(transpile(extract('const emptyFilter=', 'export default function AuditWorkspace()')+extract('  useEffect(()=>{','  const ready=')+extract('  function search(','  return <main>')),box);
+ return {state,requests,exports,box,load:()=>{cleanup=effect();},cleanup:()=>cleanup?.()};
+}
+async function main(){
+ const dates=setup();assert.equal(dates.box.businessDateTime('2026-11-22T09:15'),'2026-11-22T06:15:00.000Z');assert.equal(dates.box.businessDateTime('2026-11-01T00:01'),'2026-10-31T21:01:00.000Z');assert.equal(dates.box.businessDateTime(''),'');
+ for(const value of ['2026-02-30T09:00','2026-11-22T24:00','2026-11-22T09:60','bad'])assert.throws(()=>dates.box.businessDateTime(value));assert.throws(()=>dates.box.queryFor({...filter,from:'2026-11-22T09:15',to:'2026-11-22T09:15'},1));
+ const query=new URLSearchParams(dates.box.queryFor({...filter,action:' order.admin.created ',from:'2026-11-22T09:15',to:'2026-11-22T10:15'},2));assert.equal(query.get('page'),'2');assert.equal(query.get('from'),'2026-11-22T06:15:00.000Z');assert.equal(query.get('action'),'order.admin.created');
+ const app=setup();app.load();app.requests[0].resolve({items:[row],page:1,hasMore:true});await flush();assert.equal(app.state.result.items[0].id,'audit');assert.equal(app.box.loadedQuery.current,'page=1');assert.equal(app.state.loading,false);
+ app.box.exportPage();assert.equal(app.exports.length,1);assert(app.exports[0][0].includes('sayfa-1'));const rows=app.exports[0][2];assert.equal(rows.find(row=>row[0]==='Sayfa')[1],1);assert.equal(rows.find(row=>row[0]==='Kayıt Adedi')[1],1);assert.equal(rows.at(-1)[1],'=synthetic.action','Formula-like source text remains a string for the safe XLSX writer');assert.equal(rows.at(-1)[4],'Müdür');assert(rows.at(-1)[0].includes('22.11.2026'));
+ app.box.ready=false;app.box.exportPage();assert.equal(app.exports.length,1);app.load();app.requests[1].reject(Error('Offline'));await flush();assert.equal(app.state.result.items.length,1);assert.equal(app.box.loadedQuery.current,null);assert.equal(app.state.error,'Offline');
+ const changing=setup();changing.load();changing.cleanup();changing.box.query='page=2';changing.box.page=2;changing.load();changing.requests[1].resolve({items:[],page:2,hasMore:false});await flush();changing.requests[0].resolve({items:[row],page:1,hasMore:true});await flush();assert.equal(changing.state.result.page,2);assert.equal(changing.state.result.items.length,0);
+ for(const value of [null,{page:2,items:[],hasMore:false},{page:1,items:[null],hasMore:false},{page:1,items:[row,row],hasMore:false},{page:1,items:[{...row,actor_role:{bad:true}}],hasMore:false}]){const malformed=setup();malformed.load();malformed.requests[0].resolve(value);await flush();assert.equal(malformed.box.loadedQuery.current,null);assert.equal(malformed.state.error,'İşlem kayıtları doğrulanamadı.');}
+ const draft=setup();draft.box.filter=draft.state.filter={...filter,from:'2026-11-22T09:15'};draft.box.search({preventDefault(){}});assert.equal(draft.state.filter.from,'2026-11-22T09:15','Displayed input retains the selected business time');assert.equal(draft.state.applied.from,'2026-11-22T09:15');draft.box.reset();assert.equal(draft.state.filter.from,'');assert.equal(draft.state.applied.from,'');
+ console.log('Audit workspace passed: stable Turkey calendar inputs, exclusive bounds, exact queries, stale-response exclusion, malformed reads, retained but non-exportable stale data, page-scoped numeric Excel context and no real audit writes.');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

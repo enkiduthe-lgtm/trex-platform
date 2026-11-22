@@ -1,0 +1,7 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Keep datetime inputs in selected Turkey business time and convert only the outgoing request to UTC.", "Validate exclusive ending boundaries and impossible calendar dates before SQL.", "Replace raw CSV with page-scoped safe XLSX output, numeric page/count context, applied filters and explicit timezone.", "Compact filters, quick entity views, bounded horizontal table and consistent pagination controls.", "Do not display/export a previous page as current after a failed or stale read; reject malformed result shapes."],
+  "verification": {"script": "verify-audit-workspace.cjs", "unit_tests": "23 audit API tests passed.", "builds": "API and optimized admin builds passed, with type/lint checks and all 53 static pages.", "scope": "Actual calendar/query/export/read logic with controlled responses; exact parameterized API filters and role restrictions retained."},
+  "manual_checks_pending": ["Browser layout and real-account filter review after deployment."],
+  "live_environment_modified": false
+}

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
@@ -14,6 +14,9 @@ export class AuditController {
 
   @Get()
   async list(@Query() filter: ListAuditDto) {
+    const from=filter.from?Date.parse(filter.from):null,to=filter.to?Date.parse(filter.to):null;
+    if(from!==null&&!Number.isFinite(from)||to!==null&&!Number.isFinite(to))throw new BadRequestException('Geçerli bir tarih ve saat seçin.');
+    if(from!==null&&to!==null&&from>=to)throw new BadRequestException('Bitiş saati başlangıç saatinden sonra olmalı.');
     const page = filter.page ?? 1;
     const result = await this.db.query(`
       SELECT a.id,a.action,a.entity_type,a.entity_id,a.created_at,
