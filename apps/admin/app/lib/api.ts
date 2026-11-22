@@ -33,14 +33,14 @@ export function setToken(token: string,resetBinding=true) {
   window.localStorage.setItem(tokenKey, token);
 }
 export function clearToken() { sessionGeneration++;boundSubject=null;window.localStorage.removeItem(tokenKey); }
-export async function logout(options:{closeLocalOnFailure?:boolean}={}) {
+export async function logout() {
   const generation=sessionGeneration;
   try{
     await api<void>('/auth/logout', { method: 'POST' });
     if(generation!==sessionGeneration)throw new SessionChangedError();
     clearToken();
   }catch(error){
-    if(options.closeLocalOnFailure&&generation===sessionGeneration&&!(error instanceof SessionChangedError))clearToken();
+    if(generation!==sessionGeneration)throw new SessionChangedError();
     throw error;
   }
 }
@@ -78,12 +78,13 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
     if(subject&&tokenSubject(getToken())!==subject){sessionGeneration++;returnToLogin();throw new SessionChangedError();}
   };
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  let response:Response;
+  try{response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: 'include',
     cache: 'no-store',
     headers: { ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
-  });
+  });}catch(error){assertSession();throw error;}
   assertSession();
   // Access tokens are intentionally short-lived. Renew once through the secure
   // refresh-cookie flow so an active panel session does not appear empty.
@@ -106,5 +107,7 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
     const message=Array.isArray(body?.message)?body.message.join(' · '):body?.message;
     throw new ApiError(String(message??`İşlem tamamlanamadı (${response.status})`),response.status);
   }
-  const result=response.status===204?undefined:await response.json();assertSession();return result as T;
+  let result:unknown;
+  try{result=response.status===204?undefined:await response.json();}catch(error){assertSession();throw error;}
+  assertSession();return result as T;
 }

@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { MetricChart } from '../components/metric-chart';
 import { monthlySeries } from '../lib/chart-data';
-import { api, ApiError, SessionChangedError, logout } from '../lib/api';
+import { api, ApiError, logout } from '../lib/api';
 import { currencyTotals, multiplyMoney } from '../lib/report-totals';
 import { dealerPackSummary } from '../lib/dealer-pack-summary';
 import { downloadXlsx } from '../lib/xlsx';
@@ -431,8 +431,7 @@ export default function DealerPortal() {
     });
   }
   async function signOut(){
-    try{await logout({closeLocalOnFailure:true});}
-    catch(error){if(!(error instanceof SessionChangedError))window.location.assign('/giris');throw error;}
+    await logout();
     window.location.assign('/giris');
   }
   return <main className={styles.page}>
