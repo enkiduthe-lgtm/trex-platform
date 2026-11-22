@@ -1,0 +1,22 @@
+{
+  "deployment_status": "local_only",
+  "changes": [
+    "Homepage period totals, trend, queue counts, carriers and recent orders share a repeatable-read, read-only transaction and database-clock timestamp.",
+    "The panel validates counts, money, currencies, unique rows, recent-order identifiers, queue totals and exact-cent weekly trend totals before rendering.",
+    "Order, stock, warehouse and support responses fail independently; invalid successful responses do not turn into reassuring zero values.",
+    "Refresh runs every 60 seconds while visible and on returning to the tab; one active load prevents overlapping requests. Event listeners and timers are removed on cleanup.",
+    "Late profile failures, authentication results and data responses cannot update an unmounted homepage.",
+    "Charts use the report's database timestamp rather than the browser's changing day; the panel distinguishes last check time from the sales snapshot time."
+  ],
+  "verification": {
+    "sql": "verify-management-report.cjs passed actual report/dashboard SQL with synthetic current-day TRY/EUR orders, exact-cent trend totals, queue totals, historical returns and archive exclusion. Repeatable-read/read-only transaction settings and reset were verified.",
+    "handlers": "verify-dashboard-refresh.cjs passed duplicate refresh prevention, independent failures, retry recovery, support-only grants, hidden-tab pause, focus/visibility refresh, cleanup, stale profile failure and unmount scenarios.",
+    "contracts": "verify-dashboard-data.cjs passed inconsistent totals, duplicate rows, unsafe amounts, missing fields, Istanbul midnight, real zero data and valid negative critical stock.",
+    "markup": "verify-dashboard-view.cjs passed actual homepage rendering with timestamps, seven-day snapshot-bound charts, separate currencies, failed sections, scoped cards and unauthenticated views. Browser layout remains unverified.",
+    "api_build": "dashboard-api-build-20261122-evening.log passed.",
+    "admin_build": "dashboard-admin-build-20261122-evening.log passed compilation, lint/types and all 53 static pages."
+  },
+  "rollout": "Publish API before panel because the validated homepage contract now requires generatedAt. No new migration.",
+  "limits": ["Separate real PostgreSQL writer connections were not available; isolation modes were checked in PGlite.", "Real role accounts, browser layout and live totals remain to be checked after publication."],
+  "live_environment_modified": false
+}

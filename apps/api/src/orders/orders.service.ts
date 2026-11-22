@@ -60,8 +60,8 @@ export class OrdersService {
         )
       GROUP BY o.id,c.id,cs.id,oa.id,s.id,p.id,ps.id,pk.id,dealer.id ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[normalized ?? null,before??null,stage??null,from??null,to??null,query])).rows;
   }
-  async queueCounts() {
-    return (await this.db.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count
+  async queueCounts(client: Pick<DatabaseService, 'query'> = this.db) {
+    return (await client.query(`SELECT ${orderQueueStatusSql} AS stage,count(*)::int AS count
       FROM orders o LEFT JOIN shipments s ON s.order_id=o.id
       WHERE o.archived_at IS NULL GROUP BY 1`)).rows;
   }
@@ -76,8 +76,11 @@ export class OrdersService {
         )`;
     const withinPeriod = `(p.date_from IS NULL OR o.created_at>=p.date_from::timestamp AT TIME ZONE 'Europe/Istanbul')
       AND (p.date_to IS NULL OR o.created_at<(p.date_to+1)::timestamp AT TIME ZONE 'Europe/Istanbul')`;
+    return this.db.transaction(async client=>{
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const clock=await client.query<{generated_at:string}>('SELECT now()::text AS generated_at');
     const [periods, trend, stages, carriers, recent] = await Promise.all([
-      this.db.query(`${periodBounds}, history AS (
+      client.query(`${periodBounds}, history AS (
           SELECT o.currency,o.created_at,${reportOrderStatus} AS status,${netOrderAmount} AS amount
           FROM orders o WHERE o.archived_at IS NULL
         )
@@ -86,16 +89,16 @@ export class OrdersService {
           COALESCE(SUM(o.amount) FILTER (WHERE o.status NOT IN ('CANCELLED','REFUNDED')),0)::text AS amount
         FROM periods p JOIN history o ON ${withinPeriod}
         GROUP BY p.period,o.currency`),
-      this.db.query(`SELECT date_trunc('day',o.created_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul' AS created_at,
+      client.query(`SELECT date_trunc('day',o.created_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul' AS created_at,
           o.currency,SUM(${netOrderAmount})::text AS amount
         FROM orders o WHERE o.archived_at IS NULL AND (${reportOrderStatus}) NOT IN ('CANCELLED','REFUNDED')
           AND o.created_at>=(((now() AT TIME ZONE 'Europe/Istanbul')::date-6)::timestamp AT TIME ZONE 'Europe/Istanbul')
           AND o.created_at<(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul')
         GROUP BY 1,2 ORDER BY 1,2`),
-      this.queueCounts(),
-      this.db.query(`SELECT s.provider,count(*)::int AS count FROM shipments s JOIN orders o ON o.id=s.order_id
+      this.queueCounts(client),
+      client.query(`SELECT s.provider,count(*)::int AS count FROM shipments s JOIN orders o ON o.id=s.order_id
         WHERE o.archived_at IS NULL GROUP BY s.provider ORDER BY count DESC,s.provider LIMIT 4`),
-      this.db.query(`${periodBounds}
+      client.query(`${periodBounds}
         SELECT p.period,o.id,o.order_number,o.total_amount,o.currency,o.created_at,
           ${orderQueueStatusSql} AS status,
           COALESCE(NULLIF(trim(concat_ws(' ',c.first_name,c.last_name)),''),NULLIF(trim(cs.contact_name),''),oa.recipient_name) AS customer_name,
@@ -111,7 +114,8 @@ export class OrdersService {
         LEFT JOIN shipments s ON s.order_id=o.id
         ORDER BY p.period,o.created_at DESC,o.id DESC`),
     ]);
-    return { periods:periods.rows, trend:trend.rows, stages, carriers:carriers.rows, recent:recent.rows };
+    return { generatedAt:new Date(clock.rows[0].generated_at).toISOString(), periods:periods.rows, trend:trend.rows, stages, carriers:carriers.rows, recent:recent.rows };
+    });
   }
   async deletionCandidates(actor:RequestUser) {
     if(actor.role!=='SUPER_ADMIN')throw new ForbiddenException('Bu İşlemi Yalnız Müdür Yapabilir');

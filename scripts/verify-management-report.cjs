@@ -38,9 +38,12 @@ async function main(){
  CREATE TABLE order_addresses(order_id uuid PRIMARY KEY,recipient_name text);
  INSERT INTO orders(id,status,total_amount,currency,created_at,sales_channel)
  SELECT gen_random_uuid(),'PAID',1,'TRY','2025-01-01','RETAIL' FROM generate_series(1,120);
+ UPDATE orders SET order_number='SYNTHETIC-'||id::text;
  INSERT INTO returns(id,order_id,status) VALUES('${id(97)}','${id(2)}','REFUNDED');
  INSERT INTO return_refunds VALUES('${id(97)}',5,'TRY'),('${id(97)}',9,'USD');`);
  const summary=await service.dashboardSummary();
+ assert.equal(load(path.join(root,'apps/admin/app/lib/dashboard-data.ts')).validateDashboardSummary(JSON.parse(JSON.stringify(summary))).periods.length,summary.periods.length);
+ assert.deepEqual(isolation.at(-1),['repeatable read','on']);assert.equal((await pg.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'off');
  const all=summary.periods.find(row=>row.period==='all'&&row.currency==='TRY');
  assert.equal(all.total_count,124);
  assert.equal(all.sales_count,123);
@@ -112,6 +115,10 @@ async function main(){
  await order(204,'TRY',0.01,'2027-01-03T12:00:00Z');await order(205,'TRY',0.02,'2027-01-03T12:00:00Z');
  const half=await service.reportSummary(30,'2027-01-03','2027-01-03','TRY');validate(half);assert.equal(half.totals.average_order,'0.02');
  const empty=await service.reportSummary(30,'2027-01-04','2027-01-04','EUR');validate(empty);assert.equal(empty.totals.order_count,0);
+ await order(301,'TRY',0.10,new Date().toISOString());await order(302,'TRY',0.20,new Date().toISOString());await order(303,'EUR',900,new Date().toISOString());
+ await db.query("UPDATE orders SET order_number='SYNTHETIC-'||id::text WHERE order_number IS NULL");
+ const liveSnapshot=JSON.parse(JSON.stringify(await service.dashboardSummary()));load(path.join(root,'apps/admin/app/lib/dashboard-data.ts')).validateDashboardSummary(liveSnapshot);
+ assert.equal(liveSnapshot.periods.find(row=>row.period==='today'&&row.currency==='TRY').amount,'0.30');assert.equal(liveSnapshot.periods.find(row=>row.period==='today'&&row.currency==='TRY').total_count,2);assert.equal(liveSnapshot.periods.find(row=>row.period==='today'&&row.currency==='EUR').amount,'900.00');
  for(const [from,to,currency] of [['2026-02-30','2026-03-01','TRY'],['2026-11-01','2026-10-01','TRY'],['2000-01-01','2026-10-01','TRY'],['2026-10-01','2026-10-31','BAD'],['2026-10-01','bad','TRY']])await assert.rejects(()=>service.reportSummary(30,from,to,currency));
  await pg.close();console.log('Management and special report checks passed: Istanbul dates, cancelled orders, payment status separation, currency isolation, pending-cash exclusion, exact cash totals, pooled and legacy commission reversals, director privacy, current stock and invalid filters.');
 }
