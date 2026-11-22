@@ -5,5 +5,5 @@ export class MfaCodeDto {
 }
 
 export class DisableMfaDto extends MfaCodeDto {
-  @IsString() @MinLength(12) @MaxLength(128) password!: string;
+  @IsString() @MinLength(1) @MaxLength(128) password!: string;
 }

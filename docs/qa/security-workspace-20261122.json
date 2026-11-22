@@ -1,0 +1,8 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Independent MFA and device-list reads with visible errors and separate safe controls.", "Compact full-width cards/table, setup countdown, password/code autocomplete and explicit current-device guidance.", "Synchronous mutation exclusion, uncertain-result reread, password clearing and retained setup after read failure.", "MFA enrollment, confirmation, other-login closure and audit are atomic; account and pending secret are checked under row locks and the shared account session lock.", "Enabled MFA cannot be replaced by enrollment; disabling still requires the current password and code. Existing shorter passwords can be verified without applying new-password length rules.", "A renewed current login stays open while other login families close; revoked/inactive/foreign sessions cannot change MFA."],
+  "verification": {"scripts": ["verify-mfa-state-transitions.cjs", "verify-security-workspace.cjs", "verify-security-view.cjs"], "unit_tests": "9 passed: password/code DTO validation and real TOTP windows.", "builds": "API and optimized admin builds passed; lint/types and all 53 static pages passed.", "scope": "Synthetic accounts and passwords only. AES/TOTP real; actual service/migration/transactions in isolated SQL, including audit failure rollback. Actual UI handlers and server-rendered markup exercised."},
+  "deployment_dependency": "Requires migration 083 and its matching API session-family update before this API starts.",
+  "manual_checks_pending": ["Browser layout and an end-to-end enrollment/logout review with a disposable account after deployment."],
+  "live_environment_modified": false
+}
