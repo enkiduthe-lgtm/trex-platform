@@ -19,7 +19,7 @@ export class AdminController {
   @Get('account-archives') @RequireRoles(Roles.SUPER_ADMIN)
   async accountArchives(@Req() req:UserRequest){if(req.user.role!=='SUPER_ADMIN')throw new ConflictException('Bu İşlemi Yalnız Müdür Yapabilir');return (await this.db.query("SELECT id,email AS name,'staff' AS kind,archived_at FROM users WHERE role='ADMIN' UNION ALL SELECT id,COALESCE(NULLIF(company_name,''),code) AS name,'dealer' AS kind,archived_at FROM dealers ORDER BY name")).rows;}
   @Post('account-archives/:kind/:id') @RequireRoles(Roles.SUPER_ADMIN)
-  async archiveAccount(@Param('kind') kind:string,@Param('id') id:string,@Body() dto:UpdateStaffUserDto,@Req() req:UserRequest){
+  async archiveAccount(@Param('kind') kind:string,@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:UpdateStaffUserDto,@Req() req:UserRequest){
     if(req.user.role!=='SUPER_ADMIN')throw new ConflictException('Bu İşlemi Yalnız Müdür Yapabilir');
     if(!['staff','dealer'].includes(kind)||id===req.user.id)throw new BadRequestException('Bu Hesap Silinemez');
     return this.db.transaction(async client=>{
@@ -55,7 +55,7 @@ export class AdminController {
       });
     } catch (error: unknown) { if ((error as { code?: string }).code === '23505') throw new ConflictException('Bu e-posta ile bir hesap zaten var'); throw error; }
   }
-  @Patch('staff/:id') @RequireRoles(Roles.SUPER_ADMIN) async updateStaff(@Param('id') id: string, @Body() dto: UpdateStaffUserDto, @Req() req: UserRequest) {
+  @Patch('staff/:id') @RequireRoles(Roles.SUPER_ADMIN) async updateStaff(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: UpdateStaffUserDto, @Req() req: UserRequest) {
     return this.db.transaction(async client => {
       const changed = await client.query('UPDATE users SET is_active=$1,updated_at=now() WHERE archived_at IS NULL AND id=$2 AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [dto.isActive, id]);
       if (!changed.rowCount) throw new ConflictException('Personel hesabı bulunamadı');
@@ -64,7 +64,7 @@ export class AdminController {
       return changed.rows[0];
     });
   }
-  @Patch('staff/:id/role') @RequireRoles(Roles.SUPER_ADMIN) async changeStaffRole(@Param('id') id: string, @Body() dto: ChangeStaffRoleDto, @Req() req: UserRequest) {
+  @Patch('staff/:id/role') @RequireRoles(Roles.SUPER_ADMIN) async changeStaffRole(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: ChangeStaffRoleDto, @Req() req: UserRequest) {
     if (id === req.user.id) throw new ConflictException('Kendi yetkinizi bu ekrandan değiştiremezsiniz');
     return this.db.transaction(async client => {
       const directors = await client.query<{ id: string }>("SELECT id FROM users WHERE role='SUPER_ADMIN' AND is_active AND archived_at IS NULL ORDER BY id FOR UPDATE");
@@ -76,7 +76,7 @@ export class AdminController {
       return changed.rows[0];
     });
   }
-  @Post('staff/:id/reset-password') @RequireRoles(Roles.SUPER_ADMIN) async resetStaffPassword(@Param('id') id: string, @Body() dto: ResetStaffPasswordDto, @Req() req: UserRequest) {
+  @Post('staff/:id/reset-password') @RequireRoles(Roles.SUPER_ADMIN) async resetStaffPassword(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: ResetStaffPasswordDto, @Req() req: UserRequest) {
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     return this.db.transaction(async client => {
       const changed = await client.query('UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND archived_at IS NULL AND role IN (\'ADMIN\',\'WAREHOUSE\',\'FINANCE\') RETURNING id', [passwordHash, id]);

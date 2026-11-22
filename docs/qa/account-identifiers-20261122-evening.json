@@ -1,0 +1,6 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Validate legacy account, session, customer/tag/request and dealer record identifiers at the request boundary.", "Reject malformed identifiers before password hashing, ledger changes, bank-account changes or other service calls.", "Retain existing director-only operations, authentication-before-validation and valid uppercase UUID handling."],
+  "verification": {"unit_and_http_tests": "188 passed across six suites. The new in-memory real Nest/Express boundary matrix covers malformed and valid identifiers with real guards, pipes and body validation; identity and persistence are fake.", "api_build": "Passed before the subsequent shipping work began.", "data_scope": "No HTTP listener, real credentials, banking records, customer record or session was changed."},
+  "live_environment_modified": false
+}

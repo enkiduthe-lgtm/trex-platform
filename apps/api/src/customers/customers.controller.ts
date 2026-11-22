@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -24,16 +24,16 @@ export class CustomersController {
   @Get('registration-report') registrationReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string){return this.customers.registrationReport(dateFrom,dateTo);}
   @Get('tags') tags() { return this.customers.listTags(); }
   @Post('tags') createTag(@Body() dto: CustomerTagDto, @Req() req: UserRequest) { return this.customers.createTag(dto, req.user.id); }
-  @Post(':id/tags/:tagId') assignTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.assignTag(id, tagId, req.user.id); }
-  @Delete(':id/tags/:tagId') removeTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.removeTag(id, tagId, req.user.id); }
-  @Get(':id/notes') notes(@Param('id') id: string) { return this.customers.notes(id); }
-  @Get(':id/orders') orders(@Param('id') id: string) { return this.customers.orders(id); }
-  @Get(':id/order-report') orderReport(@Param('id') id: string, @Query('dateFrom') dateFrom?: string, @Query('dateTo') dateTo?: string) { return this.customers.orderReport(id, dateFrom, dateTo); }
-  @Get(':id/support-tickets') supportTickets(@Param('id') id: string) { return this.customers.supportTickets(id); }
-  @Post(':id/notes') add(@Param('id') id: string, @Body() dto: NoteDto, @Req() req: UserRequest) { return this.customers.addNote(id, dto.body, req.user.id); }
-  @Get(':id/loyalty') loyalty(@Param('id') id: string) { return this.customers.loyalty(id); }
-  @Post(':id/loyalty/adjust') adjustLoyalty(@Param('id') id: string, @Body() dto: LoyaltyAdjustmentDto, @Req() req: UserRequest) { return this.customers.adjustLoyalty(id, dto, req.user.id); }
-  @Get(':id/requests') requests(@Param('id') id: string) { return this.customers.requests(id); }
-  @Post(':id/requests') createRequest(@Param('id') id: string, @Body() dto: CustomerRequestDto, @Req() req: UserRequest) { return this.customers.createRequest(id, dto, req.user.id); }
-  @Patch(':id/requests/:requestId') updateRequest(@Param('id') id: string, @Param('requestId') requestId: string, @Body() dto: CustomerRequestStatusDto, @Req() req: UserRequest) { return this.customers.updateRequest(id, requestId, dto, req.user.id); }
+  @Post(':id/tags/:tagId') assignTag(@Param('id',new ParseUUIDPipe()) id: string, @Param('tagId',new ParseUUIDPipe()) tagId: string, @Req() req: UserRequest) { return this.customers.assignTag(id, tagId, req.user.id); }
+  @Delete(':id/tags/:tagId') removeTag(@Param('id',new ParseUUIDPipe()) id: string, @Param('tagId',new ParseUUIDPipe()) tagId: string, @Req() req: UserRequest) { return this.customers.removeTag(id, tagId, req.user.id); }
+  @Get(':id/notes') notes(@Param('id',new ParseUUIDPipe()) id: string) { return this.customers.notes(id); }
+  @Get(':id/orders') orders(@Param('id',new ParseUUIDPipe()) id: string) { return this.customers.orders(id); }
+  @Get(':id/order-report') orderReport(@Param('id',new ParseUUIDPipe()) id: string, @Query('dateFrom') dateFrom?: string, @Query('dateTo') dateTo?: string) { return this.customers.orderReport(id, dateFrom, dateTo); }
+  @Get(':id/support-tickets') supportTickets(@Param('id',new ParseUUIDPipe()) id: string) { return this.customers.supportTickets(id); }
+  @Post(':id/notes') add(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: NoteDto, @Req() req: UserRequest) { return this.customers.addNote(id, dto.body, req.user.id); }
+  @Get(':id/loyalty') loyalty(@Param('id',new ParseUUIDPipe()) id: string) { return this.customers.loyalty(id); }
+  @Post(':id/loyalty/adjust') adjustLoyalty(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: LoyaltyAdjustmentDto, @Req() req: UserRequest) { return this.customers.adjustLoyalty(id, dto, req.user.id); }
+  @Get(':id/requests') requests(@Param('id',new ParseUUIDPipe()) id: string) { return this.customers.requests(id); }
+  @Post(':id/requests') createRequest(@Param('id',new ParseUUIDPipe()) id: string, @Body() dto: CustomerRequestDto, @Req() req: UserRequest) { return this.customers.createRequest(id, dto, req.user.id); }
+  @Patch(':id/requests/:requestId') updateRequest(@Param('id',new ParseUUIDPipe()) id: string, @Param('requestId',new ParseUUIDPipe()) requestId: string, @Body() dto: CustomerRequestStatusDto, @Req() req: UserRequest) { return this.customers.updateRequest(id, requestId, dto, req.user.id); }
 }
