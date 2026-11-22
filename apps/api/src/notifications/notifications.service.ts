@@ -7,9 +7,12 @@ import { NotificationHistoryQueryDto } from './dto/notification-history-query.dt
 import { assertMockIntegrationAllowed } from '../config/mock-integration-policy';
 import { JobsService } from '../jobs/jobs.service';
 type DeliveryMode='IN_APP'|'MOCK'|'BREVO';
-type NotificationRow={id:string;channel:NotificationChannel;status:string;delivery_mode:DeliveryMode|null;provider_reference?:string|null;is_simulated?:boolean;attempt_count?:number};
+type NotificationRow={id:string;channel:NotificationChannel;status:string;delivery_mode:DeliveryMode|null;provider_reference?:string|null;is_simulated?:boolean;is_sensitive?:boolean;attempt_count?:number};
 type RequestInfo={actorId:string;key?:string};
-const columns='id,channel,recipient,subject,body,status,sent_at,created_at,attempt_count,last_attempt_at,next_attempt_at,failure_reason,delivery_mode,COALESCE(delivery_mode=\'MOCK\' OR starts_with(provider_reference,\'mock_notification_\'),false) AS is_simulated';
+const sensitiveRecord="COALESCE(template_code='PASSWORD_RESET' OR concat_ws(' ',subject,body) ILIKE '%/sifre-sifirla?token=%',false)";
+const publicSubject=`CASE WHEN ${sensitiveRecord} THEN 'Hesap güvenliği bildirimi' ELSE subject END`;
+const publicBody=`CASE WHEN ${sensitiveRecord} THEN 'Hesap güvenliği bildiriminin içeriği gizlidir.' ELSE body END`;
+const columns=`id,channel,recipient,${publicSubject} AS subject,${publicBody} AS body,status,sent_at,created_at,attempt_count,last_attempt_at,next_attempt_at,CASE WHEN ${sensitiveRecord} THEN NULL ELSE failure_reason END AS failure_reason,delivery_mode,${sensitiveRecord} AS is_sensitive,COALESCE(delivery_mode='MOCK' OR starts_with(provider_reference,'mock_notification_'),false) AS is_simulated`;
 @Injectable()
 export class NotificationsService {
   private pumping=false;
@@ -33,7 +36,7 @@ export class NotificationsService {
   }
   private decorate<T extends NotificationRow>(row:T){
     const mode=row.delivery_mode??(row.channel===NotificationChannel.IN_APP?'IN_APP':null),config=this.configuration();
-    const canRetry=['FAILED','UNKNOWN'].includes(row.status)&&(
+    const canRetry=!row.is_sensitive&&['FAILED','UNKNOWN'].includes(row.status)&&(
       mode==='IN_APP'&&row.channel===NotificationChannel.IN_APP||
       mode==='MOCK'&&config.simulated||
       mode==='BREVO'&&row.status==='FAILED'&&row.channel===NotificationChannel.EMAIL&&config.provider==='brevo'&&Boolean(config.channels.find(item=>item.channel===NotificationChannel.EMAIL)?.available)
@@ -83,9 +86,10 @@ export class NotificationsService {
       }
       const mode=forceMock?'MOCK':this.mode(dto.channel),status=mode==='BREVO'?'PENDING':'SENT';
       const reference=mode==='MOCK'?`mock_notification_${randomUUID()}`:mode==='IN_APP'?`internal_notification_${randomUUID()}`:null;
-      const row=(await client.query<NotificationRow>(`INSERT INTO notifications(user_id,created_by,channel,recipient,subject,body,status,delivery_mode,provider_reference,sent_at,next_attempt_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7::notification_status,$8,$9,CASE WHEN $7::text='SENT' THEN now() ELSE NULL END,CASE WHEN $7::text='PENDING' THEN now() ELSE NULL END)
-        RETURNING id,channel,status,delivery_mode,provider_reference`,[userId??null,request?.actorId??null,dto.channel,recipient,subject,body,status,mode,reference])).rows[0];
+      const templateCode=/\/sifre-sifirla\?token=/i.test(`${subject??''} ${body}`)?'PASSWORD_RESET':null;
+      const row=(await client.query<NotificationRow>(`INSERT INTO notifications(user_id,created_by,channel,recipient,subject,body,status,delivery_mode,provider_reference,sent_at,next_attempt_at,template_code)
+        VALUES($1,$2,$3,$4,$5,$6,$7::notification_status,$8,$9,CASE WHEN $7::text='SENT' THEN now() ELSE NULL END,CASE WHEN $7::text='PENDING' THEN now() ELSE NULL END,$10)
+        RETURNING id,channel,status,delivery_mode,provider_reference`,[userId??null,request?.actorId??null,dto.channel,recipient,subject,body,status,mode,reference,templateCode])).rows[0];
       if(request?.actorId)await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',[request.actorId,'notification.created','notification',row.id,JSON.stringify({channel:dto.channel,mode})]);
       if(identity)await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES($1,$2,'notification',$3,now()+interval '365 days')",[identity,hash,row.id]);
       return {...row,replayed:false};
@@ -101,7 +105,7 @@ export class NotificationsService {
     return this.db.transaction(async client=>{
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       if(query.before&&!(await client.query('SELECT id FROM notifications WHERE id=$1',[query.before])).rowCount)throw new BadRequestException('Bildirim sayfası başlangıcı bulunamadı. Listeyi yenileyin.');
-      const filter="($1::notification_channel IS NULL OR channel=$1) AND ($2::notification_status IS NULL OR status=$2) AND ($3::text IS NULL OR concat_ws(' ',recipient,subject,body) ILIKE $3)";
+      const filter=`($1::notification_channel IS NULL OR channel=$1) AND ($2::notification_status IS NULL OR status=$2) AND ($3::text IS NULL OR concat_ws(' ',recipient,${publicSubject},${publicBody}) ILIKE $3)`;
       const counts=(await client.query<{total:number;sent:number;pending:number;failed:number;unknown:number}>("SELECT count(*)::int total,count(*) FILTER(WHERE status='SENT')::int sent,count(*) FILTER(WHERE status IN ('PENDING','RETRYING'))::int pending,count(*) FILTER(WHERE status='FAILED')::int failed,count(*) FILTER(WHERE status='UNKNOWN')::int unknown FROM notifications")).rows[0];
       const matched=(await client.query<{count:number}>(`SELECT count(*)::int count FROM notifications WHERE ${filter}`,[channel,status,term])).rows[0].count;
       const result=await client.query<NotificationRow>(`SELECT ${columns} FROM notifications WHERE ${filter} AND ($4::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM notifications WHERE id=$4)) ORDER BY created_at DESC,id DESC LIMIT 101`,[channel,status,term,query.before??null]);
@@ -110,7 +114,7 @@ export class NotificationsService {
   }
   async retry(id:string,actorId?:string){
     const result=await this.db.transaction(async client=>{
-      const row=(await client.query<NotificationRow>('SELECT id,channel,status,delivery_mode FROM notifications WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      const row=(await client.query<NotificationRow>(`SELECT id,channel,status,delivery_mode,${sensitiveRecord} AS is_sensitive FROM notifications WHERE id=$1 FOR UPDATE`,[id])).rows[0];
       if(!row||!['FAILED','UNKNOWN'].includes(row.status))return null;
       const record=this.decorate(row);if(!record.can_retry)throw new BadRequestException('Bu kaydın iletim sonucu veya kanalı doğrulanmadan tekrar gönderilemez.');
       const immediate=record.delivery_mode!=='BREVO',status=immediate?'SENT':'PENDING';

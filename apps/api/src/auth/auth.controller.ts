@@ -16,8 +16,8 @@ export class AuthController {
   private cookie(res: Response, value: string, expiry: Date) { res.cookie('trex_session', value, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'lax', expires: expiry, path: '/v1/auth' }); }
   private metadata(req: Request) { return { ip: req.ip, userAgent: req.get('user-agent') }; }
   @Post('login') @HttpCode(200) async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) { await this.throttle.login(req.ip ?? '', dto.email); const result = await this.auth.login(dto.email, dto.password, this.metadata(req), dto.mfaCode, dto.audience); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
-  @Post('password-reset/request') @HttpCode(200) requestPasswordReset(@Body() dto: RequestPasswordResetDto, @Req() req: Request) { return this.auth.requestPasswordReset(dto.email, this.metadata(req)); }
-  @Post('password-reset/confirm') @HttpCode(200) confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) { return this.auth.confirmPasswordReset(dto.token, dto.password); }
+  @Post('password-reset/request') @HttpCode(200) async requestPasswordReset(@Body() dto: RequestPasswordResetDto, @Req() req: Request) { await this.throttle.passwordResetRequest(req.ip??'',dto.email);return this.auth.requestPasswordReset(dto.email, this.metadata(req)); }
+  @Post('password-reset/confirm') @HttpCode(200) async confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto,@Req() req:Request) { await this.throttle.passwordResetConfirm(req.ip??'',dto.token);return this.auth.confirmPasswordReset(dto.token, dto.password); }
   @Post('refresh') @HttpCode(200) async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) { await this.throttle.refresh(req.ip ?? ''); const result = await this.auth.rotate(req.cookies?.trex_session ?? '', this.metadata(req)); this.cookie(res, result.refreshToken, result.expiresAt); return { accessToken: result.accessToken }; }
   @Post('logout') @HttpCode(204) async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) { const authorization = req.headers.authorization; const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]; await this.auth.logout(req.cookies?.trex_session ?? '', accessToken); res.clearCookie('trex_session', { path: '/v1/auth' }); }
   @Get('me') @UseGuards(JwtAuthGuard) me(@Req() req: UserRequest) { return { user: req.user }; }
@@ -25,7 +25,7 @@ export class AuthController {
   @Post('sessions/revoke-others') @UseGuards(JwtAuthGuard) revokeOtherSessions(@Req() req: UserRequest) { return this.auth.revokeOtherSessions({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }); }
   @Delete('sessions/:id') @UseGuards(JwtAuthGuard) revokeSession(@Param('id') id: string, @Req() req: UserRequest) { return this.auth.revokeSession({ sub: req.user.id, email: req.user.email, role: req.user.role, sid: req.user.sessionId }, id); }
   @Get('mfa') @UseGuards(JwtAuthGuard) mfaStatus(@Req() req: UserRequest) { return this.mfa.status(req.user.id); }
-  @Post('mfa/enroll') @UseGuards(JwtAuthGuard) enrollMfa(@Req() req: UserRequest) { return this.mfa.enroll(req.user); }
-  @Post('mfa/confirm') @UseGuards(JwtAuthGuard) confirmMfa(@Body() dto: MfaCodeDto, @Req() req: UserRequest) { return this.mfa.confirm(req.user, dto.code); }
-  @Post('mfa/disable') @UseGuards(JwtAuthGuard) disableMfa(@Body() dto: DisableMfaDto, @Req() req: UserRequest) { return this.mfa.disable(req.user, dto.password, dto.code); }
+  @Post('mfa/enroll') @UseGuards(JwtAuthGuard) async enrollMfa(@Req() req: UserRequest) { await this.throttle.mfaChange(req.ip??'',req.user.id,'enroll');return this.mfa.enroll(req.user); }
+  @Post('mfa/confirm') @UseGuards(JwtAuthGuard) async confirmMfa(@Body() dto: MfaCodeDto, @Req() req: UserRequest) { await this.throttle.mfaChange(req.ip??'',req.user.id,'confirm');return this.mfa.confirm(req.user, dto.code); }
+  @Post('mfa/disable') @UseGuards(JwtAuthGuard) async disableMfa(@Body() dto: DisableMfaDto, @Req() req: UserRequest) { await this.throttle.mfaChange(req.ip??'',req.user.id,'disable');return this.mfa.disable(req.user, dto.password, dto.code); }
 }

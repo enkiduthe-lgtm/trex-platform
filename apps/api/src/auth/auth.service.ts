@@ -29,16 +29,21 @@ export class AuthService {
     this.mfa.verifyLogin(user, mfaCode); return this.createSession(user, metadata);
   }
   async requestPasswordReset(email: string, metadata: { ip?: string; userAgent?: string }) {
-    const generic = { message: 'E-posta Adresi Sistemde Kayıtlıysa Şifre Sıfırlama Bağlantısı Gönderildi.' };
+    const generic = { message: 'E-posta adresi sistemde kayıtlıysa şifre sıfırlama bağlantısının gönderimi başlatıldı.' };
     const allowed: Role[] = [Roles.SUPER_ADMIN, Roles.ADMIN, Roles.WAREHOUSE, Roles.FINANCE, Roles.DEALER];
     const user = (await this.db.query<Pick<UserRow, 'id' | 'email' | 'role'>>('SELECT id,email,role FROM users WHERE email=$1 AND is_active=true AND role=ANY($2::user_role[])', [email.trim().toLowerCase(), allowed])).rows[0];
     if (!user) return generic;
     const token = randomBytes(32).toString('base64url');
-    await this.db.transaction(async client => {
+    const created=await this.db.transaction(async client => {
+      await this.lockSessionChanges(client,user.id);
+      const active=await client.query<{id:string;role:Role}>('SELECT id,role FROM users WHERE id=$1 AND email=$2 AND is_active=true AND role=ANY($3::user_role[]) FOR UPDATE',[user.id,email.trim().toLowerCase(),allowed]);
+      if(!active.rows[0])return false;
       await client.query('UPDATE password_reset_tokens SET used_at=now() WHERE user_id=$1 AND used_at IS NULL', [user.id]);
       await client.query('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at,requested_ip,requested_user_agent) VALUES($1,$2,$3,$4,$5)', [user.id, this.hashToken(token), new Date(Date.now() + 900000), metadata.ip ?? null, metadata.userAgent ?? null]);
-      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES(NULL,$1,$2,$3,$4)', ['auth.password_reset.requested', 'user', user.id, JSON.stringify({ role: user.role })]);
+      await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id,metadata) VALUES(NULL,$1,$2,$3,$4)', ['auth.password_reset.requested', 'user', user.id, JSON.stringify({ role: active.rows[0].role })]);
+      return true;
     });
+    if(!created)return generic;
     const base = (process.env.ADMIN_APP_URL ?? 'http://localhost:3001').replace(/\/$/, '');
     const url = base + '/sifre-sifirla?token=' + encodeURIComponent(token);
     try { await this.notifications?.send({ channel: NotificationChannel.EMAIL, recipient: user.email, subject: 'TREX Tea Şifre Sıfırlama', body: 'TREX Tea Paneliniz İçin Şifre Sıfırlama Bağlantınız:\n\n' + url + '\n\nBu Bağlantı 15 Dakika Geçerlidir Ve Yalnızca Bir Kez Kullanılabilir.' }, user.id); } catch { /* Notification queue records delivery failures. */ }
@@ -46,11 +51,14 @@ export class AuthService {
   }
   async confirmPasswordReset(token: string, password: string) {
     return this.db.transaction(async client => {
-      const reset = await client.query<{ id: string; user_id: string }>('SELECT prt.id,prt.user_id FROM password_reset_tokens prt JOIN users u ON u.id=prt.user_id WHERE prt.token_hash=$1 AND prt.used_at IS NULL AND prt.expires_at>now() AND u.is_active=true FOR UPDATE', [this.hashToken(token)]);
+      const owner=(await client.query<{user_id:string}>('SELECT user_id FROM password_reset_tokens WHERE token_hash=$1',[this.hashToken(token)])).rows[0];
+      if(!owner)throw new BadRequestException('Bağlantı Geçersiz Veya Süresi Dolmuş. Lütfen Yeniden Şifre Sıfırlama İsteği Oluşturun.');
+      await this.lockSessionChanges(client,owner.user_id);
+      const reset = await client.query<{ id: string; user_id: string }>('SELECT prt.id,prt.user_id FROM password_reset_tokens prt JOIN users u ON u.id=prt.user_id WHERE prt.token_hash=$1 AND prt.used_at IS NULL AND prt.expires_at>clock_timestamp() AND u.is_active=true FOR UPDATE', [this.hashToken(token)]);
       const record = reset.rows[0]; if (!record) throw new BadRequestException('Bağlantı Geçersiz Veya Süresi Dolmuş. Lütfen Yeniden Şifre Sıfırlama İsteği Oluşturun.');
       const hash = await argon2.hash(password, { type: argon2.argon2id });
       await client.query('UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2', [hash, record.user_id]);
-      await client.query('UPDATE password_reset_tokens SET used_at=now() WHERE id=$1', [record.id]);
+      await client.query('UPDATE password_reset_tokens SET used_at=now() WHERE user_id=$1 AND used_at IS NULL', [record.user_id]);
       await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [record.user_id]);
       await client.query('INSERT INTO audit_logs(actor_user_id,action,entity_type,entity_id) VALUES(NULL,$1,$2,$3)', ['auth.password_reset.completed', 'user', record.user_id]);
       return { message: 'Yeni Şifreniz Oluşturuldu. Yeni Şifrenizle Giriş Yapabilirsiniz.' };

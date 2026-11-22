@@ -11,7 +11,7 @@ describe('Notification records and queue recovery',()=>{
     let row:any=null,committed=false;
     const client={query:jest.fn(async(sql:string,args:any[]=[])=>{
       if(sql.includes('INSERT INTO notifications')){row={id:'notification',channel:args[2],status:args[6],delivery_mode:args[7],provider_reference:args[8],attempt_count:0};return {rows:[row],rowCount:1};}
-      if(sql.startsWith('SELECT id,channel,status,delivery_mode FROM'))return {rows:row?[row]:[],rowCount:row?1:0};
+      if(sql.startsWith('SELECT id,channel,status,delivery_mode'))return {rows:row?[row]:[],rowCount:row?1:0};
       if(sql.startsWith('UPDATE notifications SET status=')){row={...row,status:args[1]};return {rows:[],rowCount:1};}
       return {rows:[],rowCount:0};
     })};
@@ -73,5 +73,11 @@ describe('Notification records and queue recovery',()=>{
   it('ignores retry clicks against a record already in the queue',async()=>{
     const s=setup();s.setRow({id:'notification',channel:'EMAIL',delivery_mode:'BREVO',status:'PENDING'});
     await expect(s.service.retry('notification')).resolves.toBeNull();expect(s.jobs.enqueue).not.toHaveBeenCalled();
+  });
+  it('does not manually resend a security link from notification history',async()=>{
+    const s=setup();s.setRow({id:'notification',channel:'EMAIL',delivery_mode:'BREVO',status:'FAILED',is_sensitive:true});
+    await expect(s.service.retry('notification')).rejects.toThrow('tekrar gönderilemez');
+    expect(s.jobs.enqueue).not.toHaveBeenCalled();
+    expect(s.client.query).toHaveBeenCalledTimes(1);
   });
 });
