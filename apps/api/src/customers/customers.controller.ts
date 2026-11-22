@@ -21,6 +21,7 @@ type UserRequest = Request & { user: RequestUser };
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
   @Get() list() { return this.customers.list(); }
+  @Get('registration-report') registrationReport(@Query('dateFrom') dateFrom?:string,@Query('dateTo') dateTo?:string){return this.customers.registrationReport(dateFrom,dateTo);}
   @Get('tags') tags() { return this.customers.listTags(); }
   @Post('tags') createTag(@Body() dto: CustomerTagDto, @Req() req: UserRequest) { return this.customers.createTag(dto, req.user.id); }
   @Post(':id/tags/:tagId') assignTag(@Param('id') id: string, @Param('tagId') tagId: string, @Req() req: UserRequest) { return this.customers.assignTag(id, tagId, req.user.id); }

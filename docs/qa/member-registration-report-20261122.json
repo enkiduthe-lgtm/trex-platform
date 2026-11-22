@@ -1,0 +1,8 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Replace the full customer-card download with a server-side daily registration aggregate.", "Reports-only managers can read aggregate counts without receiving customer contact or identity fields; full customer-card access retains its separate grant.", "Use Istanbul midnight and an inclusive final calendar day, with validated all-history and one-sided periods.", "Bind displayed and exported totals to their loaded period; changed drafts, failed reads and stale responses cannot export an incorrect current report.", "Distinguish a verified zero from unavailable data; export numeric daily/active/passive counts with period and generation time."],
+  "verification": {"unit_tests": "8 passed: period validation, aggregate fields and actual RolesGuard grant separation including normalized routes.", "scripts": ["verify-registration-report.cjs", "verify-member-workspace.cjs", "verify-report-workspace-views.cjs"], "builds": "API and final optimized admin builds passed; lint/types and all 53 static pages passed.", "scope": "Actual SQL boundary tests, actual UI query/validation/export logic and server-rendered markup. All data synthetic; no customer changes."},
+  "deployment_order": "API with the new registration-report route must be ready before the new panel uses it.",
+  "manual_checks_pending": ["Browser layout and a report-only manager's real login review after deployment."],
+  "live_environment_modified": false
+}

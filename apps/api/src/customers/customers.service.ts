@@ -11,6 +11,17 @@ type CustomerTagInput = { name: string; color?: string };
 export class CustomersService {
   constructor(private readonly db: DatabaseService) {}
 
+  async registrationReport(dateFrom?:string,dateTo?:string){
+    const valid=(value:string)=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number(value.slice(0,4))>0&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+    if(dateFrom&&!valid(dateFrom)||dateTo&&!valid(dateTo)||dateFrom&&dateTo&&dateFrom>dateTo)throw new BadRequestException('Geçerli bir başlangıç ve bitiş tarihi seçin.');
+    const rows=(await this.db.query<{day:string;count:number;active:number}>(`SELECT to_char(created_at AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS day,
+      count(*)::int AS count,count(*) FILTER(WHERE is_active)::int AS active FROM customers
+      WHERE ($1::date IS NULL OR created_at>=($1::date::timestamp AT TIME ZONE 'Europe/Istanbul'))
+        AND ($2::date IS NULL OR created_at<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Istanbul'))
+      GROUP BY day ORDER BY day DESC`,[dateFrom||null,dateTo||null])).rows;
+    return {dateFrom:dateFrom||'',dateTo:dateTo||'',rows,count:rows.reduce((sum,row)=>sum+row.count,0),active:rows.reduce((sum,row)=>sum+row.active,0),generatedAt:new Date().toISOString()};
+  }
+
   async list() {
     return (await this.db.query(`
       WITH currency_totals AS (

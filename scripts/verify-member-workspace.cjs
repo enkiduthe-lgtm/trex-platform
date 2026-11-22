@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),source=fs.readFileSync(path.join(root,'apps/admin/app/raporlar/uyeler/member-workspace.tsx'),'utf8').replace(/\r\n/g,'\n');
+const transpile=value=>ts.transpileModule(value,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+const periodLib={exports:{},URLSearchParams,Date};vm.runInNewContext(transpile(fs.readFileSync(path.join(root,'apps/admin/app/lib/report-period.ts'),'utf8')),periodLib);
+function extract(a,b){const start=source.indexOf(a),end=source.indexOf(b,start);assert(start>=0&&end>start);return source.slice(start,end);}
+const period={from:'2026-11-21',to:'2026-11-22'},report={dateFrom:period.from,dateTo:period.to,rows:[{day:'2026-11-22',count:2,active:1}],count:2,active:1,generatedAt:'2026-11-22T12:00:00Z'};
+function setup(){
+ const state={period:{...period},data:report,busy:false,ready:true,error:''},requests=[],exports=[];
+ const box=vm.createContext({Error,Array,Boolean,Number,Date,Set,URLSearchParams,Promise,...state,...periodLib.exports,alive:{current:true},requestId:{current:0},readyRef:{current:true},reading:{current:false},useEffect(){},financeDateTime:value=>value,api:route=>new Promise((resolve,reject)=>requests.push({route,resolve,reject})),downloadXlsx:(...args)=>exports.push(args)});
+ for(const key of Object.keys(state))box['set'+key[0].toUpperCase()+key.slice(1)]=value=>{state[key]=typeof value==='function'?value(state[key]):value;box[key]=state[key];};
+ vm.runInContext(transpile(extract('function reportQuery(','export default function MemberWorkspace()')+extract('  async function load(','  return <main>')),box);return {state,requests,exports,box};
+}
+async function main(){
+ const failed=setup(),reading=failed.box.load(period);assert(failed.requests[0].route.startsWith('/admin/customers/registration-report?'));failed.box.exportReport();assert.equal(failed.exports.length,0);failed.requests[0].reject(Error('Offline'));await reading;assert.equal(failed.state.data.count,2);assert.equal(failed.state.ready,false);failed.box.exportReport();assert.equal(failed.exports.length,0);
+ const restored=failed.box.load(period);failed.requests[1].resolve(report);await restored;assert.equal(failed.state.ready,true);assert.equal(failed.state.error,'');failed.box.exportReport();const rows=failed.exports[0][2];assert.equal(rows.find(row=>row[0]==='Toplam Yeni Kayıt')[1],2);assert.equal(rows.find(row=>row[0]==='2026-11-22')[3],1);assert(!JSON.stringify(rows).includes('@'));
+ failed.box.period={...period,from:'2026-11-20'};failed.box.exportReport();assert.equal(failed.exports.length,1,'Changed draft periods cannot export the previous snapshot as current');
+ const race=setup(),old=race.box.load(period),newPeriod={from:'2026-11-22',to:'2026-11-22'},next=race.box.load(newPeriod);race.requests[1].resolve({...report,dateFrom:newPeriod.from});await next;race.requests[0].reject(Error('Old failure'));await old;assert.equal(race.state.data.dateFrom,newPeriod.from);assert.equal(race.state.error,'');assert.equal(race.state.ready,true);
+ const empty=setup(),zero=empty.box.load(period);empty.requests[0].resolve({...report,rows:[],count:0,active:0});await zero;assert.equal(empty.state.ready,true);assert.equal(empty.state.data.count,0);empty.box.exportReport();assert.equal(empty.exports.length,1,'A verified empty report may be exported accurately');
+ for(const invalid of [null,{...report,dateFrom:'2026-11-20'},{...report,count:9},{...report,active:9},{...report,rows:[{day:'2026-11-22',count:2,active:3}]},{...report,rows:[{day:'2026-02-30',count:2,active:1}]},{...report,rows:[{day:'2026-11-23',count:2,active:1}]}]){const malformed=setup(),pending=malformed.box.load(period);malformed.requests[0].resolve(invalid);await pending;assert.equal(malformed.state.ready,false);assert.equal(malformed.state.error,'Yeni üye raporu doğrulanamadı.');}
+ const invalid=setup();await invalid.box.load({from:'2026-11-23',to:'2026-11-22'});assert.equal(invalid.requests.length,0);const disposed=setup(),closing=disposed.box.load(period);disposed.box.alive.current=false;disposed.requests[0].resolve({...report,count:0,active:0,rows:[]});await closing;assert.equal(disposed.state.data.count,2);
+ console.log('Member report passed: aggregate-only endpoint, period-bound totals, stale-read exclusion, known zero versus failure, draft-period export guard, contact-free numeric Excel data and disposal. No customer write.');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});
