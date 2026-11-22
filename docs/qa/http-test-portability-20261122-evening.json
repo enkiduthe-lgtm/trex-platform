@@ -1,0 +1,18 @@
+{
+  "scope": "local_test_harness_and_outdated_expectations_only",
+  "production_behavior_changed": false,
+  "initial_broad_run": "71 suites passed; six suites reported failures before repair. The original log is manager-evening-full-unit-20261122.log and is retained.",
+  "repairs": [
+    "PayTR callback and public image tests now exercise real Express/Nest middleware and Node HTTP response objects in memory. They retain status/body/security-header checks without opening a TCP listener, avoiding local EACCES failures.",
+    "The isolated checkout DTO test explicitly loads reflect-metadata before class-transformer decorators.",
+    "The selected-order export expectation includes the existing eighth currency parameter.",
+    "The operations-summary fixture includes the existing sixth category, returned shipments, and checks archive exclusion for all six categories.",
+    "An archive-suite dependency read failed transiently with Windows EPERM. The dependency was not modified or bypassed; its normal isolated rerun passed."
+  ],
+  "verification": {
+    "affected_suites": "All six repaired/retried suites passed, 26 tests, in manager-evening-repaired-suites-final-20261122.log.",
+    "api_build": "manager-evening-final-api-build-20261122.log passed, including the shared typed HTTP test helper.",
+    "broad_rerun": "See the cumulative evening QA record for the final full-run result; no failed checks are silently skipped."
+  },
+  "live_environment_modified": false
+}

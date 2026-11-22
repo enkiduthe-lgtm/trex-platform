@@ -1,6 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import request = require('supertest');
+import { requestInMemory } from '../../test/http-memory';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 
@@ -13,7 +13,8 @@ describe('PayTR callback HTTP contract',()=>{
     await app.init();
     try{
       const payload={merchant_oid:'order1',status:'success',total_amount:'75999',hash:'signed',payment_amount:'75999',payment_type:'card',currency:'TL',test_mode:'1',installment_count:'0',merchant_id:'123456'};
-      const response=await request(app.getHttpServer()).post('/v1/payments/paytr/callback').type('form').send(payload);
+      const response=await requestInMemory(app.getHttpAdapter().getInstance(),{method:'POST',path:'/v1/payments/paytr/callback',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams(payload).toString()});
+      expect(app.getHttpServer().listening).toBe(false);
       expect(response.status).toBe(200);expect(response.text).toBe('OK');expect(response.headers['content-type']).toContain('text/plain');
       expect(payments.receivePaytrCallback).toHaveBeenCalledWith(expect.objectContaining(payload));
     }finally{await app.close();}

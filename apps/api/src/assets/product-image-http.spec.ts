@@ -1,6 +1,6 @@
 import express = require('express');
 import helmet from 'helmet';
-import request = require('supertest');
+import { requestInMemory } from '../../test/http-memory';
 import { PublicAssetsController } from './assets.controller';
 
 describe('Public product image HTTP response', () => {
@@ -10,7 +10,8 @@ describe('Public product image HTTP response', () => {
     const app = express();
     app.use(helmet());
     app.get('/image', (_req, res, next) => { void controller.productImage('product', res).catch(next); });
-    const response = await request(app).get('/image').set('Origin', 'https://trex-admin.onrender.com').expect(200);
+    const response = await requestInMemory(app,{method:'GET',path:'/image',headers:{origin:'https://trex-admin.onrender.com'}});
+    expect(response.status).toBe(200);
     expect(response.headers['cross-origin-resource-policy']).toBe('cross-origin');
     expect(response.headers['content-type']).toContain('image/png');
     expect(response.headers['x-content-type-options']).toBe('nosniff');

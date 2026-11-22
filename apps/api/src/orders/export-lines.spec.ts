@@ -6,7 +6,7 @@ describe('Selected order export lines', () => {
     const rows = [{ id, product_name: 'Product', quantity: 5, unit_amount: '10.00', line_total: '50.00' }];
     const query = jest.fn().mockResolvedValue({ rows });
     expect(await new OrdersService({ query } as never).exportLines([id, id])).toEqual(rows);
-    expect(query.mock.calls[0][1]).toEqual([null, null, null, null, null, null, [id]]);
+    expect(query.mock.calls[0][1]).toEqual([null, null, null, null, null, null, [id], null]);
     expect(query.mock.calls[0][0]).toContain('WHERE o.archived_at IS NULL');
     expect(query.mock.calls[0][0]).toContain('o.id=ANY($7::uuid[])');
     expect(query.mock.calls[0][0]).toContain('oi.quantity*oi.unit_amount');
