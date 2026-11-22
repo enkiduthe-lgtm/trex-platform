@@ -1,0 +1,20 @@
+{
+  "deployment_status": "local_only",
+  "runner": "scripts/verify-panel-regressions.cjs",
+  "usage": "node scripts/verify-panel-regressions.cjs <directory-containing-node_modules-and-pglite>",
+  "preview": "node scripts/verify-panel-regressions.cjs --list",
+  "behavior": [
+    "Runs a fixed, ordered set of isolated SQL checks, actual UI handlers, export checks and server-rendered markup checks.",
+    "Uses the current Node runtime, local dependencies, a minimal test environment and bounded child-process execution.",
+    "Writes separate logs and a machine-readable receipt under the repository tmp directory; stops and reports the first failed check.",
+    "Does not replace API unit/HTTP tests, production builds, browser review or live acceptance."
+  ],
+  "verified_run": {
+    "started_at_utc": "2026-11-22T20:19:08.122Z",
+    "completed_at_utc": "2026-11-22T20:24:04.558Z",
+    "passed": 20,
+    "failed": 0,
+    "receipt": "tmp/panel-regression-2026-11-22T20-19-08-122Z/results.json"
+  },
+  "live_environment_modified": false
+}
