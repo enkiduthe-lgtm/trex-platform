@@ -15,6 +15,9 @@ import { CustomersController } from '../customers/customers.controller';
 import { CustomersService } from '../customers/customers.service';
 import { DealersController } from '../dealers/dealers.controller';
 import { DealersService } from '../dealers/dealers.service';
+import { CommissionsController } from '../commissions/commissions.controller';
+import { CommissionsService } from '../commissions/commissions.service';
+import { StaffChannelService } from '../commissions/staff-channel.service';
 
 jest.mock('argon2',()=>({argon2id:2,hash:jest.fn().mockResolvedValue('synthetic-password-hash')}));
 
@@ -26,6 +29,7 @@ describe('Identifier validation at the HTTP boundary',()=>{
   const auth={revokeSession:jest.fn().mockResolvedValue({revoked:true})};
   const customers={notes:jest.fn().mockResolvedValue([]),orders:jest.fn().mockResolvedValue([]),orderReport:jest.fn().mockResolvedValue({}),supportTickets:jest.fn().mockResolvedValue([]),addNote:jest.fn().mockResolvedValue({}),loyalty:jest.fn().mockResolvedValue({}),adjustLoyalty:jest.fn().mockResolvedValue({}),requests:jest.fn().mockResolvedValue([]),createRequest:jest.fn().mockResolvedValue({}),updateRequest:jest.fn().mockResolvedValue({}),assignTag:jest.fn().mockResolvedValue({}),removeTag:jest.fn().mockResolvedValue({})};
   const dealers={updateLevel:jest.fn().mockResolvedValue({}),updateStatus:jest.fn().mockResolvedValue({}),setParent:jest.fn().mockResolvedValue({}),setPriceGroup:jest.fn().mockResolvedValue({}),setLevel:jest.fn().mockResolvedValue({}),commercialSummary:jest.fn().mockResolvedValue({}),addBankAccount:jest.fn().mockResolvedValue({}),addLedgerEntry:jest.fn().mockResolvedValue({})};
+  const commissions={deactivateRule:jest.fn().mockResolvedValue({}),finalize:jest.fn().mockResolvedValue({}),pay:jest.fn().mockResolvedValue({}),reverse:jest.fn().mockResolvedValue({}),createStaffRule:jest.fn().mockResolvedValue({})};
   function invoke(method:string,path:string,role:string|undefined,body?:unknown):Promise<number>{
     return new Promise((resolve,reject)=>{
       const socket=new Duplex({read(){},write(_chunk,_encoding,callback){callback();}}),req=new IncomingMessage(socket as never),res=new ServerResponse(req);
@@ -40,15 +44,20 @@ describe('Identifier validation at the HTTP boundary',()=>{
     });
   }
   beforeAll(async()=>{
-    const module=await Test.createTestingModule({controllers:[AuthController,AdminController,CustomersController,DealersController],providers:[RolesGuard,
+    const module=await Test.createTestingModule({controllers:[AuthController,AdminController,CustomersController,DealersController,CommissionsController],providers:[RolesGuard,
       {provide:DatabaseService,useValue:db},{provide:AuthService,useValue:auth},{provide:AuthThrottleService,useValue:{}},{provide:MfaService,useValue:{}},
       {provide:CustomersService,useValue:customers},{provide:DealersService,useValue:dealers},
+      {provide:CommissionsService,useValue:commissions},{provide:StaffChannelService,useValue:{}},
     ]}).overrideGuard(JwtAuthGuard).useValue({canActivate(context:any){const req=context.switchToHttp().getRequest();const role=req.headers['x-test-role'];if(!role)throw new UnauthorizedException();req.user={id:other,role,email:'synthetic@example.invalid',sessionId:other};return true;}}).compile();
     app=module.createNestApplication();app.setGlobalPrefix('v1');app.useGlobalPipes(new ValidationPipe({whitelist:true,transform:true,forbidNonWhitelisted:true}));await app.init();
   });
   afterAll(async()=>{await app?.close();});
   beforeEach(()=>{jest.clearAllMocks();});
   const routes=[
+    {method:'DELETE',path:'/v1/admin/commissions/rules/:id',body:undefined,call:commissions.deactivateRule},
+    {method:'POST',path:'/v1/admin/commissions/entries/:id/finalize',body:undefined,call:commissions.finalize},
+    {method:'POST',path:'/v1/admin/commissions/entries/:id/pay',body:{accountId:other,referenceNumber:'Synthetic transfer'},call:commissions.pay},
+    {method:'POST',path:'/v1/admin/commissions/entries/:id/reverse',body:{note:'Synthetic reversal'},call:commissions.reverse},
     {method:'DELETE',path:'/v1/auth/sessions/:id',body:undefined,call:auth.revokeSession},
     {method:'POST',path:'/v1/admin/account-archives/staff/:id',body:{isActive:false},call:db.transaction},
     {method:'PATCH',path:'/v1/admin/staff/:id',body:{isActive:true},call:db.transaction},
@@ -89,6 +98,24 @@ describe('Identifier validation at the HTTP boundary',()=>{
   });
   it('requires authentication before exposing parameter validation',async()=>{
     expect(await invoke('DELETE','/v1/auth/sessions/invalid',undefined)).toBe(401);expect(auth.revokeSession).not.toHaveBeenCalled();
+  });
+  it.each(['ADMIN','FINANCE','WAREHOUSE','DEALER'])('blocks %s from a selected commission reversal before input validation',async role=>{
+    expect(await invoke('POST','/v1/admin/commissions/entries/invalid/reverse',role,{note:'Synthetic'})).toBe(403);expect(commissions.reverse).not.toHaveBeenCalled();
+  });
+  it('retains director-only commission mutation even with every commission grant',async()=>{
+    db.query.mockResolvedValueOnce({rows:[{grants:['COMMISSIONS.VIEW','COMMISSIONS.CREATE','COMMISSIONS.APPROVE','COMMISSIONS.DELETE','COMMISSIONS.EDIT']}],rowCount:1});
+    expect(await invoke('POST','/v1/admin/commissions/entries/'+id+'/reverse','ADMIN',{note:'Synthetic'})).toBe(403);expect(commissions.reverse).not.toHaveBeenCalled();
+  });
+  it('rejects an oversized reversal note before the financial service',async()=>{
+    expect(await invoke('POST','/v1/admin/commissions/entries/'+id+'/reverse','SUPER_ADMIN',{note:'a'.repeat(501)})).toBe(400);expect(commissions.reverse).not.toHaveBeenCalled();
+  });
+  it('rejects an oversized payment reference before the financial service',async()=>{
+    expect(await invoke('POST','/v1/admin/commissions/entries/'+id+'/pay','SUPER_ADMIN',{accountId:other,referenceNumber:'a'.repeat(121)})).toBe(400);expect(commissions.pay).not.toHaveBeenCalled();
+  });
+  it('rejects unsupported recipient types and unrepresentable rule amounts at the HTTP boundary',async()=>{
+    const body={productId:id,recipientUserId:other,recipientKind:'STAFF',salesChannelGroup:'RETAIL',amountPerUnit:1};
+    for(const invalid of [{recipientKind:'DIRECTOR'},{amountPerUnit:10000000000},{amountPerUnit:1.001}])expect(await invoke('POST','/v1/admin/commissions/staff-rules','SUPER_ADMIN',{...body,...invalid})).toBe(400);
+    expect(commissions.createStaffRule).not.toHaveBeenCalled();
   });
   it('retains director-only staff changes for a manager with no special profile',async()=>{
     expect(await invoke('POST','/v1/admin/staff/'+id+'/reset-password','ADMIN',{password:'synthetic-valid-password'})).toBe(403);

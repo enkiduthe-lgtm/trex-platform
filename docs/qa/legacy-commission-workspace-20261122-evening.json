@@ -1,0 +1,22 @@
+{
+  "deployment_status": "local_only",
+  "problem_reproduced": "A synthetic row-level reversal changed four earnings in one order instead of only the selected earning.",
+  "changes": [
+    "Selected reversals now bind the earning ID as well as the order. Whole-order return processing retains its existing scope, proportional calculations and replay behavior.",
+    "Reversal audit metadata identifies the selected earning; reversals and their audit remain atomic. Paid source entries and historical amounts are preserved.",
+    "Legacy staff rule changes use a canonical product/recipient/type/channel transaction lock, skip identical replays, refuse ambiguous active duplicates, and audit edits and deactivation atomically.",
+    "Commission mutations remain director-only even for a manager with every commission grant. Identifier pipes and bounded notes, payment references, recipient kinds and rule amounts reject invalid input before financial handlers.",
+    "The legacy personnel screen has in-panel record-specific confirmations, a synchronous action lock, refresh/retry controls, strict read validation and disabled writes until current data is verified.",
+    "Financial write errors trigger one read, never an automatic write replay. Confirmed saves remain distinguishable from failed subsequent reads.",
+    "Payment wording describes recording a completed payment rather than sending a bank transfer; account currency is checked. Selected products remain visible when search text changes."
+  ],
+  "verification": {
+    "http_and_unit": "199 tests across identifier HTTP, staff security and legacy commission suites passed. Real Nest guards/pipes/router handling with synthetic identities; no TCP listener or real writes.",
+    "sql": "verify-selected-commission-reversal.cjs passed selected recipient/product isolation, replay, whole-order returns, paid-history preservation, audit rollback, rule lifecycle and immutable earnings. Staff-pool and dealer-wallet SQL regression checks also passed.",
+    "handlers": "verify-legacy-commission-workspace.cjs passed duplicate-click prevention, failed reads, uncertain write outcomes, currency checks, stale/unmounted responses and own-only controls.",
+    "markup": "verify-legacy-commission-view.cjs passed boxed inline confirmations, disabled controls, honest unavailable states and retained selections. Browser layout remains unverified.",
+    "builds": "commission-final-api-build-20261122-evening.log and manager-evening-final-admin-build-20261122.log passed. Later audit-only UI changes are covered by the cumulative final build."
+  },
+  "limits": ["No separate production PostgreSQL writers were available for a lock-concurrency stress test.","Live financial records, bank transfers and historical earnings were not modified."],
+  "live_environment_modified": false
+}
