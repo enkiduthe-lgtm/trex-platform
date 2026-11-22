@@ -1,0 +1,7 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Keep replacement sessions from the same login in one family.", "Serialize renewal, logout and device revocation per account before validating or changing sessions.", "Logout with an older signed access token or refresh cookie also revokes replacements from that login.", "Device revocation follows a rotated login; closing other devices preserves the current login family.", "Existing two-hour absolute expiry remains unchanged."],
+  "migration": "083_session_families.sql; must be applied before the new API starts. Existing records receive independent families; only rotations made after this migration and API update have linked lineage. No sessions are forcibly signed out by the migration.",
+  "verification": {"focused_unit_tests": "14 passed: logout, session lifetime and device management.", "sql_script": "verify-session-families.cjs: actual service and migration in isolated PostgreSQL-compatible SQL, including repeated migration, two renewals, both operation orderings, stale device IDs, isolation and invalid credentials.", "api_build": "Passed.", "scope_limit": "No live multi-instance race or browser exercise; isolated SQL operations are serialized by the harness. Per-account advisory lock placement is also checked in source-level tests."},
+  "live_environment_modified": false
+}

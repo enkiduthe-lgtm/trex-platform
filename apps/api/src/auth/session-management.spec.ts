@@ -25,11 +25,12 @@ describe('Session management', () => {
 
   it('revokes a different active session and records an audit event', async () => {
     const s = setup();
-    s.client.query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'other-session' }] }).mockResolvedValueOnce({ rowCount: 1 });
+    s.client.query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[{family_id:'other-family',current:false}]}).mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 'other-session' }] }).mockResolvedValueOnce({ rowCount: 1 });
 
     await expect(s.service.revokeSession(user, 'other-session')).resolves.toEqual({ id: 'other-session', revoked: true });
-    expect(s.client.query.mock.calls[0][1]).toEqual(['other-session', 'user-1']);
-    expect(s.client.query.mock.calls[1][1]).toEqual(['user-1', 'session.revoked', 'session', 'other-session']);
+    expect(s.client.query.mock.calls[1][1]).toEqual(['other-session', 'user-1','current-session']);
+    expect(s.client.query.mock.calls[2][1]).toEqual(['other-family','user-1']);
+    expect(s.client.query.mock.calls[3][1]).toEqual(['user-1', 'session.revoked', 'session', 'other-session']);
   });
 
   it('does not allow a current session to revoke itself through the device endpoint', async () => {
@@ -40,17 +41,23 @@ describe('Session management', () => {
 
   it('keeps the current session while closing every other active session', async () => {
     const s = setup();
-    s.client.query.mockResolvedValueOnce({ rowCount: 2, rows: [{ id: 'other-1' }, { id: 'other-2' }] }).mockResolvedValueOnce({ rowCount: 1 });
+    s.client.query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[{family_id:'current-family'}]}).mockResolvedValueOnce({ rowCount: 2, rows: [{ id: 'other-1' }, { id: 'other-2' }] }).mockResolvedValueOnce({ rowCount: 1 });
 
     await expect(s.service.revokeOtherSessions(user)).resolves.toEqual({ revokedCount: 2 });
-    expect(s.client.query.mock.calls[0][1]).toEqual(['user-1', 'current-session']);
-    expect(s.client.query.mock.calls[0][0]).toContain('id<>$2');
-    expect(s.client.query.mock.calls[1][1]).toEqual(['user-1', 'session.others_revoked', 'session', 'current-session', JSON.stringify({ revokedCount: 2 })]);
+    expect(s.client.query.mock.calls[2][1]).toEqual(['user-1', 'current-family']);
+    expect(s.client.query.mock.calls[2][0]).toContain('family_id<>$2');
+    expect(s.client.query.mock.calls[3][1]).toEqual(['user-1', 'session.others_revoked', 'session', 'current-session', JSON.stringify({ revokedCount: 2 })]);
   });
 
   it('reports a missing, expired, or already closed device session', async () => {
     const s = setup();
-    s.client.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+    s.client.query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({ rowCount: 0, rows: [] });
     await expect(s.service.revokeSession(user, 'missing-session')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not close the current login through an older rotated session id',async()=>{
+    const s=setup();s.client.query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[{family_id:'current-family',current:true}]});
+    await expect(s.service.revokeSession(user,'previous-current-session')).rejects.toBeInstanceOf(ConflictException);
+    expect(s.client.query).toHaveBeenCalledTimes(2);
   });
 });

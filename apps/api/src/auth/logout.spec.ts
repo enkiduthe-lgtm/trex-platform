@@ -4,7 +4,8 @@ import { AuthController } from './auth.controller';
 
 describe('Server-side logout', () => {
   function setup() {
-    const db = { query: jest.fn().mockResolvedValue({ rowCount: 1 }) };
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{user_id:'user'}]});
+    const db = { query,transaction:jest.fn(async work=>work({query})) };
     const jwt = { verifyAsync: jest.fn().mockResolvedValue({ sub: 'user', sid: 'session' }) };
     return { db, jwt, service: new AuthService(db as never, jwt as never, {} as never) };
   }
@@ -13,7 +14,9 @@ describe('Server-side logout', () => {
     expect(s.jwt.verifyAsync).toHaveBeenCalledWith('signed-token', { ignoreExpiration: true });
     expect(s.db.query.mock.calls[0][1]).toEqual([null, 'session', 'user']);
     expect(s.db.query.mock.calls[0][0]).toContain('id=$2 AND user_id=$3');
-    expect(s.db.query.mock.calls[0][0]).toContain('revoked_at IS NULL');
+    expect(s.db.query.mock.calls[2][0]).toContain('revoked_at IS NULL');
+    expect(s.db.query.mock.calls[2][0]).toContain('(user_id,family_id)');
+    expect(s.db.query.mock.calls[1][1]).toEqual(['trex.auth.sessions:user']);
   });
   it('hashes refresh cookies instead of sending plaintext to SQL', async () => {
     const s = setup(); await s.service.logout('refresh-secret');
