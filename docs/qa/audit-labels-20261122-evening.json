@@ -1,0 +1,18 @@
+{
+  "deployment_status": "local_only",
+  "changes": [
+    "Common order, carrier, commission, finance and account events have explanatory Turkish labels while retaining their exact source codes.",
+    "Audit Excel exports include both the human-readable action and original code; page, filter and business-time context are preserved.",
+    "Commission rule and earning entity types have explicit labels and exact quick filters.",
+    "Unknown action codes remain unclassified rather than receiving an inferred meaning. Prototype-like codes, entity types and roles cannot resolve to inherited object functions.",
+    "Audit metadata and private details remain excluded from rendered content."
+  ],
+  "verification": {
+    "unit": "audit-labels.test.ts passed two tests for known actions, frozen labels and unknown/prototype-like codes.",
+    "handlers": "verify-audit-workspace.cjs passed dates, stale responses, malformed data and exact-code exports, including a Turkish commission label alongside the original code.",
+    "markup": "verify-audit-view.cjs passed Turkish labels, exact codes, unknown values, metadata exclusion and stale/failed export controls. Browser layout remains unverified.",
+    "final_build": "See cumulative evening QA record for manager-evening-release-admin-build-20261122.log."
+  },
+  "api_or_financial_behavior_changed": false,
+  "live_environment_modified": false
+}

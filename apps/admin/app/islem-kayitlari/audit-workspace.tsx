@@ -4,14 +4,15 @@ import { AdminNav } from '../components/admin-nav';
 import { api } from '../lib/api';
 import { financeDateTime } from '../lib/finance-report';
 import { downloadXlsx } from '../lib/xlsx';
+import { auditActionLabel } from '../lib/audit-labels';
 import styles from './audit.module.css';
 
 type Filter={action:string;entityType:string;entityId:string;from:string;to:string};
 type Entry={id:string;action:string;entity_type:string;entity_id:string|null;created_at:string;actor_role:string|null;actor_user_id:string|null};
 type Result={items:Entry[];page:number;hasMore:boolean};
 const emptyFilter=():Filter=>({action:'',entityType:'',entityId:'',from:'',to:''});
-const roles:Record<string,string>={SYSTEM:'Sistem',SUPER_ADMIN:'Müdür',ADMIN:'Yönetici',WAREHOUSE:'Depo',FINANCE:'Finans',CUSTOMER:'Müşteri',DEALER:'Bayi'};
-const entities:Record<string,string>={order:'Sipariş',payment:'Ödeme',inventory:'Stok',return:'İade',shipment:'Kargo',user:'Hesap',session:'Oturum',dealer:'Bayi',campaign:'Kampanya',coupon:'Kupon',notification:'Bildirim'};
+const roles:Record<string,string>=Object.assign(Object.create(null),{SYSTEM:'Sistem',SUPER_ADMIN:'Müdür',ADMIN:'Yönetici',WAREHOUSE:'Depo',FINANCE:'Finans',CUSTOMER:'Müşteri',DEALER:'Bayi'});
+const entities:Record<string,string>=Object.assign(Object.create(null),{order:'Sipariş',payment:'Ödeme',inventory:'Stok',return:'İade',shipment:'Kargo',user:'Hesap',session:'Oturum',dealer:'Bayi',campaign:'Kampanya',coupon:'Kupon',notification:'Bildirim',commission_rule:'Prim Kuralı',commission_entry:'Prim Hakedişi',staff_prim_rate:'Yönetim Prim Tutarı',staff_prim_settings:'Yönetim Prim Paylaşımı',finance_account:'Para Hesabı',finance_transaction:'Para Hareketi',finance_transfer:'Hesap Transferi',carrier_settlement:'Kargo Tahsilat Mutabakatı'});
 function businessDateTime(value:string){
   if(!value)return '';
   if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value))throw new Error('Geçerli bir tarih ve saat seçin.');
@@ -52,13 +53,13 @@ export default function AuditWorkspace(){
     downloadXlsx(`trex-islem-kayitlari-sayfa-${result.page}.xlsx`,'İşlem Kayıtları',[
       ['Kapsam','Yalnızca gösterilen sayfa'],['Sayfa',result.page],['Kayıt Adedi',result.items.length],['Saat Dilimi','Türkiye (UTC+03:00)'],
       ['İşlem Kodu Filtresi',applied.action||'Tümü'],['Kayıt Türü Filtresi',applied.entityType||'Tümü'],['Kayıt Kimliği Filtresi',applied.entityId||'Tümü'],['Başlangıç (dahil)',applied.from||'Sınır yok'],['Bitiş (hariç)',applied.to||'Sınır yok'],[],
-      ['Tarih','İşlem Kodu','Kayıt Türü','Kayıt Kimliği','İşlemi Yapanın Güncel Rolü','Hesap Kimliği'],
-      ...result.items.map(entry=>[financeDateTime(entry.created_at),entry.action,entities[entry.entity_type]??entry.entity_type,entry.entity_id??'',roles[entry.actor_role??'']??'Bilinmiyor',entry.actor_user_id??'']),
+      ['Tarih','İşlem','İşlem Kodu','Kayıt Türü','Kayıt Kimliği','İşlemi Yapanın Güncel Rolü','Hesap Kimliği'],
+      ...result.items.map(entry=>[financeDateTime(entry.created_at),auditActionLabel(entry.action),entry.action,entities[entry.entity_type]??entry.entity_type,entry.entity_id??'',roles[entry.actor_role??'']??'Bilinmiyor',entry.actor_user_id??'']),
     ]);
   }
   return <main><AdminNav/><section className={styles.workspace}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>AYARLAR / İŞLEM GEÇMİŞİ</p><h1>İşlem Kayıtları</h1><p>Sipariş, ödeme, kargo ve hesap işlemlerini salt okunur kayıtlardan inceleyin.</p></div><div className={styles.actions}><button type="button" disabled={loading} onClick={()=>setRevision(value=>value+1)}>Kayıtları Yenile</button><button type="button" disabled={!ready||!result?.items.length} onClick={exportPage}>Bu Sayfayı Excel’e Aktar</button></div></header>
-    <div className={styles.presets} aria-label="Hızlı kayıt filtreleri">{['order','payment','inventory','return','shipment','user','session'].map(type=><button type="button" key={type} className={applied.entityType===type?styles.active:''} disabled={loading} onClick={()=>preset(type)}>{entities[type]}</button>)}</div>
+    <div className={styles.presets} aria-label="Hızlı kayıt filtreleri">{['order','payment','inventory','return','shipment','commission_rule','commission_entry','user','session'].map(type=><button type="button" key={type} className={applied.entityType===type?styles.active:''} disabled={loading} onClick={()=>preset(type)}>{entities[type]}</button>)}</div>
     <form className={styles.filter} onSubmit={search}><div className={styles.fields}>
       <label>İşlem Kodu<input maxLength={120} placeholder="order.admin.updated" value={filter.action} onChange={e=>setFilter(value=>({...value,action:e.target.value}))}/></label>
       <label>Kayıt Türü<input maxLength={120} placeholder="order" value={filter.entityType} onChange={e=>setFilter(value=>({...value,entityType:e.target.value}))}/></label>
@@ -68,7 +69,7 @@ export default function AuditWorkspace(){
     </div><div className={styles.filterFoot}><p>Tarihler Türkiye saatidir. İşlem kodu, tür ve kimlik tam eşleşmeyle aranır.</p><div className={styles.actions}><button disabled={loading}>Filtrele</button><button type="button" disabled={loading} onClick={reset}>Filtreleri Temizle</button></div></div></form>
     {loading&&<p className={styles.notice} role="status">İşlem kayıtları yükleniyor…</p>}{error&&<p className={styles.error} role="alert">{error} Listeyi yenileyerek tekrar deneyebilirsiniz.</p>}
     <section className={styles.card} aria-busy={loading}><div className={styles.cardHeading}><h2>İşlem Geçmişi</h2><span>{ready?`Sayfa ${result!.page} · ${result!.items.length} kayıt`:'Güncel liste bekleniyor'}</span></div><p>Hassas müşteri bilgileri, şifreler ve işlem ayrıntılarındaki gizli alanlar burada gösterilmez.</p>
-      <div className={styles.tableWrap}><table><caption>Seçilen Filtrelerdeki Kayıtlar</caption><thead><tr><th>Tarih</th><th>İşlem Kodu</th><th>Kayıt Türü / Kimliği</th><th>İşlemi Yapan</th></tr></thead><tbody>{ready&&result!.items.map(entry=><tr key={entry.id}><td>{financeDateTime(entry.created_at)}</td><td><code>{entry.action}</code></td><td><strong>{entities[entry.entity_type]??entry.entity_type}</strong><small>{entry.entity_id??'Kimlik yok'}</small></td><td>{roles[entry.actor_role??'']??'Bilinmiyor'}{entry.actor_user_id&&<small>{entry.actor_user_id}</small>}</td></tr>)}{(!ready||!result?.items.length)&&<tr><td colSpan={4}>{loading?'Kayıtlar yükleniyor…':error?'Güncel kayıtlar alınamadı.':'Bu filtrelerde işlem kaydı bulunamadı.'}</td></tr>}</tbody></table></div>
+      <div className={styles.tableWrap}><table><caption>Seçilen Filtrelerdeki Kayıtlar</caption><thead><tr><th>Tarih</th><th>İşlem / Kodu</th><th>Kayıt Türü / Kimliği</th><th>İşlemi Yapan</th></tr></thead><tbody>{ready&&result!.items.map(entry=><tr key={entry.id}><td>{financeDateTime(entry.created_at)}</td><td><strong>{auditActionLabel(entry.action)}</strong><small><code>{entry.action}</code></small></td><td><strong>{entities[entry.entity_type]??entry.entity_type}</strong><small>{entry.entity_id??'Kimlik yok'}</small></td><td>{roles[entry.actor_role??'']??'Bilinmiyor'}{entry.actor_user_id&&<small>{entry.actor_user_id}</small>}</td></tr>)}{(!ready||!result?.items.length)&&<tr><td colSpan={4}>{loading?'Kayıtlar yükleniyor…':error?'Güncel kayıtlar alınamadı.':'Bu filtrelerde işlem kaydı bulunamadı.'}</td></tr>}</tbody></table></div>
       <footer className={styles.pagination}><span>Bir sayfada en fazla 50 kayıt gösterilir.</span><div className={styles.actions}><button type="button" disabled={!ready||page===1} onClick={()=>setPage(value=>value-1)}>Önceki Sayfa</button><button type="button" disabled={!ready||!result?.hasMore||page>=2000} onClick={()=>setPage(value=>value+1)}>Sonraki Sayfa</button></div></footer>
     </section>
   </section></main>;
