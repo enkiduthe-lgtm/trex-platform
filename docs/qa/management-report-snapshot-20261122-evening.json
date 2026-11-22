@@ -1,0 +1,22 @@
+{
+  "deployment_status": "local_only",
+  "changes": [
+    "Management report aggregates share a repeatable-read, read-only database transaction instead of six independent pool snapshots.",
+    "Average order amount is rounded to two decimal places in SQL; cancelled and fully returned orders remain excluded from its denominator.",
+    "The panel validates response dates, currency, counts, money, daily coverage, exact-cent aggregate totals and cash arithmetic before rendering or exporting.",
+    "Malformed successful responses fail only their report section; successful independent sales or operations sections remain usable.",
+    "Report generation time is visible and exported in Istanbul time. Numeric Excel amounts and snapshot-bound navigation/export are preserved.",
+    "The channel report is labelled as sales channels, all working catalogue links remain mapped, and the unavailable visitor-analytics placeholder is removed."
+  ],
+  "verification": {
+    "isolated_sql": "verify-management-report.cjs passed actual report SQL, repeatable-read/read-only settings, transaction-mode reset, partial/full returns, archive exclusion, currency separation, director privacy, half-cent rounding and zero reports; actual client validator accepted the returned contracts.",
+    "handlers": "verify-report-read-isolation.cjs passed malformed response, arithmetic mismatch, missing dates, invalid filters, independent failures and stale-response scenarios.",
+    "exports": "verify-report-export-selection.cjs passed matching-period guards, numeric amounts, currency and Istanbul generation metadata.",
+    "markup": "verify-management-report-view.cjs passed working catalogue routes, labelled tables, generation time, error and changed-filter views. This is server-rendered markup, not browser visual verification.",
+    "api_build": "management-snapshot-api-build-20261122-evening.log passed.",
+    "admin_build": "management-snapshot-admin-build-20261122-evening.log passed compilation, types and all 53 static pages. The later catalogue-only removal was checked by actual page render; the final window build will include it."
+  },
+  "rollout": "Deploy API before panel; the validated summary contract requires generatedAt and two-decimal average_order. No new migration.",
+  "limitations": ["No separate production PostgreSQL connections were used to simulate concurrent writers; transaction isolation was verified with isolated PGlite SQL.", "Live report totals and browser layout remain unverified."],
+  "live_environment_modified": false
+}

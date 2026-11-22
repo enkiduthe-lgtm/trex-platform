@@ -4,7 +4,9 @@ const root=path.resolve(__dirname,'..'),ts=require(path.join(process.argv[2],'no
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function load(file){file=path.resolve(file);const box={exports:{},Intl,Date,require(name){if(name==='@nestjs/common')return {Injectable:()=>t=>t,BadRequestException:Error,ConflictException:Error,NotFoundException:Error,ForbiddenException:Error,ServiceUnavailableException:Error};if(name==='./report-period'||name==='./report-order-status'||name==='../finance/finance-cash-sql')return load(path.join(path.dirname(file),name+'.ts'));return {};}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText,box);return box.exports;}
 async function main(){
- const pg=new PGlite(),db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};}};
+ const pg=new PGlite(),isolation=[],db={async query(sql,args=[]){const r=await pg.query(sql,args);return {rows:r.rows,rowCount:Math.max(r.affectedRows??0,r.rows.length)};},async transaction(work){await pg.exec('BEGIN');try{const result=await work({query:async(sql,args=[])=>{const value=await db.query(sql,args);if(sql.startsWith('SET TRANSACTION'))isolation.push([(await pg.query('SHOW transaction_isolation')).rows[0].transaction_isolation,(await pg.query('SHOW transaction_read_only')).rows[0].transaction_read_only]);return value;}});await pg.exec('COMMIT');return result;}catch(error){await pg.exec('ROLLBACK');throw error;}}};
+ const contract=load(path.join(root,'apps/admin/app/lib/management-report.ts'));
+ function validate(report){assert.equal(contract.validateManagementReport(report,report),report);}
  const {OrdersService}=load(path.join(root,'apps/api/src/orders/orders.service.ts')),service=new OrdersService(db);
  await pg.exec(`CREATE TABLE orders(id uuid PRIMARY KEY,status text,total_amount numeric(12,2),currency text,created_at timestamptz,sales_channel text,archived_at timestamptz);
  CREATE TABLE order_items(id uuid PRIMARY KEY,order_id uuid,product_name text,sku text,quantity int,unit_amount numeric(12,2));
@@ -23,6 +25,7 @@ async function main(){
  ('${id(3)}','IN_TRANSIT','2026-10-31T21:00:00Z',now(),NULL,NULL),
  ('${id(2)}','FAILED','2026-10-10','2026-10-11','3','2026-10-11');`);
  const data=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY',{id:id(90),role:'SUPER_ADMIN'});
+ validate(data);assert.deepEqual(isolation[0],['repeatable read','on']);assert.equal((await pg.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'off');
  assert.equal(data.totals.order_count,3);assert.equal(data.totals.revenue,'30.00');assert.equal(Number(data.totals.average_order),15);assert.equal(data.daily.length,31);assert.equal(data.daily[0].amount,'10.00');assert.equal(data.daily[30].amount,'20.00');assert.equal(data.financial.income,'12.10');assert.equal(data.financial.expense,'7.10');assert.equal(data.financial.net,'5.00');assert.equal(data.topProducts[0].amount,'30.00');assert.equal(data.topProducts[0].count,2);
  const usd=await service.reportSummary(30,'2026-10-01','2026-10-31','USD');assert.equal(usd.totals.revenue,'500.00');assert.equal(usd.financial.income,'500.00');
  const manager=await service.reportSummary(30,'2026-10-01','2026-10-31','TRY',{id:id(91),role:'ADMIN'});assert.equal(manager.financial.expense,'2.10');assert.equal(manager.financial.net,'10.00');
@@ -103,6 +106,12 @@ async function main(){
  assert.equal(cashAfterRefund.financial.net,'0.80');
  const specialCashAfterRefund=await service.specialReport('2026-10-01','2026-10-31','TRY');
  assert.equal(specialCashAfterRefund.summary.expenses,'11.30');
+ for(const report of [usd,manager,returned,adjustedSummary,cashAfterRefund])validate(report);
+ await order(201,'TRY',1,'2027-01-02T12:00:00Z');await order(202,'TRY',1,'2027-01-02T12:00:00Z');await order(203,'TRY',2,'2027-01-02T12:00:00Z');
+ const rounded=await service.reportSummary(30,'2027-01-02','2027-01-02','TRY');validate(rounded);assert.equal(rounded.totals.average_order,'1.33');
+ await order(204,'TRY',0.01,'2027-01-03T12:00:00Z');await order(205,'TRY',0.02,'2027-01-03T12:00:00Z');
+ const half=await service.reportSummary(30,'2027-01-03','2027-01-03','TRY');validate(half);assert.equal(half.totals.average_order,'0.02');
+ const empty=await service.reportSummary(30,'2027-01-04','2027-01-04','EUR');validate(empty);assert.equal(empty.totals.order_count,0);
  for(const [from,to,currency] of [['2026-02-30','2026-03-01','TRY'],['2026-11-01','2026-10-01','TRY'],['2000-01-01','2026-10-01','TRY'],['2026-10-01','2026-10-31','BAD'],['2026-10-01','bad','TRY']])await assert.rejects(()=>service.reportSummary(30,from,to,currency));
  await pg.close();console.log('Management and special report checks passed: Istanbul dates, cancelled orders, payment status separation, currency isolation, pending-cash exclusion, exact cash totals, pooled and legacy commission reversals, director privacy, current stock and invalid filters.');
 }

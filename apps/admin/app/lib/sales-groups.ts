@@ -1,6 +1,6 @@
 import { currencyTotals } from './report-totals';
 
-export const salesGroups = { day: 'Günlük Satış Özeti', week: 'Haftalık Satışlar', month: 'Aylık Satışlar', product: 'Ürün Satış Raporu', channel: 'Platform Satış Performansı', payment: 'Ödeme Yöntemi Satış Raporu', carrier: 'Siparişlerin Kargo Firmalarına Göre Dağılımı', customer: 'Üye Sipariş Raporu' };
+export const salesGroups = { day: 'Günlük Satış Özeti', week: 'Haftalık Satışlar', month: 'Aylık Satışlar', product: 'Ürün Satış Raporu', channel: 'Satış Kanalı Performansı', payment: 'Ödeme Yöntemi Satış Raporu', carrier: 'Siparişlerin Kargo Firmalarına Göre Dağılımı', customer: 'Üye Sipariş Raporu' };
 export type SalesGroup = keyof typeof salesGroups;
 type Sale = { id: string; created_at: string; product_name: string; sku: string; sales_channel: string; payment_method: string; shipping_provider?: string | null; customer_id?: string | null; customer_name?: string; customer_email?: string | null; status: string; currency: string; quantity: number; line_total: string; net_quantity?: number; net_line_total?: string };
 export function groupSales(rows: Sale[], mode: SalesGroup) {
