@@ -1,0 +1,7 @@
+{
+  "deployment_status": "local_only",
+  "changes": ["Show unit prices, costs, gross profit and margins in a compact horizontal table.", "Classify a zero-price product with positive cost as a loss even when its percentage margin is undefined.", "Distinguish missing cost from a valid zero cost; separate absent sale prices and mixed currencies.", "Keep read failures distinct from an empty report; retain the previous snapshot with stale guidance and disable exports until verified.", "Export only the selected products with numeric values, blank unavailable values and explicit current-unit-price scope."],
+  "verification": {"script": "verify-profitability-workspace.cjs", "admin_build": "Passed: production compile, lint/types and all 53 static pages.", "scope": "Actual validation, classification, filters, read handlers and export data with synthetic rows. No price/cost mutation and no invented currency conversion."},
+  "manual_checks_pending": ["Browser layout and real product-price review after deployment."],
+  "live_environment_modified": false
+}
