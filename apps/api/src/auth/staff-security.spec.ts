@@ -11,6 +11,21 @@ import { RolesGuard } from './roles.guard';
 
 const request = { user: { id: 'owner' } } as never;
 describe('Staff security', () => {
+  it.each(['/v1/admin/finance/transfers/','/V1/ADMIN/FINANCE/TRANSFERS/','/v1/admin/finance/transfers/IDEMPOTENT/'])('retains finance approval for normalized route %s',async path=>{
+    const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path})})} as never;
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.CREATE']}]});const guard=new RolesGuard({getAllAndOverride:()=>[Roles.SUPER_ADMIN]} as never,{query} as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');query.mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.APPROVE']}]});await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+  it('retains the additional shipping approval check for a normalized manual order status route',async()=>{
+    const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'PATCH',path:'/V1/ADMIN/ORDERS/example/STATUS/',body:{status:'DELIVERED'}})})} as never;
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['ORDERS.VIEW','ORDERS.APPROVE']}]});const guard=new RolesGuard({getAllAndOverride:()=>[Roles.SUPER_ADMIN]} as never,{query} as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');query.mockResolvedValue({rowCount:1,rows:[{grants:['ORDERS.VIEW','ORDERS.APPROVE','SHIPPING.VIEW','SHIPPING.APPROVE']}]});await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+  it('requires finance edit permission for the PayTR rate setting',async()=>{
+    const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path:'/v1/admin/finance/paytr/settings'})})} as never;
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.CREATE']}]});const guard=new RolesGuard({getAllAndOverride:()=>[Roles.SUPER_ADMIN]} as never,{query} as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');query.mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.EDIT']}]});await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
   it.each(['activate','pause'])('separates campaign creation from %s approval',async action=>{
     const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path:'/v1/admin/campaigns/id/'+action})})} as never;
     const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE']}]});const guard=new RolesGuard({getAllAndOverride:()=>[Roles.ADMIN]} as never,{query} as never);

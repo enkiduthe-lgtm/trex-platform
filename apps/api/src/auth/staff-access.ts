@@ -3,8 +3,11 @@ export const accessResources=[
 ] as const;
 export const accessActions=[['VIEW','Görüntüle'],['CREATE','Yeni Kayıt'],['EDIT','Düzenle'],['APPROVE','Onayla / Reddet'],['DELETE','Sil']] as const;
 export const accessKeys=accessResources.flatMap(([resource])=>accessActions.map(([action])=>`${resource}.${action}`));
+export function normalizeAccessPath(path:string):string {
+ return path.split('?')[0].toLowerCase().replace(/^\/v1(?=\/)/,'').replace(/\/+$/,'')||'/';
+}
 export function requestAccess(path:string,method:string):string|null {
- const p=path.replace(/^\/v1(?=\/)/,'').split('?')[0];
+ const p=normalizeAccessPath(path);method=method.toUpperCase();
  let resource:string|undefined;
  if(/^\/admin\/(staff|access|settings|audit-logs)(\/|$)/.test(p))return null;
  if(/^\/admin\/orders\/(report|sales-report|special-report)/.test(p)||/^\/admin\/dealers\/sales-report/.test(p))resource='REPORTS';
@@ -20,6 +23,7 @@ export function requestAccess(path:string,method:string):string|null {
  if(method==='GET'&&p==='/admin/dealer-payouts/payment-accounts')return 'COMMISSIONS.APPROVE';
  if(method==='GET'&&p==='/admin/warehouse/receipt-products')return 'STOCK.CREATE';
  if(method==='POST'&&/^\/admin\/campaigns\/[^/]+\/(activate|pause)$/.test(p))return 'CAMPAIGNS.APPROVE';
+ if(method==='POST'&&p==='/admin/finance/paytr/settings')return 'FINANCE.EDIT';
  let action='VIEW';
  if(method==='DELETE')action='DELETE';
  else if(!['GET','HEAD','OPTIONS'].includes(method)) {

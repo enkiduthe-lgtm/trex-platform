@@ -11,7 +11,7 @@ const {NotificationsController}=require(path.join(root,'apps/api/dist/notificati
 const {CampaignsController}=require(path.join(root,'apps/api/dist/campaigns/campaigns.controller'));
 const {REQUIRED_ROLES}=require(path.join(root,'apps/api/dist/auth/roles.decorator'));
 const actor={id:'test-actor',role:'SUPER_ADMIN'},dto={test:'payload'},calls=[];
-const finance=new FinanceController({createTransaction:(...args)=>calls.push(['transaction',...args]),createTransfer:(...args)=>calls.push(['transfer',...args]),createCarrierSettlement:(...args)=>calls.push(['carrier',...args])});
+const finance=new FinanceController({createTransaction:(...args)=>calls.push(['transaction',...args]),createTransfer:(...args)=>calls.push(['transfer',...args]),createCarrierSettlement:(...args)=>calls.push(['carrier',...args]),updatePaytrRate:(...args)=>calls.push(['paytr-rate',...args])});
 const current=new CurrentAccountsController({create:(...args)=>calls.push(['current',...args])});
 const support=new SupportController({create:(...args)=>calls.push(['support',...args]),addMessage:(...args)=>calls.push(['message',...args])});
 const cases=[
@@ -37,4 +37,5 @@ const campaigns=new CampaignsController({create:(...args)=>calls.push(['campaign
 for(const [method,route] of [['createIdempotent','idempotent'],['couponIdempotent',':id/coupons/idempotent']]){const handler=CampaignsController.prototype[method];assert.equal('/'+Reflect.getMetadata(PATH_METADATA,CampaignsController)+'/'+Reflect.getMetadata(PATH_METADATA,handler),'/admin/campaigns/'+route);assert.equal(Reflect.getMetadata(METHOD_METADATA,handler),RequestMethod.POST);}
 campaigns.createIdempotent({name:'Test'},{user:actor},undefined);assert.deepEqual(calls.at(-1),['campaign','Test',actor.id,undefined,undefined,'']);campaigns.couponIdempotent('campaign',dto,{user:actor},'original-key');assert.deepEqual(calls.at(-1),['coupon','campaign',dto,actor.id,'original-key']);
 campaigns.activate('campaign',{user:actor},{expectedStatus:'DRAFT'});assert.deepEqual(calls.at(-1),['activate','campaign',actor.id,'DRAFT']);campaigns.pause('campaign',{user:actor},undefined);assert.deepEqual(calls.at(-1),['pause','campaign',actor.id,undefined]);
+finance.paytrSettings({commissionRate:4,expectedCommissionRate:3.69},{user:actor});assert.deepEqual(calls.at(-1),['paytr-rate',4,actor,3.69]);assert.equal(Reflect.getMetadata(PATH_METADATA,FinanceController.prototype.paytrSettings),'paytr/settings');
 console.log('Built API route checks passed: nine mandatory-key POST routes match client URLs; campaign status guards, notification history/configuration and individual director-only tracking queries are present. No application, database or carrier connection was opened.');

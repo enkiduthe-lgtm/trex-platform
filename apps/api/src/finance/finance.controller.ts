@@ -22,7 +22,7 @@ export class FinanceController {
   constructor(private readonly finance: FinanceService) {}
 
   @Get('paytr') paytr() { return this.finance.paytrCash(); }
-  @Post('paytr/settings') paytrSettings(@Body() dto: UpdatePaytrSettingsDto, @Req() req: UserRequest) { return this.finance.updatePaytrRate(dto.commissionRate, req.user); }
+  @Post('paytr/settings') paytrSettings(@Body() dto: UpdatePaytrSettingsDto, @Req() req: UserRequest) { return this.finance.updatePaytrRate(dto.commissionRate, req.user,dto.expectedCommissionRate); }
   @Get('records') list() { return this.finance.list(); }
   @Post('records') create(@Body() dto: CreateFinanceRecordDto, @Req() req: UserRequest) { return this.finance.create(dto, req.user); }
   @Get('accounts') accounts(@Req() req:UserRequest) { return this.finance.listAccounts(req.user); }

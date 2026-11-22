@@ -1,0 +1,23 @@
+{
+  "base_commit": "cd51e82",
+  "deployment_status": "local_only",
+  "changes": [
+    "Require FINANCE.VIEW and FINANCE.EDIT for PayTR setting changes; retain view-only receipt access without showing an editable rate form.",
+    "Validate current and expected rates, lock settings, reject stale baselines and make repeated same-value changes a no-op without a duplicate audit.",
+    "Keep setting and audit updates atomic, report missing settings explicitly and preserve historical real/test receipt amounts and rates.",
+    "Lock the form during writes, preserve draft rates during ordinary refresh and require a fresh setting read after an uncertain response.",
+    "Keep a confirmed save message separate from a failed receipt refresh and ignore stale or disposed reads.",
+    "Show real/test receipts separately, use Istanbul timestamps, scope order links by order-view permission and clearly label the last-100-record export scope."
+  ],
+  "verification": {
+    "api_build": "passed; manager-access-paytr-final-api-build-20261122.log",
+    "admin_build": "passed; manager-paytr-admin-build-20261122.log, all 53 pages completed; final draft wording additionally rendered from updated source",
+    "paytr_and_staff_security_tests_passed": 47,
+    "passed_scripts": ["verify-paytr-settings.cjs", "verify-paytr-workspace.cjs", "verify-paytr-view.cjs"],
+    "data_scope": "Actual finance service and PayTR settings/receipt table definitions from migration 033, using isolated synthetic data. No PayTR request, bank transfer or live setting change."
+  },
+  "deployment_requirement": "Publish API and panel together. The panel sends the previously read rate with each change and requires the guarded response fields; settings remain compatible with older API callers.",
+  "limitations": ["The last 100 receipt records are loaded; this screen is not a complete historical settlement report."],
+  "manual_checks_pending": ["Browser review and separate view-only/edit-enabled manager checks after deployment."],
+  "live_environment_modified": false
+}

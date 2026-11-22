@@ -1,0 +1,18 @@
+{
+  "deployment_status": "local_only",
+  "problem_reproduced": "The real Express router accepted a trailing-slash finance-transfer route while requestAccess classified it as FINANCE.CREATE instead of FINANCE.APPROVE. Reproduction output is in tmp/access-route-normalization-before-20261122.log.",
+  "changes": [
+    "Canonicalize fixed route casing, version prefix and trailing slashes before classifying staff permissions.",
+    "Use the same canonical path and method for role-guard exceptions and the additional shipping approval required by manual order delivery changes.",
+    "Preserve protected staff/access/settings routes as unavailable to ordinary configured-manager grants.",
+    "Exercise real Express route matching plus the actual guard against equivalent URL spellings without creating any real account or financial action."
+  ],
+  "verification": {
+    "passed_script": "verify-access-route-normalization.cjs",
+    "focused_staff_and_paytr_unit_tests_passed": 51,
+    "nest_express_pipeline_tests_passed": 125,
+    "api_build": "passed; manager-access-paytr-final-api-build-20261122.log",
+    "http_pipeline_scope": "The network-based suite could not connect to loopback in this environment (EACCES). All 125 cases passed using real Node request/response objects through the actual Nest/Express pipeline without sockets. Only identity verification is mocked; real route decorators and RolesGuard authorize requests."
+  },
+  "live_environment_modified": false
+}
