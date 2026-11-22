@@ -7,6 +7,7 @@ const {FinanceController}=require(path.join(root,'apps/api/dist/finance/finance.
 const {CurrentAccountsController}=require(path.join(root,'apps/api/dist/current-accounts/current-accounts.controller'));
 const {ShippingController}=require(path.join(root,'apps/api/dist/shipping/shipping.controller'));
 const {SupportController}=require(path.join(root,'apps/api/dist/support/support.controller'));
+const {NotificationsController}=require(path.join(root,'apps/api/dist/notifications/notifications.controller'));
 const {REQUIRED_ROLES}=require(path.join(root,'apps/api/dist/auth/roles.decorator'));
 const actor={id:'test-actor',role:'SUPER_ADMIN'},dto={test:'payload'},calls=[];
 const finance=new FinanceController({createTransaction:(...args)=>calls.push(['transaction',...args]),createTransfer:(...args)=>calls.push(['transfer',...args]),createCarrierSettlement:(...args)=>calls.push(['carrier',...args])});
@@ -26,4 +27,9 @@ for(const [Type,controller,method,expected] of cases){
 }
 const message=SupportController.prototype.addIdempotentMessage;assert.equal('/'+Reflect.getMetadata(PATH_METADATA,SupportController)+'/'+Reflect.getMetadata(PATH_METADATA,message),'/admin/support-tickets/:id/messages/idempotent');assert.equal(Reflect.getMetadata(METHOD_METADATA,message),RequestMethod.POST);support.addIdempotentMessage('ticket',dto,{user:actor},undefined);assert.deepEqual(calls.at(-1),['message','ticket',dto,actor.id,'']);support.addIdempotentMessage('ticket',dto,{user:actor},'original-key');assert.equal(calls.at(-1).at(-1),'original-key');
 const sync=ShippingController.prototype.syncOrder;assert.equal('/'+Reflect.getMetadata(PATH_METADATA,ShippingController)+'/'+Reflect.getMetadata(PATH_METADATA,sync),'/admin/orders/:id/shipment/sync');assert.equal(Reflect.getMetadata(METHOD_METADATA,sync),RequestMethod.POST);assert.deepEqual(Reflect.getMetadata(REQUIRED_ROLES,sync),['SUPER_ADMIN']);
-console.log('Built API route checks passed: six mandatory-key POST routes match client URLs and forward the original key; individual tracking queries remain director-only. No application, database or carrier connection was opened.');
+const notifications=new NotificationsController({send:(...args)=>calls.push(['notification',...args]),history:(...args)=>calls.push(['history',...args]),configuration:()=>({channels:[]})});
+const notification=NotificationsController.prototype.sendIdempotent;assert.equal('/'+Reflect.getMetadata(PATH_METADATA,NotificationsController)+'/'+Reflect.getMetadata(PATH_METADATA,notification),'/admin/notifications/idempotent');assert.equal(Reflect.getMetadata(METHOD_METADATA,notification),RequestMethod.POST);
+notifications.sendIdempotent(dto,{user:actor},undefined);assert.deepEqual(calls.at(-1),['notification',dto,undefined,{actorId:actor.id,key:''}]);notifications.sendIdempotent(dto,{user:actor},'original-key');assert.equal(calls.at(-1).at(-1).key,'original-key');
+for(const method of ['configuration','history']){const handler=NotificationsController.prototype[method];assert.equal('/'+Reflect.getMetadata(PATH_METADATA,NotificationsController)+'/'+Reflect.getMetadata(PATH_METADATA,handler),'/admin/notifications/'+method);assert.equal(Reflect.getMetadata(METHOD_METADATA,handler),RequestMethod.GET);}
+notifications.history(dto);assert.deepEqual(calls.at(-1),['history',dto]);assert.deepEqual(Reflect.getMetadata(REQUIRED_ROLES,NotificationsController),['SUPER_ADMIN','ADMIN']);
+console.log('Built API route checks passed: seven mandatory-key POST routes match client URLs and forward the original key; notification history/configuration routes and individual director-only tracking queries are present. No application, database or carrier connection was opened.');

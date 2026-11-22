@@ -1,0 +1,40 @@
+{
+  "base_commit": "acba093",
+  "deployment_status": "local_only",
+  "changes": [
+    "Separate notification viewing from creation/retry permissions and keep independently verified history usable when channel configuration fails.",
+    "Save manual notification intent, actor audit and original recovery key atomically; queue failures preserve pending SQL records instead of inviting duplicate re-entry.",
+    "Recover due pending records while the API process is running, using deterministic job IDs and exclusive database delivery claims.",
+    "Retain uncertain provider results for review rather than automatically sending again; resolve late acknowledgements only for the original delivery claim.",
+    "Keep simulated, internal and real email modes separate, including legacy records that cannot be safely classified.",
+    "Mask unexpected provider/queue errors, bound provider and producer waits, and never expose configuration secrets in the workspace.",
+    "Show global counts, explicit applied filters, older history pages and Excel export scope instead of treating the last 100 records as all records.",
+    "Use responsive notification cards, compact aligned buttons, distinct status badges and readable multiline messages."
+  ],
+  "verification": {
+    "notification_provider_worker_queue_unit_tests_passed": 40,
+    "unit_test_scope": "Focused runs across service, provider, worker and queue suites. Latest worker/queue changes additionally checked in manager-notification-final-tests-20261122.log and manager-notification-queue-final-tests-20261122.log.",
+    "api_build": "passed",
+    "admin_build": "passed; tmp/manager-notification-final-build-20261122.log",
+    "permission_rule_tests_passed": 16,
+    "passed_scripts": ["verify-notification-delivery.cjs", "verify-notification-workspace.cjs", "verify-notification-view.cjs", "verify-manager-operation-routes.cjs"],
+    "database_scope": "Actual migrations 013, 052 and 081 with synthetic isolated PostgreSQL data. Migration 081 was applied twice; 205 history records were traversed without duplicates.",
+    "data_safety": "No real Redis queue, email provider, customer message or live database was contacted. Provider requests in unit tests were mocked."
+  },
+  "deployment_requirement": "Apply migration 081 before starting the new API and publish the API and panel together. Old clients remain compatible; new clients require the mandatory-key creation route.",
+  "limitations": [
+    "A provider acknowledgement means acceptance by the email provider, not delivery to the recipient inbox.",
+    "Uncertain external sends require provider-record review. This screen deliberately does not offer blind resend for them.",
+    "The pending-record recovery timer runs only while the API process is awake; no paid scheduler or always-on service was added.",
+    "Unverified legacy external pending records are marked for review rather than automatically converted to live sends.",
+    "Client request recovery lasts for the current screen session. After a full reload, inspect history before entering a replacement request."
+  ],
+  "primary_references_reviewed": [
+    "https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down",
+    "https://docs.bullmq.io/guide/going-to-production",
+    "https://developers.brevo.com/reference/send-transac-email",
+    "https://developers.brevo.com/docs/heterogenous-versions-batch-emails"
+  ],
+  "manual_checks_pending": ["Browser layout and configured-provider delivery checks after deployment."],
+  "live_environment_modified": false
+}

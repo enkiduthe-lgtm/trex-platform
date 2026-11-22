@@ -124,3 +124,13 @@ test('support viewing, creating and editing do not imply customer or order acces
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.CREATE','SUPPORT.EDIT']}).supportEdit,false);
  assert.equal(orderPermissions('SUPER_ADMIN').supportEdit,true);assert.equal(orderPermissions('DEALER').supportCreate,false);
 });
+
+test('notification actions require their own view and create grants',()=>{
+ const view=orderPermissions('ADMIN',{configured:true,grants:['NOTIFICATIONS.VIEW']});
+ assert.equal(view.notificationCreate,false);assert.equal(view.notificationRetry,false);
+ const create=orderPermissions('ADMIN',{configured:true,grants:['NOTIFICATIONS.VIEW','NOTIFICATIONS.CREATE']});
+ assert.equal(create.notificationCreate,true);assert.equal(create.notificationRetry,true);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['NOTIFICATIONS.CREATE']}).notificationCreate,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.VIEW','SUPPORT.CREATE']}).notificationCreate,false);
+ assert.equal(orderPermissions('SUPER_ADMIN').notificationRetry,true);assert.equal(orderPermissions('DEALER').notificationCreate,false);
+});

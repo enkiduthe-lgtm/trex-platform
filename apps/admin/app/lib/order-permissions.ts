@@ -37,5 +37,9 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     supportCreate: allowed('SUPPORT', 'CREATE', ['ADMIN']),
     supportEdit: allowed('SUPPORT', 'EDIT', ['ADMIN']),
     supportMessage: allowed('SUPPORT', 'CREATE', ['ADMIN']),
+    notificationCreate: allowed('NOTIFICATIONS', 'CREATE', ['ADMIN']),
+    notificationRetry: allowed('NOTIFICATIONS', 'CREATE', ['ADMIN']),
+    campaignCreate: allowed('CAMPAIGNS', 'CREATE', ['ADMIN']),
+    campaignApprove: allowed('CAMPAIGNS', 'APPROVE', ['ADMIN']),
   };
 }
