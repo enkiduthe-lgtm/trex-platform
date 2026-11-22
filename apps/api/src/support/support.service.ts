@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { createHash } from 'node:crypto';
+import { PoolClient } from 'pg';
 import { DatabaseService } from "../database/database.service";
 import { CreateSupportTicketDto } from "./dto/create-support-ticket.dto";
 import {
@@ -21,10 +23,27 @@ type Ticket = {
   updated_at: string;
   due_at: string;
 };
+type RecordKey = {identity:string;hash:string};
 
 @Injectable()
 export class SupportService {
   constructor(private readonly db: DatabaseService) {}
+  private recordKey(key:string|undefined,scope:string,actorId:string,payload:unknown):RecordKey|null {
+    if(key===undefined)return null;
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key))throw new BadRequestException('Geçerli destek işlem anahtarı gerekli');
+    return {identity:`${scope}:${actorId}:${key.toLowerCase()}`,hash:createHash('sha256').update(JSON.stringify(payload)).digest('hex')};
+  }
+  private async replay(client:PoolClient,key:RecordKey|null,type:string){
+    if(!key)return null;
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[key.identity]);
+    const prior=await client.query<{request_hash:string;resource_type:string;resource_id:string|null}>('SELECT request_hash,resource_type,resource_id FROM idempotency_records WHERE key=$1',[key.identity]);
+    const row=prior.rows[0];if(!row)return null;
+    if(row.request_hash!==key.hash||row.resource_type!==type||!row.resource_id)throw new ConflictException('Bu işlem anahtarı farklı bir destek kaydında kullanılmış');
+    return row.resource_id;
+  }
+  private async remember(client:PoolClient,key:RecordKey|null,type:string,id:string){
+    if(key)await client.query("INSERT INTO idempotency_records(key,request_hash,resource_type,resource_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '365 days')",[key.identity,key.hash,type,id]);
+  }
   async list(status?: string) {
     return (
       await this.db.query<Ticket>(
@@ -54,7 +73,7 @@ export class SupportService {
   async assignees() {
     return (
       await this.db.query<{ id: string; email: string; role: string }>(
-        "SELECT id,email,role FROM users WHERE is_active=true AND role IN ('SUPER_ADMIN','ADMIN','WAREHOUSE','FINANCE') ORDER BY email",
+        "SELECT id,email,role FROM users WHERE is_active=true AND archived_at IS NULL AND role IN ('SUPER_ADMIN','ADMIN','WAREHOUSE','FINANCE') ORDER BY email",
       )
     ).rows;
   }
@@ -112,11 +131,22 @@ export class SupportService {
       activity: activity.rows,
     };
   }
-  async create(dto: CreateSupportTicketDto, actorId: string) {
-    if (!dto.contactName.trim() || !dto.subject.trim() || !dto.message.trim()) {
+  async create(dto: CreateSupportTicketDto, actorId: string,key?:string) {
+    if (dto.contactName.trim().length<2 || dto.subject.trim().length<3 || dto.message.trim().length<2) {
       throw new BadRequestException('Ad, konu ve mesaj alanları boş bırakılamaz.');
     }
+    const record=this.recordKey(key,'support-ticket',actorId,{contactName:dto.contactName.trim(),contactEmail:dto.contactEmail?.trim().toLowerCase()||null,contactPhone:dto.contactPhone?.trim()||null,subject:dto.subject.trim(),message:dto.message.trim(),priority:dto.priority??'NORMAL',customerId:dto.customerId?.toLowerCase()||null,orderId:dto.orderId?.toLowerCase()||null});
     return this.db.transaction(async (client) => {
+      const previous=await this.replay(client,record,'support_ticket');
+      if(previous){
+        const saved=await client.query<{id:string;ticket_number:string;due_at:string}>('SELECT id,ticket_number,due_at FROM support_tickets WHERE id=$1',[previous]);
+        if(!saved.rows[0])throw new ConflictException('Önceki destek talebi bulunamadı. Yeni kayıt oluşturmadan geçmişi kontrol edin.');
+        return {...saved.rows[0],replayed:true};
+      }
+      if(dto.customerId&&!dto.orderId){
+        const customer=await client.query('SELECT id FROM customers WHERE id=$1 FOR KEY SHARE',[dto.customerId]);
+        if(!customer.rowCount)throw new NotFoundException('Müşteri bulunamadı.');
+      }
       if (dto.orderId) {
         const order = await client.query<{ customer_id: string | null }>(
           'SELECT customer_id FROM orders WHERE id=$1 AND archived_at IS NULL FOR SHARE', [dto.orderId],
@@ -130,7 +160,7 @@ export class SupportService {
       const sequence = await client.query<{ value: number }>(
         "SELECT nextval('support_ticket_number_seq')::int AS value",
       );
-      const year = new Date().getFullYear();
+      const year = new Intl.DateTimeFormat('en',{timeZone:'Europe/Istanbul',year:'numeric'}).format(new Date());
       const ticketNumber = `DST-${year}-${String(sequence.rows[0].value).padStart(6, "0")}`;
       const priority = dto.priority ?? "NORMAL";
       const ticket = await client.query<{
@@ -144,7 +174,7 @@ export class SupportService {
           dto.customerId ?? null,
           dto.orderId ?? null,
           dto.contactName.trim(),
-          dto.contactEmail?.toLowerCase() ?? null,
+          dto.contactEmail?.trim().toLowerCase() ?? null,
           dto.contactPhone?.trim() ?? null,
           dto.subject.trim(),
           priority,
@@ -168,6 +198,7 @@ export class SupportService {
           }),
         ],
       );
+      await this.remember(client,record,'support_ticket',ticket.rows[0].id);
       return ticket.rows[0];
     });
   }
@@ -214,15 +245,19 @@ export class SupportService {
       return result.rows[0];
     });
   }
-  async addMessage(id: string, dto: AddSupportMessageDto, actorId: string) {
-    if (!dto.body.trim()) throw new BadRequestException('Mesaj boş bırakılamaz.');
-    const exists = await this.db.query(
-      "SELECT 1 FROM support_tickets WHERE id=$1",
-      [id],
-    );
-    if (!exists.rowCount)
-      throw new NotFoundException("Destek talebi bulunamadı");
+  async addMessage(id: string, dto: AddSupportMessageDto, actorId: string,key?:string) {
+    if (dto.body.trim().length<2) throw new BadRequestException('Mesaj en az iki karakter olmalıdır.');
+    if(dto.isInternal!==undefined&&typeof dto.isInternal!=='boolean')throw new BadRequestException('İç not seçimi doğru veya yanlış olmalıdır.');
+    const record=this.recordKey(key,'support-message',actorId,{ticketId:id.toLowerCase(),body:dto.body.trim(),isInternal:dto.isInternal??false});
     return this.db.transaction(async (client) => {
+      const previous=await this.replay(client,record,'support_message');
+      if(previous){
+        const saved=await client.query<{id:string}>('SELECT id FROM support_ticket_messages WHERE id=$1 AND ticket_id=$2',[previous,id]);
+        if(!saved.rows[0])throw new ConflictException('Önceki destek mesajı bulunamadı. Mesaj geçmişini kontrol edin.');
+        return {...saved.rows[0],replayed:true};
+      }
+      const exists=await client.query('SELECT 1 FROM support_tickets WHERE id=$1 FOR UPDATE',[id]);
+      if(!exists.rowCount)throw new NotFoundException('Destek talebi bulunamadı');
       const message = await client.query<{ id: string }>(
         "INSERT INTO support_ticket_messages(ticket_id,body,is_internal,created_by) VALUES($1,$2,$3,$4) RETURNING id",
         [id, dto.body.trim(), Boolean(dto.isInternal), actorId],
@@ -242,6 +277,7 @@ export class SupportService {
           JSON.stringify({ internal: Boolean(dto.isInternal) }),
         ],
       );
+      await this.remember(client,record,'support_message',message.rows[0].id);
       return message.rows[0];
     });
   }

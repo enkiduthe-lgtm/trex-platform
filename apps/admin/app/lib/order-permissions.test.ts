@@ -12,7 +12,9 @@ test('finance workspace creation, editing, deletion and transfer approval stay s
 
 test('view-only managers do not receive mutation or finance actions', () => {
   const result = orderPermissions('ADMIN', { configured: true, grants: ['ORDERS.VIEW'] });
-  assert.equal(Object.values(result).some(Boolean), false);
+  const {viewOrders,...actions}=result;
+  assert.equal(viewOrders,true);
+  assert.equal(Object.values(actions).some(Boolean), false);
 });
 test('order creation and editing permissions remain independent', () => {
   const create = orderPermissions('ADMIN', { configured: true, grants: ['ORDERS.VIEW', 'ORDERS.CREATE'] });
@@ -110,4 +112,15 @@ test('current-account posting requires its own view and create grants',()=>{
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CURRENT.CREATE']}).currentCreate,false);
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CURRENT.VIEW','CURRENT.CREATE']}).currentCreate,true);
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['FINANCE.VIEW','FINANCE.CREATE']}).currentCreate,false);
+});
+
+test('support viewing, creating and editing do not imply customer or order access',()=>{
+ const view=orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.VIEW']});
+ assert.equal(view.supportCreate,false);assert.equal(view.supportEdit,false);assert.equal(view.supportMessage,false);assert.equal(view.viewCustomer,false);assert.equal(view.viewOrders,false);
+ const create=orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.VIEW','SUPPORT.CREATE']});
+ assert.equal(create.supportCreate,true);assert.equal(create.supportMessage,true);assert.equal(create.supportEdit,false);assert.equal(create.viewOrders,false);
+ const edit=orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.VIEW','SUPPORT.EDIT']});
+ assert.equal(edit.supportEdit,true);assert.equal(edit.supportCreate,false);assert.equal(edit.supportMessage,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.CREATE','SUPPORT.EDIT']}).supportEdit,false);
+ assert.equal(orderPermissions('SUPER_ADMIN').supportEdit,true);assert.equal(orderPermissions('DEALER').supportCreate,false);
 });

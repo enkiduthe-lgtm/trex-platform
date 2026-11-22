@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -47,6 +48,9 @@ export class SupportController {
   @Post() create(@Body() dto: CreateSupportTicketDto, @Req() req: UserRequest) {
     return this.support.create(dto, req.user.id);
   }
+  @Post('idempotent') createIdempotent(@Body() dto:CreateSupportTicketDto,@Req() req:UserRequest,@Headers('idempotency-key') key?:string){
+    return this.support.create(dto,req.user.id,key??'');
+  }
   @Patch(":id") update(
     @Param("id") id: string,
     @Body() dto: UpdateSupportTicketDto,
@@ -60,5 +64,8 @@ export class SupportController {
     @Req() req: UserRequest,
   ) {
     return this.support.addMessage(id, dto, req.user.id);
+  }
+  @Post(':id/messages/idempotent') addIdempotentMessage(@Param('id') id:string,@Body() dto:AddSupportMessageDto,@Req() req:UserRequest,@Headers('idempotency-key') key?:string){
+    return this.support.addMessage(id,dto,req.user.id,key??'');
   }
 }

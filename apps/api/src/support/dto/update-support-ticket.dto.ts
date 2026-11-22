@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateSupportTicketDto {
   @IsOptional() @IsIn(['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']) status?: 'OPEN' | 'IN_PROGRESS' | 'WAITING_CUSTOMER' | 'RESOLVED' | 'CLOSED';
@@ -7,5 +7,5 @@ export class UpdateSupportTicketDto {
 }
 export class AddSupportMessageDto {
   @IsString() @MinLength(2) @MaxLength(5000) body!: string;
-  @IsOptional() isInternal?: boolean;
+  @IsOptional() @IsBoolean() isInternal?: boolean;
 }

@@ -1,5 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { SupportService } from './support.service';
+import { validate } from 'class-validator';
+import { AddSupportMessageDto } from './dto/update-support-ticket.dto';
 
 describe('SupportService', () => {
   type TransactionClient = { query: jest.Mock };
@@ -19,9 +21,29 @@ describe('SupportService', () => {
   });
 
   it('does not add a message to a missing ticket', async () => {
-    const s = setup(); s.db.query.mockResolvedValue({ rowCount: 0, rows: [] });
+    const s = setup(); s.client.query.mockResolvedValue({ rowCount: 0, rows: [] });
     await expect(s.service.addMessage('missing', { body: 'Not' }, 'staff-1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(s.db.transaction).toHaveBeenCalledTimes(1);
+    expect(s.client.query.mock.calls[0][0]).toContain('FOR UPDATE');
+    expect(s.client.query).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['false','true',0,1,null])('rejects a non-boolean internal-note flag: %s',async isInternal=>{
+    const s=setup();await expect(s.service.addMessage('ticket',{body:'Test mesajı',isInternal} as never,'actor')).rejects.toThrow('İç not');
     expect(s.db.transaction).not.toHaveBeenCalled();
+  });
+  it('validates the internal-note flag at the HTTP DTO boundary',async()=>{
+    const errors=await validate(Object.assign(new AddSupportMessageDto(),{body:'Test mesajı',isInternal:'false'}));
+    expect(errors.some(error=>error.property==='isInternal')).toBe(true);
+    expect(await validate(Object.assign(new AddSupportMessageDto(),{body:'Test mesajı',isInternal:false}))).toHaveLength(0);
+  });
+  it('uses the Istanbul calendar year for support numbers',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-12-31T21:30:00Z'));
+    try{
+      const s=setup();s.client.query.mockResolvedValueOnce({rows:[{value:1}]}).mockResolvedValueOnce({rows:[{id:'ticket',ticket_number:'DST-2027-000001',due_at:'future'}]}).mockResolvedValue({rows:[]});
+      await s.service.create({contactName:'Test',subject:'Konu',message:'Test mesajı'},'actor');
+      expect(s.client.query.mock.calls[1][1][0]).toBe('DST-2027-000001');
+    }finally{jest.useRealTimers();}
   });
 
   it('rejects a customer that does not match the linked order', async () => {
@@ -35,9 +57,9 @@ describe('SupportService', () => {
   it('keeps internal notes from reopening closed tickets', async () => {
     const s = setup();
     s.db.query.mockResolvedValue({ rowCount: 1 });
-    s.client.query.mockResolvedValue({ rows: [{ id: 'message' }] });
+    s.client.query.mockResolvedValueOnce({rowCount:1,rows:[]}).mockResolvedValue({ rowCount:1,rows: [{ id: 'message' }] });
     await s.service.addMessage('ticket', { body: 'Not', isInternal: true }, 'staff-1');
-    expect(s.client.query.mock.calls[1]).toEqual([expect.stringContaining('NOT $2::boolean'), ['ticket', true]]);
+    expect(s.client.query.mock.calls[2]).toEqual([expect.stringContaining('NOT $2::boolean'), ['ticket', true]]);
   });
 
   it('allows an assigned ticket to return to the unassigned queue', async () => {
@@ -64,6 +86,7 @@ describe('SupportService', () => {
     const s = setup(); s.db.query.mockResolvedValue({ rows: [{ id: 'staff-1', email: 'staff@trextea.com.tr', role: 'ADMIN' }] });
     await expect(s.service.assignees()).resolves.toEqual([{ id: 'staff-1', email: 'staff@trextea.com.tr', role: 'ADMIN' }]);
     expect(s.db.query.mock.calls[0][0]).toContain('is_active=true');
+    expect(s.db.query.mock.calls[0][0]).toContain('archived_at IS NULL');
   });
   it('loads ticket messages and audit activity together for one case view', async () => {
     const s = setup();

@@ -1,0 +1,25 @@
+{
+  "base_commit": "0729a44",
+  "deployment_status": "local_only",
+  "changes": [
+    "Read support tickets independently from customer/order lookup, assignee, workload and summary failures.",
+    "Skip customer and order lookups when the current role cannot use them; separate support view, create/message and edit controls.",
+    "Create support tickets and messages with actor-scoped recovery keys, one atomic audit and no repeated status side effects on replay.",
+    "Bind uncertain client retries to the original endpoint as well as the original body and key.",
+    "Keep drafts with their own ticket, ignore stale or canceled detail responses and retain confirmed write success separately from refresh errors.",
+    "Validate internal-note booleans, active assignees and trimmed text; use the Istanbul year for ticket numbers.",
+    "Render internal notes and public messages in distinct boxes, translate staff/action labels and export displayed filters through XLSX with Istanbul dates."
+  ],
+  "verification": {
+    "support_and_staff_api_tests_passed": 37,
+    "permission_rule_tests_passed": 15,
+    "passed_scripts": ["verify-support-idempotency.cjs", "verify-support-workspace.cjs", "verify-support-view.cjs", "verify-finance-submission.cjs", "verify-manager-operation-routes.cjs"],
+    "api_build": "passed",
+    "admin_build": "passed; final label and markup adjustments additionally rendered from the updated source",
+    "data_scope": "Actual support migrations with synthetic isolated SQL records; no real messages, tickets or provider calls."
+  },
+  "limitations": ["Recovery remains in the current screen session. After a full reload, inspect the ticket or message history before entering another request."],
+  "manual_checks_pending": ["Browser review of message boxes, detail focus and view-only/partial-error states after deployment."],
+  "deployment_requirement": "Publish the API and panel together; new clients fail closed when the mandatory-key routes are unavailable.",
+  "live_environment_modified": false
+}

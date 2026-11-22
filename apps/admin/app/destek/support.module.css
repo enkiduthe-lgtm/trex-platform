@@ -1,0 +1,15 @@
+.workspace{width:100%;min-width:0;max-width:none;display:grid;gap:16px;}
+.header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.header h1{margin-right:auto;}
+.header button{min-height:36px;padding:7px 14px;}
+.fields{min-width:0;border:0;margin:0;padding:0;}
+.fields:disabled{opacity:.72;}
+.message{padding:14px 16px;margin:12px 0;border:1px solid #d9dfe8;border-left:4px solid #6455a5;border-radius:9px;background:#fff;}
+.internal{border-left-color:#a36b13;background:#fffaf0;}
+.message p{margin:.3rem 0;}
+.messageBody{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;}
+.ticket{width:100%;text-align:left;overflow-wrap:anywhere;}
+.ticket[aria-pressed=true]{border:2px solid #6752a4;background:#f7f3ff;}
+.detail{scroll-margin-top:24px;min-width:0;}
+.detail h2{overflow-wrap:anywhere;}
+@media(max-width:640px){.header{align-items:flex-start;}.header h1{width:100%;}.message{padding:12px;}}

@@ -33,5 +33,9 @@ export function orderPermissions(role: string, profile?: AccessProfile) {
     financeDelete: allowed('FINANCE', 'DELETE', []),
     financeApprove: allowed('FINANCE', 'APPROVE', []),
     currentCreate: allowed('CURRENT', 'CREATE', ['ADMIN','FINANCE']),
+    viewOrders: allowed('ORDERS', 'VIEW', ['ADMIN']),
+    supportCreate: allowed('SUPPORT', 'CREATE', ['ADMIN']),
+    supportEdit: allowed('SUPPORT', 'EDIT', ['ADMIN']),
+    supportMessage: allowed('SUPPORT', 'CREATE', ['ADMIN']),
   };
 }

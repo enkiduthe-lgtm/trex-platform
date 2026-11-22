@@ -1,12 +1,12 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript'));
 class ApiError extends Error{constructor(message,status){super(message);this.status=status;}}
-function mount(endpoint,receiptField){
+function mount(endpoint,receiptField,label){
  const values=[],refs=[],effects=[],requests=[];let stateIndex=0,refIndex=0,keys=0;
  const react={useState(initial){const i=stateIndex++;if(!(i in values))values[i]=initial;return [values[i],value=>values[i]=typeof value==='function'?value(values[i]):value];},useRef(initial){const i=refIndex++;return refs[i]??(refs[i]={current:initial});},useEffect:fn=>effects.push(fn)};
  const box={exports:{},Error,crypto:{randomUUID:()=>`test-key-${++keys}`},require(name){if(name==='react')return react;if(name==='./api')return {ApiError,api:(route,init)=>new Promise((resolve,reject)=>requests.push({route,init,resolve,reject}))};throw Error(name);}};
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'apps/admin/app/lib/use-finance-submission.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,box);
- const render=()=>{stateIndex=0;refIndex=0;return box.exports.useFinanceSubmission(endpoint,receiptField);};render();const cleanup=effects.shift()();return {render,requests,cleanup,valid:box.exports.validFinanceAmount};
+ const render=()=>{stateIndex=0;refIndex=0;return box.exports.useFinanceSubmission(endpoint,receiptField,label);};render();const cleanup=effects.shift()();return {render,requests,cleanup,valid:box.exports.validFinanceAmount,changeEndpoint:value=>{endpoint=value;}};
 }
 async function main(){
  const app=mount(),body=JSON.stringify({kind:'COLLECTION',amount:100});
@@ -20,6 +20,7 @@ async function main(){
  const disposed=app.render().retry();const before=app.render().pending;app.cleanup();app.requests.at(-1).resolve({id:'saved'});await disposed;assert.equal(app.render().pending,before,'Closed hooks do not update rendered state');await assert.rejects(app.render().send(body),/devam ediyor/);
  const oldApi=mount();const unsupported=oldApi.render().send(body);oldApi.requests[0].reject(new ApiError('Not found',404));await assert.rejects(unsupported);assert.equal(oldApi.render().pending,null,'Old API versions reject the new route instead of accepting a duplicate-prone fallback');oldApi.cleanup();
  const transfer=mount('/admin/finance/transfers/idempotent','transferGroupId');const moving=transfer.render().send('transfer');assert.equal(transfer.requests[0].route,'/admin/finance/transfers/idempotent');transfer.requests[0].resolve({id:'not-a-transfer-receipt'});await assert.rejects(moving,/doğrulanamadı/);assert(transfer.render().pending);const moved=transfer.render().retry();transfer.requests[1].resolve({transferGroupId:'group',replayed:true});assert.equal((await moved).transferGroupId,'group');assert.equal(transfer.render().pending,null);transfer.cleanup();
+ const support=mount('/admin/support-tickets/first/messages/idempotent','id','Destek mesajı');const posting=support.render().send('same text');support.requests[0].reject(Error('Timeout'));await assert.rejects(posting);support.changeEndpoint('/admin/support-tickets/second/messages/idempotent');await assert.rejects(support.render().send('same text'),/destek mesajı/);const recover=support.render().retry();assert.equal(support.requests[1].route,'/admin/support-tickets/first/messages/idempotent');assert.equal(support.requests[1].init.headers['Idempotency-Key'],support.requests[0].init.headers['Idempotency-Key']);support.requests[1].resolve({id:'existing'});await recover;const next=support.render().send('same text');assert.equal(support.requests[2].route,'/admin/support-tickets/second/messages/idempotent');support.requests[2].resolve({});await assert.rejects(next,/Destek mesajı yanıtı/);support.cleanup();
  for(const value of ['0.01','100','9999999999.99'])assert(app.valid(value));for(const value of ['','0','-1','1e3','1.001','NaN','10000000000'])assert(!app.valid(value));
  console.log('Finance submission passed: duplicate lock, original-body/key retry, unknown-response recovery, known rejection, unsupported-server refusal, disposal and exact amount bounds.');
 }
