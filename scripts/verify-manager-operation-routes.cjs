@@ -8,6 +8,7 @@ const {CurrentAccountsController}=require(path.join(root,'apps/api/dist/current-
 const {ShippingController}=require(path.join(root,'apps/api/dist/shipping/shipping.controller'));
 const {SupportController}=require(path.join(root,'apps/api/dist/support/support.controller'));
 const {NotificationsController}=require(path.join(root,'apps/api/dist/notifications/notifications.controller'));
+const {CampaignsController}=require(path.join(root,'apps/api/dist/campaigns/campaigns.controller'));
 const {REQUIRED_ROLES}=require(path.join(root,'apps/api/dist/auth/roles.decorator'));
 const actor={id:'test-actor',role:'SUPER_ADMIN'},dto={test:'payload'},calls=[];
 const finance=new FinanceController({createTransaction:(...args)=>calls.push(['transaction',...args]),createTransfer:(...args)=>calls.push(['transfer',...args]),createCarrierSettlement:(...args)=>calls.push(['carrier',...args])});
@@ -32,4 +33,8 @@ const notification=NotificationsController.prototype.sendIdempotent;assert.equal
 notifications.sendIdempotent(dto,{user:actor},undefined);assert.deepEqual(calls.at(-1),['notification',dto,undefined,{actorId:actor.id,key:''}]);notifications.sendIdempotent(dto,{user:actor},'original-key');assert.equal(calls.at(-1).at(-1).key,'original-key');
 for(const method of ['configuration','history']){const handler=NotificationsController.prototype[method];assert.equal('/'+Reflect.getMetadata(PATH_METADATA,NotificationsController)+'/'+Reflect.getMetadata(PATH_METADATA,handler),'/admin/notifications/'+method);assert.equal(Reflect.getMetadata(METHOD_METADATA,handler),RequestMethod.GET);}
 notifications.history(dto);assert.deepEqual(calls.at(-1),['history',dto]);assert.deepEqual(Reflect.getMetadata(REQUIRED_ROLES,NotificationsController),['SUPER_ADMIN','ADMIN']);
-console.log('Built API route checks passed: seven mandatory-key POST routes match client URLs and forward the original key; notification history/configuration routes and individual director-only tracking queries are present. No application, database or carrier connection was opened.');
+const campaigns=new CampaignsController({create:(...args)=>calls.push(['campaign',...args]),createCoupon:(...args)=>calls.push(['coupon',...args]),activate:(...args)=>calls.push(['activate',...args]),pause:(...args)=>calls.push(['pause',...args])});
+for(const [method,route] of [['createIdempotent','idempotent'],['couponIdempotent',':id/coupons/idempotent']]){const handler=CampaignsController.prototype[method];assert.equal('/'+Reflect.getMetadata(PATH_METADATA,CampaignsController)+'/'+Reflect.getMetadata(PATH_METADATA,handler),'/admin/campaigns/'+route);assert.equal(Reflect.getMetadata(METHOD_METADATA,handler),RequestMethod.POST);}
+campaigns.createIdempotent({name:'Test'},{user:actor},undefined);assert.deepEqual(calls.at(-1),['campaign','Test',actor.id,undefined,undefined,'']);campaigns.couponIdempotent('campaign',dto,{user:actor},'original-key');assert.deepEqual(calls.at(-1),['coupon','campaign',dto,actor.id,'original-key']);
+campaigns.activate('campaign',{user:actor},{expectedStatus:'DRAFT'});assert.deepEqual(calls.at(-1),['activate','campaign',actor.id,'DRAFT']);campaigns.pause('campaign',{user:actor},undefined);assert.deepEqual(calls.at(-1),['pause','campaign',actor.id,undefined]);
+console.log('Built API route checks passed: nine mandatory-key POST routes match client URLs; campaign status guards, notification history/configuration and individual director-only tracking queries are present. No application, database or carrier connection was opened.');

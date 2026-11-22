@@ -134,3 +134,12 @@ test('notification actions require their own view and create grants',()=>{
  assert.equal(orderPermissions('ADMIN',{configured:true,grants:['SUPPORT.VIEW','SUPPORT.CREATE']}).notificationCreate,false);
  assert.equal(orderPermissions('SUPER_ADMIN').notificationRetry,true);assert.equal(orderPermissions('DEALER').notificationCreate,false);
 });
+
+test('campaign creation and activation approval require distinct grants',()=>{
+ const create=orderPermissions('ADMIN',{configured:true,grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE']});
+ assert.equal(create.campaignCreate,true);assert.equal(create.campaignApprove,false);
+ const approve=orderPermissions('ADMIN',{configured:true,grants:['CAMPAIGNS.VIEW','CAMPAIGNS.APPROVE']});
+ assert.equal(approve.campaignApprove,true);assert.equal(approve.campaignCreate,false);
+ assert.equal(orderPermissions('ADMIN',{configured:true,grants:['CAMPAIGNS.APPROVE']}).campaignApprove,false);
+ assert.equal(orderPermissions('DEALER').campaignCreate,false);
+});

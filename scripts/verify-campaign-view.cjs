@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),React=require(path.join(root,'node_modules/react')),{renderToStaticMarkup}=require(path.join(root,'node_modules/react-dom/server'));
+const source=fs.readFileSync(path.join(root,'apps/admin/app/kampanyalar/campaigns-workspace.tsx'),'utf8'),names=[...source.matchAll(/\[\s*(\w+)\s*,\s*\w+\s*\]\s*=\s*useState/g)].map(match=>match[1]);
+function lib(file){const box={exports:{},Date,Intl};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'apps/admin/app/lib',file+'.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,box);return box.exports;}
+const controls=lib('async-controls'),rules=lib('order-permissions'),dates=lib('finance-report');
+function render({grants=['CAMPAIGNS.VIEW'],tab='',pending='',ready=true,editor=null}={}){
+ const overrides={campaigns:[{id:'one',name:'Test Campaign',status:'DRAFT',coupon_count:1,starts_at:null,ends_at:null},{id:'archived',name:'Archived Campaign',status:'ARCHIVED',coupon_count:0,starts_at:null,ends_at:null}],coupons:[{id:'coupon',campaign_id:'one',campaign_name:'Test Campaign',campaign_status:'DRAFT',code:'TEST',discount_type:'PERCENT',discount_value:'10',used_count:0,usage_limit:2,starts_at:null,ends_at:null}],campaignReady:ready,couponReady:true,campaignLoading:false,couponLoading:false,campaignError:ready?'':'Campaign read unavailable',editor};let index=0;
+ const box={exports:{},Date,Intl,require(name){
+  if(name==='react')return {...React,useState:initial=>[Object.hasOwn(overrides,names[index])?overrides[names[index++]]:(index++,typeof initial==='function'?initial():initial),()=>{}],useRef:value=>({current:value}),useEffect(){}};
+  if(name==='react/jsx-runtime')return require(path.join(root,'node_modules/react/jsx-runtime'));
+  if(name==='next/navigation')return {useSearchParams:()=>new URLSearchParams({tab})};if(name.endsWith('/admin-nav'))return {AdminNav:()=>null};if(name.endsWith('/use-order-permissions'))return {useOrderPermissions:()=>({permissions:rules.orderPermissions('ADMIN',{configured:true,grants}),loading:false,error:''})};
+  if(name.endsWith('/use-finance-submission'))return {useFinanceSubmission:endpoint=>({busy:false,pending:pending&&((pending==='coupon')===endpoint.includes('/coupons/'))?{}:null})};if(name.endsWith('/async-controls'))return controls;if(name.endsWith('/finance-report'))return dates;
+  if(name.endsWith('.css'))return {default:new Proxy({},{get:(_,key)=>String(key)})};if(name.endsWith('/api'))return {api(){throw Error('Unexpected request');}};throw Error(name);
+ }};
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,box);return renderToStaticMarkup(React.createElement(box.exports.CampaignsWorkspace));
+}
+const view=render();assert(view.includes('Test Campaign'));assert(!view.includes('<form'));assert(!view.includes('>Etkinleştir</button>'));assert(!view.includes('+ Yeni Kampanya'));assert(!view.includes('class="subnav"'));
+const create=render({grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE'],editor:'campaign'});assert(create.includes('Taslağı Kaydet'));assert(!create.includes('>Etkinleştir</button>'));assert(create.includes('Türkiye Saati'));
+const approval=render({grants:['CAMPAIGNS.VIEW','CAMPAIGNS.APPROVE']});assert.equal((approval.match(/>Etkinleştir<\/button>/g)||[]).length,1);assert(!approval.includes('<form'));
+const unknown=render({grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE'],pending:'coupon',editor:'coupon',tab:'coupons'});assert(unknown.indexOf('Hediye Çekini Doğrula / Yeniden Dene')<unknown.indexOf('<form'));assert(/<fieldset[^>]*disabled=""/.test(unknown));assert(!/<button[^>]*disabled=""[^>]*>Hediye Çekini Doğrula/.test(unknown));assert(!unknown.includes('<option value="archived"'));
+const failed=render({grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE'],ready:false,editor:'campaign'});assert(failed.includes('role="alert"'));assert(/<fieldset[^>]*disabled=""/.test(failed));assert(!failed.includes('Henüz kampanya yok'));
+const coupons=render({tab:'coupons'});assert(coupons.includes('TEST'));assert(coupons.includes('0 / 2'));assert(coupons.includes('%10'));
+console.log('Campaign markup passed: view/create/approve separation, no duplicate navigation tabs, inline boxed editor, archived action exclusion, explicit pending recovery and readable coupon usage. Browser layout remains unverified.');

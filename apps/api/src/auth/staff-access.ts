@@ -19,6 +19,7 @@ export function requestAccess(path:string,method:string):string|null {
  if(method==='GET'&&/^\/returns\/admin\/(refund-accounts|inspection-warehouses)$/.test(p))return 'RETURNS.APPROVE';
  if(method==='GET'&&p==='/admin/dealer-payouts/payment-accounts')return 'COMMISSIONS.APPROVE';
  if(method==='GET'&&p==='/admin/warehouse/receipt-products')return 'STOCK.CREATE';
+ if(method==='POST'&&/^\/admin\/campaigns\/[^/]+\/(activate|pause)$/.test(p))return 'CAMPAIGNS.APPROVE';
  let action='VIEW';
  if(method==='DELETE')action='DELETE';
  else if(!['GET','HEAD','OPTIONS'].includes(method)) {

@@ -1,0 +1,23 @@
+{
+  "base_commit": "4594993",
+  "deployment_status": "local_only",
+  "changes": [
+    "Separate campaign creation from activation/pause approval in both client controls and server authorization.",
+    "Save campaign/coupon, audit and actor-scoped recovery receipt atomically; recover lost creation responses without creating another record.",
+    "Normalize business times to Istanbul, validate impossible dates and reject invalid names, discounts, limits and coupon codes before database writes.",
+    "Lock campaign status transitions, reject stale expected states, avoid duplicate same-status audits and preserve archived campaign restrictions.",
+    "Read campaign and coupon lists independently, preserve drafts and distinguish a confirmed write from a failed list refresh.",
+    "Remove repeated local navigation and use inline boxed forms, compact aligned actions, readable tables, filters and responsive summary cards."
+  ],
+  "verification": {
+    "campaign_and_staff_security_unit_tests_passed": 32,
+    "passed_scripts": ["verify-campaign-workflow.cjs", "verify-campaign-workspace.cjs", "verify-campaign-view.cjs"],
+    "api_build": "passed; manager-campaign-api-build-20261122.log",
+    "admin_build": "passed; manager-campaign-admin-build-20261122.log; final pending-message wording additionally rendered from current source",
+    "data_scope": "Actual migration 018 with isolated synthetic PostgreSQL records. No real campaign or coupon was created or activated."
+  },
+  "deployment_requirement": "Publish API and panel together. Configured managers need CAMPAIGNS.VIEW plus CAMPAIGNS.APPROVE to activate/pause; creation alone no longer grants approval.",
+  "limitations": ["Client recovery lasts for the current screen session. After a full reload, inspect existing records before creating a replacement request."],
+  "manual_checks_pending": ["Browser layout review: local preview timed out and Windows browser inspection stopped when its current address could not be verified."],
+  "live_environment_modified": false
+}

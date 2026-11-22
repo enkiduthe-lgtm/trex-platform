@@ -1,0 +1,33 @@
+// Real campaign service and schema with isolated synthetic records only.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),{PGlite}=require(path.join(process.argv[2],'node_modules/@electric-sql/pglite'));
+const box={exports:{},Date,Intl,require(name){if(name==='@nestjs/common')return {Injectable:()=>type=>type,BadRequestException:Error,ConflictException:Error,NotFoundException:Error};if(name==='node:crypto')return require(name);return {};}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'apps/api/src/campaigns/campaigns.service.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,experimentalDecorators:true}}).outputText,box);
+const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+async function main(){
+ const pg=new PGlite();let tail=Promise.resolve(),auditFailure=false;
+ const client={async query(sql,args=[]){if(auditFailure&&sql.trimStart().startsWith('INSERT INTO audit_logs'))throw Error('Audit unavailable');const result=await pg.query(sql,args);return {rows:result.rows,rowCount:Math.max(result.affectedRows??0,result.rows.length)};}};
+ const db={...client,transaction(work){const run=tail.then(async()=>{await pg.exec('BEGIN');try{const result=await work(client);await pg.exec('COMMIT');return result;}catch(error){await pg.exec('ROLLBACK');throw error;}});tail=run.catch(()=>{});return run;}};
+ await pg.exec('CREATE TABLE orders(id uuid PRIMARY KEY);CREATE TABLE customers(id uuid PRIMARY KEY);CREATE TABLE audit_logs(actor_user_id uuid,action text,entity_type text,entity_id uuid,metadata jsonb);');
+ await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/018_campaigns.sql'),'utf8'));
+ await pg.exec(fs.readFileSync(path.join(root,'apps/api/migrations/007_checkout_orders.sql'),'utf8').match(/CREATE TABLE idempotency_records \([\s\S]*?\n\);/)[0]);
+ const service=new box.exports.CampaignsService(db),actor=id(1),key=id(10);
+ const first=await service.create(' Test Campaign ',actor,'2026-11-22T10:00','2026-11-23T10:00',key),again=await service.create('Test Campaign',actor,'2026-11-22T07:00:00Z','2026-11-23T07:00:00Z',key);assert.equal(first.id,again.id);assert.equal(again.replayed,true);
+ const row=(await client.query('SELECT * FROM campaigns WHERE id=$1',[first.id])).rows[0];assert.equal(new Date(row.starts_at).toISOString(),'2026-11-22T07:00:00.000Z');assert.equal(row.status,'DRAFT');assert.equal((await client.query('SELECT * FROM audit_logs')).rows.length,1);
+ await assert.rejects(service.create('Changed',actor,undefined,undefined,key),/farklı bir kampanya/);await assert.rejects(service.create('Valid',actor,undefined,undefined,''),/anahtarı/);
+ const coupon={code:' test-10 ',discountType:'PERCENT',discountValue:10,usageLimit:2,startsAt:'2026-01-01T00:00',endsAt:'2099-01-01T00:00'};
+ const created=await service.createCoupon(first.id,coupon,actor,id(11)),replayed=await service.createCoupon(first.id,{...coupon,code:'TEST-10'},actor,id(11));assert.equal(created.id,replayed.id);assert.equal(replayed.replayed,true);assert.equal((await client.query('SELECT * FROM coupons')).rows.length,1);
+ await assert.rejects(service.createCoupon(first.id,coupon,actor,id(12)),/zaten kayıtlı/);await assert.rejects(service.createCoupon(first.id,{...coupon,discountValue:20},actor,id(11)),/farklı bir kampanya/);
+ const before=(await client.query('SELECT * FROM campaigns')).rows.length;auditFailure=true;await assert.rejects(service.create('Rollback',actor,undefined,undefined,id(13)),/Audit unavailable/);auditFailure=false;assert.equal((await client.query('SELECT * FROM campaigns')).rows.length,before);assert.equal((await client.query('SELECT * FROM idempotency_records WHERE key=$1',[`campaign-campaign:${actor}:${id(13)}`])).rows.length,0);
+ auditFailure=true;await assert.rejects(service.createCoupon(first.id,{...coupon,code:'ROLLBACK'},actor,id(14)),/Audit unavailable/);auditFailure=false;assert.equal((await client.query("SELECT * FROM coupons WHERE code='ROLLBACK'")).rows.length,0);
+ await service.activate(first.id,actor,'DRAFT');const auditCount=(await client.query('SELECT * FROM audit_logs')).rows.length;assert.equal((await service.activate(first.id,actor,'DRAFT')).changed,false);assert.equal((await client.query('SELECT * FROM audit_logs')).rows.length,auditCount);
+ await assert.rejects(service.pause(first.id,actor,'DRAFT'),/başka bir işlemde/);auditFailure=true;await assert.rejects(service.pause(first.id,actor,'ACTIVE'),/Audit unavailable/);auditFailure=false;assert.equal((await client.query('SELECT status FROM campaigns WHERE id=$1',[first.id])).rows[0].status,'ACTIVE');
+ await service.pause(first.id,actor,'ACTIVE');await service.activate(first.id,actor,'PAUSED');
+ const promo=await service.create('Available',actor,undefined,undefined,id(15));await service.activate(promo.id,actor);await service.createCoupon(promo.id,{code:'CAP',discountType:'FIXED_TRY',discountValue:100},actor,id(16));assert.equal((await service.previewCoupon(' cap ',40)).discount,'40.00');assert.equal((await service.previewCoupon('CAP',40)).total,'0.00');
+ await client.query("UPDATE campaigns SET status='ARCHIVED' WHERE id=$1",[first.id]);await assert.rejects(service.activate(first.id,actor),/Arşivlenen/);await assert.rejects(service.createCoupon(first.id,{...coupon,code:'ARCHIVE'},actor,id(17)),/Arşivlenen/);assert.equal((await service.createCoupon(first.id,coupon,actor,id(11))).id,created.id,'Saved receipts stay recoverable after campaign archival');
+ for(const date of ['invalid','2026-02-30T10:00','2026-01-01T24:00','2026-01-01T10:70'])await assert.rejects(service.create('Invalid date',actor,date));
+ const pairs=await Promise.all([service.create('Concurrent',actor,undefined,undefined,id(18)),service.create('Concurrent',actor,undefined,undefined,id(18))]);assert.equal(pairs[0].id,pairs[1].id);assert.equal((await client.query("SELECT * FROM campaigns WHERE name='Concurrent'")).rows.length,1);
+ const campaigns=await service.list(),coupons=await service.listCoupons();assert.equal(campaigns.find(row=>row.id===first.id).coupon_count,1);assert.equal(coupons.find(row=>row.id===created.id).campaign_status,'ARCHIVED');
+ await pg.close();console.log('Campaign SQL checks passed: normalized Istanbul dates, atomic draft/coupon/audit receipts, duplicate-code conflicts, same-key replay, concurrent recovery, guarded activation, archive restrictions and existing coupon preview calculation. No live records were modified.');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

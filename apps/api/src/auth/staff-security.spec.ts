@@ -11,6 +11,11 @@ import { RolesGuard } from './roles.guard';
 
 const request = { user: { id: 'owner' } } as never;
 describe('Staff security', () => {
+  it.each(['activate','pause'])('separates campaign creation from %s approval',async action=>{
+    const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path:'/v1/admin/campaigns/id/'+action})})} as never;
+    const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['CAMPAIGNS.VIEW','CAMPAIGNS.CREATE']}]});const guard=new RolesGuard({getAllAndOverride:()=>[Roles.ADMIN]} as never,{query} as never);
+    await expect(guard.canActivate(context)).rejects.toThrow('Yetki Verilmemiş');query.mockResolvedValue({rowCount:1,rows:[{grants:['CAMPAIGNS.VIEW','CAMPAIGNS.APPROVE']}]});await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
   it.each(['/v1/admin/finance/transfers','/v1/admin/finance/transfers/idempotent'])('requires finance approval for %s',async path=>{
     const context={getHandler:()=>undefined,getClass:()=>undefined,switchToHttp:()=>({getRequest:()=>({user:{id:'staff',role:'ADMIN'},method:'POST',path})})} as never;
     const query=jest.fn().mockResolvedValue({rowCount:1,rows:[{grants:['FINANCE.VIEW','FINANCE.CREATE']}]});
