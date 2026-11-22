@@ -1,0 +1,30 @@
+{
+  "base_commit": "707c3bc",
+  "deployment_status": "local_only",
+  "changes": [
+    "Replace the long tracking transaction with an expiring owner-token lease; release each database connection before waiting for a carrier response.",
+    "Renew ownership before and after provider reads, recover after a crashed worker lease expires and prevent an expired owner from releasing a replacement worker's lease.",
+    "Check the worker token again under shipment/order row locks using the actual clock, including expiry after a transaction has already started.",
+    "Keep the existing atomic delivery/order/commission transition, terminal-state protection, return exclusions, query interval and director-only manual query permissions.",
+    "Stop applying late observations during shutdown and mask provider/connection details in control notes.",
+    "Refresh the visible shipping workspace from the local API every 30 seconds without creating or resubmitting shipments; skip hidden tabs, overlapping reads and active operations.",
+    "Preserve filters and open history during background refresh, retain last records on read failure, disable stale actions and recover on the next successful refresh.",
+    "Validate shipment-history identity, add an explicit history refresh action and show when the opened history was read."
+  ],
+  "verification": {
+    "api_build": "passed; manager-tracking-final-api-build-20261122.log",
+    "admin_build": "passed; manager-tracking-page-build-20261122.log, all 53 pages completed",
+    "shipping_and_tracking_unit_tests_passed": 30,
+    "passed_scripts": ["verify-tracking-leases.cjs", "verify-manager-shipment-sync.cjs", "verify-manager-shipment-view.cjs"],
+    "database_scope": "Actual migration 082 applied twice, real tracking service and real shipping transition service with a single isolated SQL connection. Carrier responses were controlled fixtures.",
+    "sql_scenarios": ["Verified delivery updates order and exact tracking number", "No open transaction during provider I/O", "Exclusive lease ownership", "Crash takeover", "Late old owner cannot overwrite or release new owner", "Real-clock expiry after row locking", "Repeated delivery creates no duplicate history", "Canceled/archived/returned/terminal records excluded", "Cancellation and shutdown while provider read is pending"],
+    "commission_scope": "Existing award hook checked in the shipping unit suite; no real commission or payment was created."
+  },
+  "deployment_requirement": "Apply migration 082 before starting the new API. Deploy the updated panel to obtain background list refresh and history refresh controls.",
+  "limitations": [
+    "The free in-process carrier schedule still requires an awake API process; no paid scheduler or compute plan was added.",
+    "The existing batch limit and five-minute carrier query interval remain unchanged. The 30-second screen refresh reads stored API data and does not call Aras directly."
+  ],
+  "manual_checks_pending": ["After deployment, verify a real delivered shipment's tracking number, delivered tab and commission finalization using separate manager/director sessions.", "Browser layout review of history refresh controls."],
+  "live_environment_modified": false
+}

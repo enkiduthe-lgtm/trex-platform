@@ -36,7 +36,7 @@ type ShippingQueue = {
   package_barcode: string | null;
 };
 type ShipmentEvent = { id: string; status: string; description: string | null; occurred_at: string };
-type ShipmentDetail = { order_id: string; events: ShipmentEvent[] };
+type ShipmentDetail = { order_id: string; events: ShipmentEvent[]; read_at?: string };
 const status: Record<string, string> = {
   PENDING: "Bekliyor",
   CREATED: "Gönderi Oluşturuldu",
@@ -55,6 +55,8 @@ export default function Shipping() {
   const alive=useRef(true);
   const readVersion=useRef(0);
   const readyRef=useRef(false);
+  const readInFlight=useRef(false);
+  const lastReadAt=useRef<string|null>(null);
   const [loading,setLoading]=useState(true);
   const [loaded,setLoaded]=useState(false);
   const [config, setConfig] = useState<Config | null>(null);
@@ -68,26 +70,26 @@ export default function Shipping() {
   const [dateFrom,setDateFrom]=useState('');
   const [dateTo,setDateTo]=useState('');
   const validDates=!dateFrom||!dateTo||dateFrom<=dateTo;
-  const load = async () => {
+  const load = async (background = false) => {
+    if(background&&(!alive.current||readInFlight.current||actionLock.current))return false;
     const version=++readVersion.current;
-    readyRef.current=false;
-    setLoading(true);setLoaded(false);
-    setLoadError('');setDetails({});
+    readInFlight.current=true;
+    if(!background){readyRef.current=false;setLoading(true);setLoaded(false);setLoadError('');setDetails({});}
     try {
       const [c,s,q]=await Promise.all([
         api<Config>("/admin/orders/shipping/status"),
         api<Shipment[]>("/admin/orders/shipping"),
         api<ShippingQueue[]>("/admin/orders/shipping/queue"),
       ]);
-      if(!alive.current||version!==readVersion.current)return false;
+      if(!alive.current||version!==readVersion.current||background&&actionLock.current)return false;
       if(!c||typeof c.provider!=='string'||!Array.isArray(s)||!Array.isArray(q))throw new Error('Kargo kayıtları doğrulanamadı.');
-      setConfig(c);setShipments(s);setQueue(q);setLoaded(true);readyRef.current=true;
+      setConfig(c);setShipments(s);setQueue(q);setLoaded(true);setLoadError('');readyRef.current=true;lastReadAt.current=new Date().toISOString();
       return true;
     } catch(e) {
-      if(alive.current&&version===readVersion.current)setLoadError(e instanceof Error?e.message:'Kargo kayıtları yüklenemedi.');
+      if(alive.current&&version===readVersion.current&&(!background||!actionLock.current)){readyRef.current=false;setLoaded(false);setLoadError(e instanceof Error?e.message:'Kargo kayıtları yüklenemedi.');}
       return false;
     } finally {
-      if(alive.current&&version===readVersion.current)setLoading(false);
+      if(alive.current&&version===readVersion.current){readInFlight.current=false;if(!background)setLoading(false);}
     }
   };
   useEffect(() => {
@@ -95,6 +97,15 @@ export default function Shipping() {
     void load();
     return()=>{alive.current=false;readyRef.current=false;readVersion.current++;};
   }, []);
+  useEffect(()=>{
+    const refresh=()=>{
+      if(!alive.current||document.visibilityState!=='visible'||actionLock.current||readInFlight.current)return;
+      void load(true);
+    };
+    const timer=window.setInterval(refresh,30_000);
+    window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[]);
   async function syncShipment(orderId:string) {
     if(actionLock.current||!readyRef.current||accessLoading||role!=='SUPER_ADMIN'||!config?.tracking?.configured)return;
     const target=shipments.find(row=>row.order_id===orderId);
@@ -156,10 +167,10 @@ export default function Shipping() {
       if(alive.current)setBusy(null);
     }
   }
-  async function loadHistory(orderId: string) {
+  async function loadHistory(orderId: string, refresh = false) {
     if(actionLock.current||!readyRef.current)return;
     const version=readVersion.current;
-    if (details[orderId]) {
+    if (details[orderId]&&!refresh) {
       setDetails((current) => {
         const next = { ...current };
         delete next[orderId];
@@ -171,7 +182,9 @@ export default function Shipping() {
     setBusy(orderId);
     try {
       const detail = await api<ShipmentDetail | null>(`/admin/orders/${orderId}/shipment`);
-      if (detail&&alive.current&&version===readVersion.current) setDetails((current) => ({ ...current, [orderId]: detail }));
+      if(!alive.current||version!==readVersion.current)return;
+      if(!detail||detail.order_id!==orderId||!Array.isArray(detail.events))throw new Error('Gönderi hareketleri doğrulanamadı.');
+      setDetails((current) => ({ ...current, [orderId]: {...detail,read_at:new Date().toISOString()} }));
     } catch (e) {
       if(alive.current&&version===readVersion.current)setMessage(e instanceof Error ? e.message : "Takip geçmişi yüklenemedi");
     } finally {
@@ -206,6 +219,7 @@ export default function Shipping() {
       <section className={styles.page}>
         <p>Siparişler / Kargo</p>
         <header className={styles.toolbar}><h1>Kargo İşlemleri</h1><button type="button" disabled={loading||busy!==null} onClick={()=>void load()}>{loading?'Yükleniyor…':'Kayıtları Yenile'}</button></header>
+        <p>Bu ekran açıkken gönderi listesi 30 saniyede bir yenilenir. Aras sorguları, API servisi çalışırken kendi takip aralığında yapılır.{lastReadAt.current&&<> Son liste yenileme: {new Date(lastReadAt.current).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}.</>}</p>
         {accessError&&<div role="alert"><p>{accessError}</p><button type="button" onClick={()=>void refreshPermissions()}>İşlem Yetkilerini Yenile</button></div>}
         {message && <p role="status">{message}</p>}
         {loadError&&<p role="alert">{loadError} Son yüklenen kayıtlar gösteriliyor. Güncel liste doğrulanana kadar işlem yapılamaz.</p>}
@@ -264,7 +278,7 @@ export default function Shipping() {
           <label>Durum <select value={shipmentFilter} onChange={(event) => setShipmentFilter(event.target.value as typeof shipmentFilter)}><option value="ALL">Tümü</option><option value="ACTIVE">Aktif gönderiler</option><option value="DELIVERED">Teslim edildi</option><option value="FAILED">Sorunlu</option><option value="CARRIER_RETURN">Kargo iadesi</option><option value="CANCELLED">İptal edildi</option></select></label>
           <button type="button" disabled={loading||!loaded||!validDates||!visibleShipments.length} onClick={exportShipments}>Excel&apos;e Aktar</button>
         </div>
-{!validDates&&<p role="alert">Bitiş Tarihi Başlangıç Tarihinden Önce Olamaz.</p>}<div className="table-card"><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Kargo Firması</th><th>Durum</th><th>Takip / Barkod</th><th>Alıcı</th><th>İl / İlçe</th><th>İşlemler</th><th>Takip Geçmişi</th></tr></thead><tbody>{visibleShipments.map(s=><tr key={s.id}><td><Link href={`/siparisler/${s.order_id}`}>{s.order_number}</Link></td><td>{s.provider==='aras'?'Aras Kargo':s.provider}</td><td>{status[shipmentStage(s)]??shipmentStage(s)}{s.tracking_checked_at&&<small>Son Kontrol: {new Date(s.tracking_checked_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</small>}{s.tracking_error&&<small role="alert">{s.tracking_error}</small>}{s.failure_reason&&<small role="alert">{s.failure_reason}</small>}</td><td><b>{shipmentTracking(s)??'Takip Bekleniyor'}</b><small>{s.package_barcode??'Barkod Yok'}</small></td><td>{s.recipient_name??'—'}</td><td>{s.city??'—'} / {s.district??'—'}</td><td><div className={styles.actions}>{role==='SUPER_ADMIN'&&config?.tracking?.configured&&s.provider==='aras'&&['CREATED','IN_TRANSIT','FAILED'].includes(s.status)&&s.tracking_direction_code!=='3'&&<button type="button" className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void syncShipment(s.order_id)}>{busy===s.order_id?'Sorgulanıyor…':'Aras’tan Sorgula'}</button>}{permissions.updateShipment&&!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&shipmentStage(s)==='CREATED'&&<><button disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'IN_TRANSIT')}>Kargoya Ver</button><button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'CANCELLED')}>Gönderiyi İptal Et</button></>}{permissions.updateShipment&&!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&shipmentStage(s)==='IN_TRANSIT'&&<><button disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'DELIVERED')}>Teslim Edildi</button><button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'FAILED')}>Teslimat Sorunu</button></>}<button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void loadHistory(s.order_id)}>Takip Geçmişi</button>{s.label_url&&<a href={s.label_url} target="_blank" rel="noopener noreferrer">Etiketi Aç</a>}</div></td><td>{details[s.order_id]?<table className={styles.history}><thead><tr><th>Tarih</th><th>Durum</th><th>Açıklama</th></tr></thead><tbody>{details[s.order_id].events.map(event=><tr key={event.id}><td>{new Date(event.occurred_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td><td>{status[event.status]??event.status}</td><td>{event.description??'—'}</td></tr>)}</tbody></table>:'Takip Geçmişi Butonuna Tıklayın'}</td></tr>)}</tbody></table>{!visibleShipments.length&&<p className="empty-state">{loading?'Yükleniyor…':loaded?'Bu Duruma Ait Kargo Kaydı Yok.':'Kargo Kayıtları Yüklenemedi. Kayıtları Yenileyin.'}</p>}</div></div>
+{!validDates&&<p role="alert">Bitiş Tarihi Başlangıç Tarihinden Önce Olamaz.</p>}<div className="table-card"><div className="table-wrap"><table><thead><tr><th>Sipariş</th><th>Kargo Firması</th><th>Durum</th><th>Takip / Barkod</th><th>Alıcı</th><th>İl / İlçe</th><th>İşlemler</th><th>Takip Geçmişi</th></tr></thead><tbody>{visibleShipments.map(s=><tr key={s.id}><td><Link href={`/siparisler/${s.order_id}`}>{s.order_number}</Link></td><td>{s.provider==='aras'?'Aras Kargo':s.provider}</td><td>{status[shipmentStage(s)]??shipmentStage(s)}{s.tracking_checked_at&&<small>Son Kontrol: {new Date(s.tracking_checked_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</small>}{s.tracking_error&&<small role="alert">{s.tracking_error}</small>}{s.failure_reason&&<small role="alert">{s.failure_reason}</small>}</td><td><b>{shipmentTracking(s)??'Takip Bekleniyor'}</b><small>{s.package_barcode??'Barkod Yok'}</small></td><td>{s.recipient_name??'—'}</td><td>{s.city??'—'} / {s.district??'—'}</td><td><div className={styles.actions}>{role==='SUPER_ADMIN'&&config?.tracking?.configured&&s.provider==='aras'&&['CREATED','IN_TRANSIT','FAILED'].includes(s.status)&&s.tracking_direction_code!=='3'&&<button type="button" className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void syncShipment(s.order_id)}>{busy===s.order_id?'Sorgulanıyor…':'Aras’tan Sorgula'}</button>}{permissions.updateShipment&&!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&shipmentStage(s)==='CREATED'&&<><button disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'IN_TRANSIT')}>Kargoya Ver</button><button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'CANCELLED')}>Gönderiyi İptal Et</button></>}{permissions.updateShipment&&!(s.provider==='aras'&&config?.tracking?.enabled&&config.tracking.configured)&&shipmentStage(s)==='IN_TRANSIT'&&<><button disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'DELIVERED')}>Teslim Edildi</button><button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void updateShipment(s.order_id,'FAILED')}>Teslimat Sorunu</button></>}<button className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void loadHistory(s.order_id)}>{details[s.order_id]?'Geçmişi Kapat':'Takip Geçmişi'}</button>{details[s.order_id]&&<button type="button" className="secondary" disabled={busy!==null||!loaded||accessLoading} onClick={()=>void loadHistory(s.order_id,true)}>Geçmişi Yenile</button>}{s.label_url&&<a href={s.label_url} target="_blank" rel="noopener noreferrer">Etiketi Aç</a>}</div></td><td>{details[s.order_id]?<table className={styles.history}><caption>Hareketler · {details[s.order_id].read_at?new Date(details[s.order_id].read_at!).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'}):'Açıldığı andaki kayıtlar'}</caption><thead><tr><th>Tarih</th><th>Durum</th><th>Açıklama</th></tr></thead><tbody>{details[s.order_id].events.map(event=><tr key={event.id}><td>{new Date(event.occurred_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})}</td><td>{status[event.status]??event.status}</td><td>{event.description??'—'}</td></tr>)}</tbody></table>:'Takip Geçmişi Butonuna Tıklayın'}</td></tr>)}</tbody></table>{!visibleShipments.length&&<p className="empty-state">{loading?'Yükleniyor…':loaded?'Bu Duruma Ait Kargo Kaydı Yok.':'Kargo Kayıtları Yüklenemedi. Kayıtları Yenileyin.'}</p>}</div></div>
       </section>
     </main>
   );

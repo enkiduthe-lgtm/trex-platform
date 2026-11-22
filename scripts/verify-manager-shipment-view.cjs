@@ -1,10 +1,11 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript')),React=require(path.join(root,'node_modules/react')),{renderToStaticMarkup}=require(path.join(root,'node_modules/react-dom/server'));
 const code=ts.transpileModule(fs.readFileSync(path.join(root,'apps/admin/app/kargo/page.tsx'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-function render({role='SUPER_ADMIN',loaded=true,readError='',config={provider:'aras',ready:true,tracking:{configured:true,enabled:true}}}={}){
+function render({role='SUPER_ADMIN',loaded=true,readError='',history=false,config={provider:'aras',ready:true,tracking:{configured:true,enabled:true}}}={}){
  const row={order_id:'order',order_number:'TEST-1',provider:'aras',status:'IN_TRANSIT',tracking_direction_code:'1',created_at:'2026-11-21T12:00:00Z',tracking_number:null,package_barcode:'TEST-PACK'};
  const rows=[{...row,id:'active'},{...row,id:'done',order_id:'done',status:'DELIVERED'},{...row,id:'return',order_id:'return',status:'FAILED',tracking_direction_code:'3'}];
- const state=[false,loaded,config,rows,[{order_id:'queued',order_number:'TEST-QUEUED',total_amount:'10.00',currency:'TRY',package_barcode:'TEST-PACK'}],'',readError,null,{},'ALL','',''];let index=0;
+ const details=history?{order:{order_id:'order',read_at:'2026-11-22T10:00:00Z',events:[{id:'event',status:'IN_TRANSIT',occurred_at:'2026-11-22T09:00:00Z',description:'Test movement'}]}}:{};
+ const state=[false,loaded,config,rows,[{order_id:'queued',order_number:'TEST-QUEUED',total_amount:'10.00',currency:'TRY',package_barcode:'TEST-PACK'}],'',readError,null,details,'ALL','',''];let index=0;
  const box={exports:{},Date,Intl,require(name){if(name==='react')return {...React,useState:()=>[state[index++],()=>{}],useRef:value=>({current:value}),useEffect(){}};if(name==='react/jsx-runtime')return require(path.join(root,'node_modules/react/jsx-runtime'));if(name==='next/link')return {default:props=>React.createElement('a',props,props.children)};if(name.endsWith('/admin-nav'))return {AdminNav:()=>null};if(name.endsWith('/use-order-permissions'))return {useOrderPermissions:()=>({role,permissions:{updateShipment:true,ship:true},loading:false,error:''})};if(name.endsWith('.css'))return {default:new Proxy({},{get:(_,key)=>String(key)})};if(name.endsWith('/api'))return {api(){throw Error('Unexpected request');}};if(name.endsWith('/xlsx'))return {downloadXlsx(){}};throw Error(name);}};
  vm.runInNewContext(code,box);return renderToStaticMarkup(React.createElement(box.exports.default));
 }
@@ -13,4 +14,5 @@ const manager=render({role:'ADMIN'});assert(!/>Aras’tan Sorgula<\/button>/.tes
 const failed=render({loaded:false,readError:'Refresh offline'});assert(failed.includes('role="alert"'));assert(/<button[^>]*disabled=""[^>]*>Aras’tan Sorgula<\/button>/.test(failed));assert(!/<button[^>]*disabled=""[^>]*>Kayıtları Yenile<\/button>/.test(failed));
 assert(/<button[^>]*disabled=""[^>]*>Kargo Kaydı Oluştur<\/button>/.test(failed),'The queue action must visibly match its stale-list guard');
 assert(render({config:null}).includes('Takip ayarları henüz doğrulanmadı.'));
+const opened=render({history:true});assert(opened.includes('>Geçmişi Kapat</button>'));assert(opened.includes('>Geçmişi Yenile</button>'));assert(opened.includes('<caption>Hareketler'));assert(opened.includes('Test movement'));assert(opened.includes('30 saniyede bir yenilenir'));
 console.log('Shipment sync markup passed: only director sees eligible row query, failed reads disable actions but retain retry, missing config is not misreported and automatic delivery remains carrier-controlled. Browser layout remains pending.');

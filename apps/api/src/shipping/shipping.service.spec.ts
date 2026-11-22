@@ -105,6 +105,14 @@ describe('Verified Aras transitions',()=>{
   expect(s.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE orders SET status'),['DELIVERED','order']);
   expect(s.query).toHaveBeenCalledWith(expect.stringContaining('tracking_number=COALESCE'),['6','1','shipment','123']);
  });
+ it('rejects an expired worker lease under the shipment row lock before changing orders or commissions',async()=>{
+  const s=setup();await expect(s.service.updateStatus('order',{status:'DELIVERED'},null,{...observation,leaseToken:'expired'})).rejects.toThrow('çalışma süresi doldu');
+  expect(s.query).toHaveBeenCalledTimes(2);expect(s.query.mock.calls[0][0]).toContain('FOR UPDATE');expect(s.query.mock.calls[1][0]).toContain('background_job_leases');expect(s.commissions.awardForDeliveredOrder).not.toHaveBeenCalled();
+ });
+ it('accepts a current worker lease and finalizes delivery in the same transaction',async()=>{
+  const s=setup();s.query.mockResolvedValueOnce({rows:[{valid:1}],rowCount:1});await s.service.updateStatus('order',{status:'DELIVERED'},null,{...observation,leaseToken:'current'});
+  expect(s.query.mock.calls[1][1]).toEqual(['current']);expect(s.commissions.awardForDeliveredOrder).toHaveBeenCalledTimes(1);
+ });
  it('a repeated delivery never creates commissions or events again',async()=>{
   const s=setup('DELIVERED','DELIVERED');await s.service.updateStatus('order',{status:'DELIVERED'},null,observation);
   expect(s.commissions.awardForDeliveredOrder).not.toHaveBeenCalled();expect(s.query).toHaveBeenCalledTimes(1);
