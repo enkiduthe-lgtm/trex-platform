@@ -1,0 +1,10 @@
+{
+  "deployment_status": "local_only",
+  "problem_reproduced": "With an isolated SHIPPED order and DELIVERED Aras shipment, the old tracker selected zero rows and never rechecked the order.",
+  "changes": ["Include delivered Aras shipments whose order remains PROCESSING or SHIPPED in the existing bounded tracker selection.", "Catch up the order only after a fresh delivery code 6 with direction 1/2, unchanged carrier reference and current tracking lease.", "Record the order transition and a dedicated reconciliation audit atomically. Preserve the original delivery timestamp, historical commission entries and existing notification behavior.", "Reject contradictory observations and cancellations during the carrier read; back off unsuccessful checks without repeatedly occupying the queue.", "Expose order status, an unmatched-delivery filter, a director-only carrier-query action and the discrepancy in shipment Excel exports."],
+  "verification": {"unit_tests": "43 shipping/tracking/provider tests passed.", "scripts": ["verify-delivery-reconciliation.cjs", "verify-tracking-leases.cjs", "verify-manager-shipment-sync.cjs", "verify-manager-shipment-view.cjs", "verify-shipment-reconciliation-export.cjs"], "builds": "API and optimized admin builds passed; lint/types and all 53 static pages passed.", "scope": "Actual tracker, shipping service, row locks, leases, audit rollback and SQL with synthetic data. Provider, finance-award and notification calls are controlled; historical ledger equality is asserted."},
+  "financial_scope": "This repairs order state for an already terminal shipment. It does not recalculate, backdate or create historical commissions. New non-terminal delivery processing retains its existing award flow.",
+  "manual_checks_pending": ["Browser visual review and a live delivered-order/carrier-reference check after API and panel publication."],
+  "live_environment_modified": false,
+  "real_carrier_request_or_shipment_creation": false
+}

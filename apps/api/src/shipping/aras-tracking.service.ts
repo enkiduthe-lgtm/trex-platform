@@ -38,7 +38,7 @@ export class ArasTrackingService implements OnModuleInit,OnModuleDestroy {
       if(!acquired)return {busy:true,checked,updated,failed};
       const rows=await this.db.query<Shipment>([
         'SELECT s.id,s.order_id,s.provider_reference FROM shipments s JOIN orders o ON o.id=s.order_id',
-        "WHERE s.provider='aras' AND s.status IN ('CREATED','IN_TRANSIT','FAILED') AND s.tracking_direction_code IS DISTINCT FROM '3'",
+        "WHERE s.provider='aras' AND s.status IN ('CREATED','IN_TRANSIT','FAILED','DELIVERED') AND s.tracking_direction_code IS DISTINCT FROM '3'",
         "AND o.archived_at IS NULL AND o.status IN ('PROCESSING','SHIPPED') AND s.provider_reference IS NOT NULL",
         'AND ($1::uuid IS NULL OR s.order_id=$1)',
         "AND ($1::uuid IS NOT NULL OR s.tracking_checked_at IS NULL OR s.tracking_checked_at<now()-interval '5 minutes')",
@@ -77,7 +77,7 @@ export class ArasTrackingService implements OnModuleInit,OnModuleDestroy {
     await this.db.query([
       'UPDATE shipments SET tracking_checked_at=now(),tracking_error=$3',
       "WHERE id=$1 AND provider='aras' AND provider_reference=$2",
-      "AND status IN ('CREATED','IN_TRANSIT','FAILED') AND tracking_direction_code IS DISTINCT FROM '3'",
+      "AND status IN ('CREATED','IN_TRANSIT','FAILED','DELIVERED') AND tracking_direction_code IS DISTINCT FROM '3'",
       "AND EXISTS(SELECT 1 FROM orders o WHERE o.id=shipments.order_id AND o.archived_at IS NULL AND o.status IN ('PROCESSING','SHIPPED'))",
       'AND EXISTS(SELECT 1 FROM background_job_leases l WHERE l.name=$4 AND l.owner_token=$5 AND l.lease_until>clock_timestamp())',
     ].join(' '),[row.id,row.provider_reference,message,jobName,token]);

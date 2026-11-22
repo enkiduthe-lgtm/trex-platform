@@ -31,7 +31,7 @@ describe('Aras tracking orchestration',()=>{
   });
   it('excludes canceled, archived, returned and finished orders from polling',async()=>{
     const s=setup();await s.service.sync();const sql=s.db.query.mock.calls.find(([text])=>text.startsWith('SELECT s.id'))?.[0];
-    expect(sql).toContain("o.status IN ('PROCESSING','SHIPPED')");expect(sql).toContain("s.tracking_direction_code IS DISTINCT FROM '3'");expect(sql).toContain('o.archived_at IS NULL');expect(sql).toContain("s.status IN ('CREATED','IN_TRANSIT','FAILED')");
+    expect(sql).toContain("o.status IN ('PROCESSING','SHIPPED')");expect(sql).toContain("s.tracking_direction_code IS DISTINCT FROM '3'");expect(sql).toContain('o.archived_at IS NULL');expect(sql).toContain("s.status IN ('CREATED','IN_TRANSIT','FAILED','DELIVERED')");
   });
   it('rejects same-instance overlap while a carrier response is pending',async()=>{
     const s=setup();let release!:(value:unknown)=>void;s.query.query.mockImplementation(()=>new Promise(resolve=>{release=resolve;}));const first=s.service.sync();await flush();expect(release).toBeDefined();
