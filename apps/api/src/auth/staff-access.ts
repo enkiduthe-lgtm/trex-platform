@@ -10,6 +10,7 @@ export function requestAccess(path:string,method:string):string|null {
  const p=normalizeAccessPath(path);method=method.toUpperCase();
  let resource:string|undefined;
  if(/^\/admin\/(staff|access|settings|audit-logs)(\/|$)/.test(p))return null;
+ if(/^\/admin\/dealers\/[^/]+\/portal-account$/.test(p))return null;
  if(/^\/admin\/orders\/(report|sales-report|special-report)/.test(p)||/^\/admin\/dealers\/sales-report/.test(p))resource='REPORTS';
  else if(/^\/admin\/orders\/.*(shipment|shipping)|^\/admin\/orders\/shipments/.test(p))resource='SHIPPING';
  else if(p.startsWith('/returns/'))resource='RETURNS';

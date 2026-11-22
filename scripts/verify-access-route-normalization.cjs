@@ -21,6 +21,7 @@ async function main(){
  await assert.rejects(guard(['ORDERS.VIEW','ORDERS.APPROVE']).canActivate(context(statusPath,{status:'DELIVERED'},'PATCH')),/Yetki Verilmemiş/);
  assert.equal(await guard(['ORDERS.VIEW','ORDERS.APPROVE','SHIPPING.VIEW','SHIPPING.APPROVE']).canActivate(context(statusPath,{status:'DELIVERED'},'PATCH')),true);
  for(const url of ['/v1/admin/staff','/V1/ADMIN/STAFF/','/v1/admin/access/','/admin/settings/']){assert.equal(requestAccess(url,'POST'),null);await assert.rejects(guard(['FINANCE.VIEW','FINANCE.CREATE','FINANCE.EDIT']).canActivate(context(url)),/Yetki Verilmemiş/);}
+ const credentials='/V1/ADMIN/DEALERS/example/PORTAL-ACCOUNT/';assert.equal(await routeMatches('/v1/admin/dealers/:id/portal-account',credentials),true);assert.equal(requestAccess(credentials,'POST'),null);await assert.rejects(guard(['DEALERS.VIEW','DEALERS.CREATE','DEALERS.APPROVE']).canActivate(context(credentials)),/Yetki Verilmemiş/);
  assert.equal(requestAccess('/V1/ADMIN/FINANCE/ACCOUNTS/?ignored=approve','GET'),'FINANCE.VIEW');
  console.log('Route normalization passed: real-router accepted casing/trailing-slash variants retain finance approval/edit, campaign approval and shipping approval checks; protected staff/settings routes fail closed. No HTTP server, account change or money movement was created.');
 }

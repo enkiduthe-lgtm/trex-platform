@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import * as argon2 from 'argon2';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -11,6 +11,7 @@ import { UpdateStaffUserDto } from './dto/update-staff-user.dto';
 import { ResetStaffPasswordDto } from './dto/reset-staff-password.dto';
 import { ChangeStaffRoleDto } from './dto/change-staff-role.dto';
 import { RequestUser } from './auth.types';
+import { CreateDealerPortalAccountDto } from './dto/create-dealer-portal-account.dto';
 type UserRequest = Request & { user: RequestUser };
 @Controller('admin') @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminController {
@@ -85,13 +86,15 @@ export class AdminController {
       return changed.rows[0];
     });
   }
-  @Post('dealers/:id/portal-account') @RequireRoles(Roles.SUPER_ADMIN) async createDealerPortalAccount(@Param('id') dealerId: string, @Body() dto: { email: string; password: string }, @Req() req: UserRequest) {
-    const email = dto.email?.trim().toLowerCase();
-    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !dto.password || dto.password.length < 12) throw new BadRequestException('Geçerli e-posta ve en az 12 karakterlik ilk şifre gereklidir');
+  @Post('dealers/:id/portal-account') @RequireRoles(Roles.SUPER_ADMIN) async createDealerPortalAccount(@Param('id',new ParseUUIDPipe()) dealerId: string, @Body() dto: CreateDealerPortalAccountDto, @Req() req: UserRequest) {
+    if(req.user.role!=='SUPER_ADMIN')throw new ForbiddenException('Bayi giriş hesabını yalnız Müdür oluşturabilir');
+    const email = typeof dto?.email==='string'?dto.email.trim().toLowerCase():'';
+    const password = typeof dto?.password==='string'?dto.password:'';
+    if (!email || !/^\S+@\S+\.\S+$/.test(email) || password.length < 12) throw new BadRequestException('Geçerli e-posta ve en az 12 karakterlik ilk şifre gereklidir');
     try {
-      const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+      const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
       return await this.db.transaction(async client => {
-        const dealer = await client.query('SELECT id FROM dealers WHERE id=$1 AND status=\'ACTIVE\' FOR UPDATE', [dealerId]);
+        const dealer = await client.query('SELECT id FROM dealers WHERE id=$1 AND status=\'ACTIVE\' AND archived_at IS NULL FOR UPDATE', [dealerId]);
         if (!dealer.rowCount) throw new ConflictException('Önce aktif bayi onayı verilmelidir');
         const existing = await client.query('SELECT 1 FROM dealer_user_accounts WHERE dealer_id=$1', [dealerId]);
         if (existing.rowCount) throw new ConflictException('Bu bayi için portal hesabı zaten açılmış');
