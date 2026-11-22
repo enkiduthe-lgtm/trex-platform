@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { MetricChart } from '../components/metric-chart';
 import { monthlySeries } from '../lib/chart-data';
-import { api, ApiError, clearToken, logout } from '../lib/api';
+import { api, ApiError, SessionChangedError, logout } from '../lib/api';
 import { currencyTotals, multiplyMoney } from '../lib/report-totals';
 import { dealerPackSummary } from '../lib/dealer-pack-summary';
 import { downloadXlsx } from '../lib/xlsx';
@@ -430,8 +430,13 @@ export default function DealerPortal() {
       await finishCreatedOrder(result,viewTicket,delivery.currency,delivery.paymentMethod);
     });
   }
+  async function signOut(){
+    try{await logout({closeLocalOnFailure:true});}
+    catch(error){if(!(error instanceof SessionChangedError))window.location.assign('/giris');throw error;}
+    window.location.assign('/giris');
+  }
   return <main className={styles.page}>
-    <header className={styles.header}><div><p>Bayi Paneli</p><h1>{summary?.company_name || 'Bayi Paneli'}</h1><p>{summary?.code} · {email}</p>{summary?.level_name&&<span className={styles.levelBadge}><span aria-hidden="true">★</span> {summary.level_name}</span>}</div><div className={styles.actions}><button type="button" className="secondary" disabled={busy||accountLoading} onClick={() => void action(load)}>Bilgileri Yenile</button><button type="button" className="secondary" onClick={() => void action(async () => { try { await logout(); } finally { clearToken(); window.location.assign('/giris'); } })}>Güvenli Çıkış</button></div></header>
+    <header className={styles.header}><div><p>Bayi Paneli</p><h1>{summary?.company_name || 'Bayi Paneli'}</h1><p>{summary?.code} · {email}</p>{summary?.level_name&&<span className={styles.levelBadge}><span aria-hidden="true">★</span> {summary.level_name}</span>}</div><div className={styles.actions}><button type="button" className="secondary" disabled={busy||accountLoading} onClick={() => void action(load)}>Bilgileri Yenile</button><button type="button" className="secondary" onClick={() => void action(signOut)}>Güvenli Çıkış</button></div></header>
     {message && <p role="status" className="notice">{message}</p>}
     {unconfirmedOrder&&<section className={styles.orderResult} aria-label="Sipariş sonucu doğrulanamadı">
       <h2>Son siparişin sonucunu kontrol edin</h2><p>Yanıt alınamadı. Siparişiniz kaydedilmiş olabilir. Aynı siparişi tekrar kontrol ederek tamamlayabilirsiniz; sonuç doğrulanana kadar ürün ve teslimat bilgileri korunur.</p>

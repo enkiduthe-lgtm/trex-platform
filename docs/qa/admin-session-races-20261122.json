@@ -1,0 +1,25 @@
+{
+  "deployment_status": "local_only",
+  "changes": [
+    "Bind pending refreshes to the page's current session generation and original stored token.",
+    "Discard late refresh results after logout or explicit account change instead of storing an older account token.",
+    "Keep a newer generation's refresh promise independent from completion of an older generation.",
+    "Reject stale private response bodies when the account changes while headers or JSON data are pending.",
+    "Try a newer same-account token before starting another cookie refresh and retain the original POST method, body and idempotency key.",
+    "Reject malformed or wrong-account renewal results without replaying the original private write.",
+    "Dealer local logout fallback cannot clear or redirect a newer explicit account session."
+  ],
+  "verification": {
+    "passed_scripts": [
+      "verify-admin-session-races.cjs",
+      "verify-admin-api-errors.cjs"
+    ],
+    "data_scope": "Actual API client source in a controlled window/storage/fetch harness. All tokens are synthetic; no real authentication or transaction was requested.",
+    "preserved_behavior": "Failed server logout remains a visible failure. Normal same-account renewal, shared refresh, validation errors and expired-session redirects retain their existing behavior.",
+    "admin_build": "Passed: optimized Next build, type and lint checks, all 53 static pages."
+  },
+  "manual_checks_pending": [
+    "Separate-account browser review after deployment; browser control remains unavailable for reliable live inspection in this session."
+  ],
+  "live_environment_modified": false
+}
