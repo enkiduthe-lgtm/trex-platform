@@ -1,0 +1,20 @@
+{
+  "base_commit": "bd39924",
+  "deployment_status": "local_only",
+  "changes": [
+    "Normalize Excel worksheet names before XML escaping so long names cannot truncate XML entities; remove invalid worksheet-name characters and preserve whole Unicode characters.",
+    "Remove characters forbidden by XML while retaining tabs/newlines, preserve whitespace and keep formula-like user text as inline strings and numeric amounts as numbers.",
+    "Distinguish loading/failed finance-alert reads from a verified empty result, retain prior rows and ignore stale or canceled responses.",
+    "Label finance alert counts as loaded records and show the existing 50-record server limit explicitly instead of claiming a global total.",
+    "Use aligned compact navigation buttons, readable boxed alerts and responsive summary cards."
+  ],
+  "verification": {
+    "admin_build": "passed; manager-export-alerts-build-20261122.log, all 53 pages completed",
+    "passed_scripts": ["verify-report-xlsx.cjs", "verify-report-xlsx.ps1", "verify-finance-alerts.cjs"],
+    "xlsx_scope": "Four generated XLSX fixtures independently unzipped and parsed with .NET XML readers; entity-boundary names, invalid names, Unicode, numeric amounts, literal formulas, whitespace and columns beyond Z checked.",
+    "data_scope": "Synthetic in-memory downloads and controlled alert reads; no real finance records changed."
+  },
+  "limitations": ["Finance alerts retain the existing server's selection and 50-record limit; these UI fixes do not turn the alert list into a full ledger reconciliation."],
+  "manual_checks_pending": ["Visual browser review and opening exported files in the user's Excel application after deployment."],
+  "live_environment_modified": false
+}

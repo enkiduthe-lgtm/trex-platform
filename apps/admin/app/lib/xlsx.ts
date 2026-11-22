@@ -2,8 +2,22 @@ type CellValue = string | number | null | undefined;
 
 const encoder = new TextEncoder();
 
+function xmlText(value: CellValue) {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "");
+}
+
+function worksheetName(value: string) {
+  const cleaned = xmlText(value).replace(/[\[\]:*?/\\]/g, " ").trim().replace(/^'+|'+$/g, "").trim();
+  let result = "";
+  for (const character of cleaned) {
+    if (result.length + character.length > 31) break;
+    result += character;
+  }
+  return result.replace(/'+$/g, "").trim() || "Sayfa 1";
+}
+
 function escapeXml(value: CellValue) {
-  return String(value ?? "")
+  return xmlText(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -86,13 +100,13 @@ export function downloadXlsx(filename: string, sheetName: string, rows: CellValu
     if (typeof value === "number" && Number.isFinite(value)) {
       return `<c r="${reference}"><v>${value}</v></c>`;
     }
-    return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+    return `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
   }).join("")}</row>`).join("");
   const range = `A1:${columnName(width - 1)}${Math.max(1, rows.length)}`;
   const files = [
     { name: "[Content_Types].xml", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
     { name: "_rels/.rels", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
-    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${escapeXml(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${escapeXml(worksheetName(sheetName))}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
     { name: "xl/_rels/workbook.xml.rels", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
     { name: "xl/worksheets/sheet1.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="${range}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetData>${sheetRows}</sheetData><autoFilter ref="${range}"/></worksheet>` },
   ];
