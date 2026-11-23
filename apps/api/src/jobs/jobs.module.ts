@@ -9,7 +9,7 @@ import { normalizeRedisUrl } from '../config/environment';
 @Module({
   providers: [
     { provide: DEFAULT_QUEUE, inject: [ConfigService], useFactory: (config: ConfigService) => {
-      const queue=new Queue(DEFAULT_QUEUE,{skipWaitingForReady:true,connection:{url:normalizeRedisUrl(config.getOrThrow<string>('REDIS_URL')),enableOfflineQueue:false,maxRetriesPerRequest:1}});
+      const queue=new Queue(DEFAULT_QUEUE,{connection:{url:normalizeRedisUrl(config.getOrThrow<string>('REDIS_URL')),enableOfflineQueue:false,maxRetriesPerRequest:1}});
       queue.on('error',()=>new Logger('Jobs').warn('Görev kuyruğu bağlantısı kullanılamıyor'));
       return queue;
     } },

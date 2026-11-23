@@ -6,13 +6,16 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { RequireRoles } from '../auth/roles.decorator';
 import { Roles } from '../auth/roles';
+import { waitForQueueReady } from '../jobs/queue-ready';
 @Controller('health')
 export class HealthController {
   constructor(private readonly db: DatabaseService, @Inject(DEFAULT_QUEUE) private readonly queue: Queue) {}
   @Get('live') live() { return { status: 'ok' }; }
   @Get() async ready() {
-    try { await Promise.all([this.db.query('SELECT 1'), this.queue.waitUntilReady()]); return { status: 'ok', checks: { database: 'up', queue: 'up' } }; }
-    catch { throw new ServiceUnavailableException({ status: 'error', checks: { database: 'down or queue: down' } }); }
+    const [database, queue] = await Promise.allSettled([this.db.query('SELECT 1'), waitForQueueReady(this.queue)]);
+    const checks = { database: database.status === 'fulfilled' ? 'up' : 'down', queue: queue.status === 'fulfilled' ? 'up' : 'down' };
+    if (database.status === 'rejected' || queue.status === 'rejected') throw new ServiceUnavailableException({ status: 'error', checks });
+    return { status: 'ok', checks };
   }
   @Get('integrity') @UseGuards(JwtAuthGuard, RolesGuard) @RequireRoles(Roles.SUPER_ADMIN)
   async integrity() {

@@ -1,0 +1,31 @@
+{
+  "scope": "API queue startup and readiness correction after release 3dbc846",
+  "live_observation": {
+    "api_deploy": "dep-dc1tu8lg1s2s73ed5bu0",
+    "api_deploy_result": "Render reported Live; migration check completed",
+    "readiness_before_fix": "503: database down or queue down (ambiguous legacy response)",
+    "panel_deploy": "dep-dc1u09nf3r2c73dp67u0",
+    "panel_deploy_terminal_status": "unverified: browser service became unavailable",
+    "public_login": "HTTP 200"
+  },
+  "reproduction": "Actual installed BullMQ RedisConnection with delayed synthetic Redis handshake rejects initialization when skipWaitingForReady=true and enableOfflineQueue=false. No Redis server, credentials, or live writes were used.",
+  "changes": [
+    "Wait for the Redis handshake before BullMQ initialization commands",
+    "Bound producer readiness to three seconds before calling queue.add",
+    "Never enqueue later when readiness already timed out",
+    "Report database and queue failures separately without exposing exception details"
+  ],
+  "validation": {
+    "baseline": "New handshake regression failed with Stream is not writeable and enableOfflineQueue options is false",
+    "jobs_and_health": "2 suites, 12 tests passed after correction",
+    "notification_service_and_outbox": "2 suites, 28 tests passed",
+    "api_build": "passed",
+    "git_diff_check": "passed"
+  },
+  "remaining_acceptance": [
+    "Push and deploy this API correction",
+    "Verify readiness returns 200 with both dependencies up; diagnose separately if not",
+    "Confirm panel deploy terminal status through the TREX Render account"
+  ],
+  "limitation": "A deterministic code defect was reproduced and corrected; the precise live dependency failure cannot be claimed resolved until the corrected API is deployed and readiness is rechecked."
+}
